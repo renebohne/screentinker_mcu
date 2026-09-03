@@ -15,6 +15,9 @@ extern "C" {
 #include "config.h"
 #include "setup_screen.h"
 
+#include <WebServer.h>
+#include <DNSServer.h>
+
 // ─── Persistent Storage (NVS) ────────────────────────────────────────────────
 static Preferences s_prefs;
 
@@ -23,6 +26,11 @@ static String g_wifiPass = "";
 static String g_serverUrl = "";
 static String g_deviceId = "";
 static String g_deviceToken = "";
+
+// ─── Captive Portal State ────────────────────────────────────────────────────
+static DNSServer s_dnsServer;
+static WebServer* s_webServer = nullptr;
+static bool s_apModeActive = false;
 
 // ─── Hardware Handles & State ────────────────────────────────────────────────
 static seeed_epaper_panel_handle_t s_panel = NULL;
@@ -369,7 +377,10 @@ void loadConfigFromNVS() {
   Serial.printf("  Token set:  %s\n", g_deviceToken.length() > 0 ? "YES" : "NO");
 }
 
+void stopCaptivePortal();
+
 void saveConfigToNVS(const String& ssid, const String& pass, const String& server, const String& devId, const String& token) {
+  stopCaptivePortal();
   s_prefs.begin("screentinker", false);
   s_prefs.putString("wifi_ssid", ssid);
   s_prefs.putString("wifi_pass", pass);
@@ -389,6 +400,7 @@ void saveConfigToNVS(const String& ssid, const String& pass, const String& serve
 }
 
 void factoryResetNVS() {
+  stopCaptivePortal();
   s_prefs.begin("screentinker", false);
   s_prefs.clear();
   s_prefs.end();
@@ -396,6 +408,115 @@ void factoryResetNVS() {
   Serial.println("[Config] NVS wiped! Resetting device in 1 second...");
   delay(1000);
   ESP.restart();
+}
+
+// ─── Captive Portal Implementation ───────────────────────────────────────────
+static const char CAPTIVE_PORTAL_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ScreenTinker Setup</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 20px; display: flex; justify-content: center; }
+    .card { background: #1e293b; border-radius: 12px; padding: 24px; max-width: 440px; width: 100%; border: 1px solid #334155; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+    h1 { margin: 0 0 4px; font-size: 22px; color: #38bdf8; display: flex; align-items: center; gap: 8px; }
+    p.sub { margin: 0 0 20px; color: #94a3b8; font-size: 14px; }
+    label { display: block; font-weight: 600; font-size: 13px; margin: 14px 0 4px; color: #cbd5e1; }
+    input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 15px; }
+    input:focus { outline: none; border-color: #38bdf8; }
+    .btn { margin-top: 24px; width: 100%; padding: 14px; border: none; border-radius: 8px; background: #0284c7; color: #fff; font-size: 16px; font-weight: 600; cursor: pointer; }
+    .btn:hover { background: #0369a1; }
+    .footer { margin-top: 16px; font-size: 12px; color: #64748b; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🖥️ ScreenTinker Setup</h1>
+    <p class="sub">Seeed Studio reTerminal Sticky Configuration</p>
+    <form action="/save" method="POST">
+      <label>Wi-Fi Network (SSID)</label>
+      <input type="text" name="ssid" placeholder="MyHomeNetwork" required>
+      <label>Wi-Fi Password</label>
+      <input type="password" name="pass" placeholder="••••••••">
+      <label>ScreenTinker Server URL</label>
+      <input type="text" name="server" value="http://192.168.1.100:3001" placeholder="http://192.168.1.100:3001" required>
+      <button class="btn" type="submit">💾 Save & Connect / Speichern</button>
+    </form>
+    <div class="footer">reTerminal Sticky • SSD1677 800x480 E-Paper</div>
+  </div>
+</body>
+</html>
+)rawliteral";
+
+void stopCaptivePortal() {
+  if (!s_apModeActive) return;
+  Serial.println("[CaptivePortal] Stopping SoftAP and WebServer...");
+  if (s_webServer) {
+    s_webServer->stop();
+    delete s_webServer;
+    s_webServer = nullptr;
+  }
+  s_dnsServer.stop();
+  WiFi.softAPdisconnect(true);
+  s_apModeActive = false;
+}
+
+static void handleCaptivePortalRoot() {
+  if (!s_webServer) return;
+  s_webServer->send(200, "text/html", CAPTIVE_PORTAL_HTML);
+}
+
+static void handleCaptivePortalSave() {
+  if (!s_webServer) return;
+  String ssid = s_webServer->arg("ssid");
+  String pass = s_webServer->arg("pass");
+  String server = s_webServer->arg("server");
+
+  ssid.trim();
+  pass.trim();
+  server.trim();
+
+  if (ssid.length() == 0 || server.length() == 0) {
+    s_webServer->send(400, "text/plain", "SSID and Server URL are required.");
+    return;
+  }
+
+  String successHtml = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Saving...</title><style>body{font-family:system-ui;background:#0f172a;color:#fff;padding:40px;text-align:center;}.card{background:#1e293b;padding:30px;border-radius:12px;max-width:400px;margin:auto;}</style></head><body><div class='card'><h2>✅ Settings Saved!</h2><p>Connecting to <b>" + ssid + "</b> and pairing with ScreenTinker...</p><p>Please check your E-Paper display!</p></div></body></html>";
+  s_webServer->send(200, "text/html", successHtml);
+  delay(500);
+
+  saveConfigToNVS(ssid, pass, server, "", "");
+  registerAndStartPairing();
+}
+
+void startCaptivePortal() {
+  if (s_apModeActive) return;
+
+  Serial.println("\n[CaptivePortal] Starting SoftAP 'ScreenTinker-Setup'...");
+  WiFi.mode(WIFI_AP);
+  IPAddress apIP(192, 168, 4, 1);
+  WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
+  WiFi.softAP("ScreenTinker-Setup");
+
+  s_dnsServer.start(53, "*", apIP);
+
+  if (s_webServer) delete s_webServer;
+  s_webServer = new WebServer(80);
+
+  s_webServer->on("/", HTTP_GET, handleCaptivePortalRoot);
+  s_webServer->on("/save", HTTP_POST, handleCaptivePortalSave);
+  s_webServer->on("/generate_204", HTTP_GET, handleCaptivePortalRoot);
+  s_webServer->on("/hotspot-detect.html", HTTP_GET, handleCaptivePortalRoot);
+  s_webServer->on("/ncsi.txt", HTTP_GET, handleCaptivePortalRoot);
+  s_webServer->on("/connecttest.txt", HTTP_GET, handleCaptivePortalRoot);
+  s_webServer->onNotFound(handleCaptivePortalRoot);
+
+  s_webServer->begin();
+  s_apModeActive = true;
+  Serial.println("[CaptivePortal] SoftAP & WebServer active at http://192.168.4.1 (SSID: ScreenTinker-Setup)");
 }
 
 // ─── Network & Power Management ───────────────────────────────────────────────
@@ -742,15 +863,22 @@ void setup() {
     }
   } else {
     Serial.println("\n[Setup] No Wi-Fi credentials configured.");
-    Serial.println("[Setup] Displaying Onboarding / Web-Flasher instructions on E-Paper...");
+    Serial.println("[Setup] Displaying Onboarding instructions on E-Paper...");
     showOnboardingScreen(LANG_EN);
-    Serial.println("[Setup] Send JSON config over Serial via Web-Flasher or Serial monitor.");
+    startCaptivePortal();
+    Serial.println("[Setup] Options: Connect to Wi-Fi 'ScreenTinker-Setup' OR send JSON via Web-Flasher.");
   }
 
   s_lastSyncMillis = millis();
 }
 
 void loop() {
+  // Handle Captive Portal DNS & Web requests in AP mode
+  if (s_apModeActive) {
+    s_dnsServer.processNextRequest();
+    if (s_webServer) s_webServer->handleClient();
+  }
+
   // Check for incoming serial configuration commands
   if (Serial.available() > 0) {
     String line = Serial.readStringUntil('\n');

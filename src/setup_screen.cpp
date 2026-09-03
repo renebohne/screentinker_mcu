@@ -200,23 +200,23 @@ void renderOnboardingScreen(uint8_t* buffer, Language lang) {
     gfx_draw_string(buffer, 35, 148, "SCHRITTE ZUR EINRICHTUNG:", 0, 2);
     gfx_draw_hline(buffer, 35, 168, EPD_WIDTH - 70, 0);
 
-    // Step 1
+    // Step 1: Smartphone Hotspot
     gfx_fill_rect(buffer, 35, 180, 26, 26, 0);
-    gfx_draw_string(buffer, 43, 185, "1", 1, 2);
-    gfx_draw_string(buffer, 70, 180, "1. Geraet per USB-C verbinden", 0, 2);
-    gfx_draw_string(buffer, 70, 200, "   USB-C Datenkabel mit PC oder Mac verbinden.", 0, 1);
+    gfx_draw_string(buffer, 43, 185, "A", 1, 2);
+    gfx_draw_string(buffer, 70, 180, "Option A: Smartphone / WLAN-Hotspot", 0, 2);
+    gfx_draw_string(buffer, 70, 200, "Mit WLAN 'ScreenTinker-Setup' verbinden -> Browser: http://192.168.4.1", 0, 1);
 
-    // Step 2
+    // Step 2: USB Web-Flasher
     gfx_fill_rect(buffer, 35, 222, 26, 26, 0);
-    gfx_draw_string(buffer, 43, 227, "2", 1, 2);
-    gfx_draw_string(buffer, 70, 222, "2. Web-Flasher im Browser oeffnen", 0, 2);
-    gfx_draw_string(buffer, 70, 242, "   tools/sticky-installer.html in Chrome oder Edge oeffnen.", 0, 1);
+    gfx_draw_string(buffer, 43, 227, "B", 1, 2);
+    gfx_draw_string(buffer, 70, 222, "Option B: USB-C & Web-Installer", 0, 2);
+    gfx_draw_string(buffer, 70, 242, "Per USB verbinden -> tools/sticky-installer.html in Chrome/Edge oeffnen", 0, 1);
 
-    // Step 3
+    // Step 3: ScreenTinker Pairing
     gfx_fill_rect(buffer, 35, 264, 26, 26, 0);
-    gfx_draw_string(buffer, 43, 269, "3", 1, 2);
-    gfx_draw_string(buffer, 70, 264, "3. WLAN & Server-URL eintragen", 0, 2);
-    gfx_draw_string(buffer, 70, 284, "   WLAN & Server eingeben und auf 'Save & Connect' klicken.", 0, 1);
+    gfx_draw_string(buffer, 43, 269, "C", 1, 2);
+    gfx_draw_string(buffer, 70, 264, "Kopplung: 6-stelligen Code eingeben", 0, 2);
+    gfx_draw_string(buffer, 70, 284, "Im ScreenTinker Dashboard auf '+ Add Display' klicken & Code eingeben.", 0, 1);
 
     // 6. Footer Information Box
     gfx_fill_rect(buffer, 35, 316, EPD_WIDTH - 70, 134, 0);
@@ -236,23 +236,23 @@ void renderOnboardingScreen(uint8_t* buffer, Language lang) {
     gfx_draw_string(buffer, 35, 148, "SETUP INSTRUCTIONS:", 0, 2);
     gfx_draw_hline(buffer, 35, 168, EPD_WIDTH - 70, 0);
 
-    // Step 1
+    // Step 1: Smartphone Hotspot
     gfx_fill_rect(buffer, 35, 180, 26, 26, 0);
-    gfx_draw_string(buffer, 43, 185, "1", 1, 2);
-    gfx_draw_string(buffer, 70, 180, "1. Connect device via USB-C", 0, 2);
-    gfx_draw_string(buffer, 70, 200, "   Use a USB-C data cable connected to your PC or Mac.", 0, 1);
+    gfx_draw_string(buffer, 43, 185, "A", 1, 2);
+    gfx_draw_string(buffer, 70, 180, "Option A: Smartphone / Wi-Fi Hotspot", 0, 2);
+    gfx_draw_string(buffer, 70, 200, "Connect to Wi-Fi 'ScreenTinker-Setup' -> Browser: http://192.168.4.1", 0, 1);
 
-    // Step 2
+    // Step 2: USB Web-Flasher
     gfx_fill_rect(buffer, 35, 222, 26, 26, 0);
-    gfx_draw_string(buffer, 43, 227, "2", 1, 2);
-    gfx_draw_string(buffer, 70, 222, "2. Open Web-Flasher in Browser", 0, 2);
-    gfx_draw_string(buffer, 70, 242, "   Open tools/sticky-installer.html in Chrome or Edge.", 0, 1);
+    gfx_draw_string(buffer, 43, 227, "B", 1, 2);
+    gfx_draw_string(buffer, 70, 222, "Option B: USB-C & Web-Installer", 0, 2);
+    gfx_draw_string(buffer, 70, 242, "Connect via USB -> Open tools/sticky-installer.html in Chrome/Edge", 0, 1);
 
-    // Step 3
+    // Step 3: ScreenTinker Pairing
     gfx_fill_rect(buffer, 35, 264, 26, 26, 0);
-    gfx_draw_string(buffer, 43, 269, "3", 1, 2);
-    gfx_draw_string(buffer, 70, 264, "3. Configure Wi-Fi & Server URL", 0, 2);
-    gfx_draw_string(buffer, 70, 284, "   Enter Wi-Fi & Server host, then click 'Save & Connect'.", 0, 1);
+    gfx_draw_string(buffer, 43, 269, "C", 1, 2);
+    gfx_draw_string(buffer, 70, 264, "Pairing: Enter 6-digit code in Dashboard", 0, 2);
+    gfx_draw_string(buffer, 70, 284, "In ScreenTinker Dashboard, click '+ Add Display' and enter the on-screen code.", 0, 1);
 
     // 6. Footer Information Box
     gfx_fill_rect(buffer, 35, 316, EPD_WIDTH - 70, 134, 0);

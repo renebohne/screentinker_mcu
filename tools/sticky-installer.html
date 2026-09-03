@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScreenTinker — Seeed Studio reTerminal Sticky Web Installer & Setup</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 32px 16px;
+      display: flex;
+      justify-content: center;
+    }
+    .container {
+      max-width: 680px;
+      width: 100%;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+    .header h1 {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: #fff;
+    }
+    .header p {
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .step-badge {
+      background: var(--primary);
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      padding: 10px 12px;
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: white;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input[type="text"]:focus, input[type="password"]:focus {
+      border-color: var(--primary);
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    button {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 10px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background 0.15s;
+      width: 100%;
+    }
+    button:hover { background: var(--primary-hover); }
+    button:disabled {
+      background: var(--border);
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+    button.btn-secondary {
+      background: #334155;
+    }
+    button.btn-secondary:hover { background: #475569; }
+    button.btn-danger {
+      background: #991b1b;
+    }
+    button.btn-danger:hover { background: #b91c1c; }
+    .status-box {
+      background: #0b1120;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      font-family: ui-monospace, monospace;
+      font-size: 12px;
+      color: #a5f3fc;
+      max-height: 140px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      margin-top: 12px;
+    }
+  </style>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>ScreenTinker — Sticky Onboarding</h1>
+      <p>1-Klick WebSerial Flasher & Konfiguration für Seeed Studio reTerminal Sticky</p>
+    </div>
+
+    <!-- Step 1: Flash Firmware -->
+    <div class="card">
+      <div class="card-title">
+        <span class="step-badge">1</span>
+        <span>Firmware flashen (Seeed Studio / ESP Web Tools)</span>
+      </div>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+        Verbinde den Sticky per USB-C-Kabel mit dem Computer (Chrome oder Edge erforderlich).
+      </p>
+      <esp-web-install-button manifest="./manifest.json">
+        <button slot="activate" style="margin-bottom: 8px;">🚀 Firmware direkt im Browser installieren</button>
+      </esp-web-install-button>
+    </div>
+
+    <!-- Step 2: WebSerial Configuration -->
+    <div class="card">
+      <div class="card-title">
+        <span class="step-badge">2</span>
+        <span>WLAN & ScreenTinker Server verbinden</span>
+      </div>
+
+      <div id="connSection" style="margin-bottom: 16px;">
+        <button id="btnConnect" type="button">🔌 USB-Verbindung zum Sticky herstellen</button>
+      </div>
+
+      <div id="configForm" style="display: none;">
+        <div class="row">
+          <div class="form-group">
+            <label for="ssid">WLAN Name (SSID) *</label>
+            <input type="text" id="ssid" placeholder="z. B. MeinHeimnetz" required>
+          </div>
+          <div class="form-group">
+            <label for="pass">WLAN Passwort</label>
+            <input type="password" id="pass" placeholder="••••••••">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="server">ScreenTinker Server URL *</label>
+          <input type="text" id="server" value="http://192.168.100.199:3001" placeholder="http://192.168.1.100:3001" required>
+        </div>
+
+        <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; padding: 12px; margin-bottom: 16px; font-size: 13px; color: #93c5fd;">
+          💡 <strong>So einfach geht's:</strong> Nach dem Klick auf <em>„Speichern & Koppeln“</em> verbindet sich der Sticky mit dem WLAN und zeigt einen <strong>6-stelligen Kopplungscode</strong> auf dem E-Paper an. Klicke dann im ScreenTinker-Dashboard einfach auf <strong>„Bildschirm hinzufügen“</strong> und tippe die 6 Ziffern ein.
+        </div>
+
+        <details style="margin-bottom: 16px; font-size: 12px; color: var(--text-muted);">
+          <summary style="cursor: pointer; margin-bottom: 8px;">⚙️ Erweiterte Einstellungen (Manuelle Device-ID & Token)</summary>
+          <div class="row" style="margin-top: 8px;">
+            <div class="form-group">
+              <label for="deviceId">Manuelle Device ID (optional)</label>
+              <input type="text" id="deviceId" placeholder="Automatisch via Pairing-Code">
+            </div>
+            <div class="form-group">
+              <label for="deviceToken">Manuelles Device Token (optional)</label>
+              <input type="password" id="deviceToken" placeholder="Automatisch via Pairing-Code">
+            </div>
+          </div>
+        </details>
+
+        <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-top: 8px;">
+          <button id="btnSave" type="button">💾 Speichern & Koppeln</button>
+          <button id="btnStatus" type="button" class="btn-secondary">📡 Status</button>
+          <button id="btnReset" type="button" class="btn-danger">🗑️ Reset</button>
+        </div>
+      </div>
+
+      <div id="logBox" class="status-box" style="display: none;"></div>
+    </div>
+  </div>
+
+  <script>
+    let port = null;
+    let reader = null;
+    let inputDone = null;
+
+    const btnConnect = document.getElementById('btnConnect');
+    const configForm = document.getElementById('configForm');
+    const logBox = document.getElementById('logBox');
+    const btnSave = document.getElementById('btnSave');
+    const btnStatus = document.getElementById('btnStatus');
+    const btnReset = document.getElementById('btnReset');
+
+    function log(msg) {
+      logBox.style.display = 'block';
+      logBox.textContent += msg + '\n';
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    btnConnect.addEventListener('click', async () => {
+      if (!('serial' in navigator)) {
+        alert('WebSerial wird nur von Google Chrome, Microsoft Edge und Opera unterstützt.');
+        return;
+      }
+
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 115200 });
+
+        btnConnect.textContent = '✅ Verbunden mit Sticky (115200 Baud)';
+        btnConnect.disabled = true;
+        btnConnect.classList.add('btn-secondary');
+        configForm.style.display = 'block';
+        log('--- USB-Verbindung hergestellt ---');
+
+        startReading();
+        setTimeout(sendStatusQuery, 500);
+      } catch (err) {
+        log('Verbindungsfehler: ' + err.message);
+      }
+    });
+
+    async function startReading() {
+      const textDecoder = new TextDecoderStream();
+      inputDone = port.readable.pipeTo(textDecoder.writable);
+      reader = textDecoder.readable.getReader();
+
+      let buffer = '';
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += value;
+          let lines = buffer.split('\n');
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.length > 0) {
+              log('[Sticky] ' + trimmed);
+              try {
+                const data = JSON.parse(trimmed);
+                if (data.status === 'ok') {
+                  if (data.ip && data.ip !== '0.0.0.0') {
+                    log(`✨ Verbunden! IP-Adresse: ${data.ip} (Signal: ${data.rssi} dBm)`);
+                  }
+                  if (data.device_id && !document.getElementById('deviceId').value) {
+                    document.getElementById('deviceId').value = data.device_id;
+                  }
+                }
+              } catch (_) {}
+            }
+          }
+        }
+      } catch (e) {
+        log('Leseabbruch: ' + e.message);
+      }
+    }
+
+    async function sendSerial(text) {
+      if (!port || !port.writable) return;
+      const textEncoder = new TextEncoder();
+      const writer = port.writable.getWriter();
+      await writer.write(textEncoder.encode(text + '\n'));
+      writer.releaseLock();
+    }
+
+    function sendStatusQuery() {
+      sendSerial('{"cmd":"status"}');
+    }
+
+    btnStatus.addEventListener('click', () => {
+      log('Sende Statusabfrage...');
+      sendStatusQuery();
+    });
+
+    btnSave.addEventListener('click', () => {
+      const ssid = document.getElementById('ssid').value.trim();
+      const pass = document.getElementById('pass').value.trim();
+      const server = document.getElementById('server').value.trim();
+      const deviceId = document.getElementById('deviceId').value.trim();
+      const deviceToken = document.getElementById('deviceToken').value.trim();
+
+      if (!ssid) {
+        alert('Bitte gib den WLAN-Namen (SSID) ein.');
+        return;
+      }
+
+      const payload = {
+        cmd: 'config',
+        ssid: ssid,
+        pass: pass,
+        server: server,
+        device_id: deviceId,
+        device_token: deviceToken
+      };
+
+      log('Sende Konfiguration an Sticky...');
+      sendSerial(JSON.stringify(payload));
+    });
+
+    btnReset.addEventListener('click', () => {
+      if (confirm('Möchtest du die gespeicherten Zugangsdaten auf dem Sticky wirklich löschen?')) {
+        log('Sende Factory Reset...');
+        sendSerial('{"cmd":"reset"}');
+      }
+    });
+  </script>
+</body>
+</html>

@@ -446,12 +446,8 @@ void disconnectWiFiIfPowerSave() {
 bool registerAndStartPairing() {
   if (!connectWiFi()) return false;
 
-  // Generate a random 6-digit number between 100000 and 999999
-  uint32_t num = random(100000, 999999);
-  s_activePairingCode = String(num);
-
   String url = g_serverUrl + "/api/embedded/pair/register";
-  Serial.printf("[Pairing] Registering pairing code %s at %s...\n", s_activePairingCode.c_str(), url.c_str());
+  Serial.printf("[Pairing] Requesting pairing code from server at %s...\n", url.c_str());
 
   HTTPClient http;
   http.begin(url);
@@ -459,7 +455,6 @@ bool registerAndStartPairing() {
   http.addHeader("Content-Type", "application/json");
 
   JsonDocument doc;
-  doc["pairing_code"] = s_activePairingCode;
   doc["screen_profile"] = "seeed-reterminal-sticky";
   doc["screen_width"] = 800;
   doc["screen_height"] = 480;
@@ -473,6 +468,7 @@ bool registerAndStartPairing() {
     JsonDocument respDoc;
     deserializeJson(respDoc, resp);
     s_activePairingDeviceId = respDoc["device_id"].as<String>();
+    s_activePairingCode     = respDoc["pairing_code"].as<String>();
     s_activeClaimSecret     = respDoc["claim_secret"].as<String>();
     Serial.printf("[Pairing] Successfully registered with server!\n");
     Serial.printf("  Device ID:    %s\n", s_activePairingDeviceId.c_str());

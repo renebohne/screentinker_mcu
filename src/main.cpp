@@ -337,6 +337,7 @@ void showNoWifiScreen(Language lang = LANG_EN) {
 
 static String s_activePairingCode = "";
 static String s_activePairingDeviceId = "";
+static String s_activeClaimSecret = "";
 
 void showPairingCodeScreen(const char* code, Language lang = LANG_EN) {
   s_currentLang = lang;
@@ -459,7 +460,7 @@ bool registerAndStartPairing() {
 
   JsonDocument doc;
   doc["pairing_code"] = s_activePairingCode;
-  doc["screen_profile"] = "sticky_800x480";
+  doc["screen_profile"] = "seeed-reterminal-sticky";
   doc["screen_width"] = 800;
   doc["screen_height"] = 480;
 
@@ -472,6 +473,7 @@ bool registerAndStartPairing() {
     JsonDocument respDoc;
     deserializeJson(respDoc, resp);
     s_activePairingDeviceId = respDoc["device_id"].as<String>();
+    s_activeClaimSecret     = respDoc["claim_secret"].as<String>();
     Serial.printf("[Pairing] Successfully registered with server!\n");
     Serial.printf("  Device ID:    %s\n", s_activePairingDeviceId.c_str());
     Serial.printf("  Pairing Code: %s\n", s_activePairingCode.c_str());
@@ -484,13 +486,14 @@ bool registerAndStartPairing() {
 }
 
 bool checkPairingStatus() {
-  if (s_activePairingDeviceId.length() == 0) return false;
+  if (s_activePairingDeviceId.length() == 0 || s_activeClaimSecret.length() == 0) return false;
   if (!connectWiFi()) return false;
 
   String url = g_serverUrl + "/api/embedded/pair/status?device_id=" + s_activePairingDeviceId;
   HTTPClient http;
   http.begin(url);
   http.setTimeout(HTTP_TIMEOUT_MS);
+  http.addHeader("Authorization", "Bearer " + s_activeClaimSecret);
 
   int httpCode = http.GET();
   if (httpCode == 200) {
@@ -507,6 +510,7 @@ bool checkPairingStatus() {
       saveConfigToNVS(g_wifiSsid, g_wifiPass, g_serverUrl, newDevId, newToken);
       s_activePairingCode = "";
       s_activePairingDeviceId = "";
+      s_activeClaimSecret = "";
       return true;
     }
   }

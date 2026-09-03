@@ -370,11 +370,11 @@ void loadConfigFromNVS() {
 
 void saveConfigToNVS(const String& ssid, const String& pass, const String& server, const String& devId, const String& token) {
   s_prefs.begin("screentinker", false);
-  if (ssid.length() > 0)    s_prefs.putString("wifi_ssid", ssid);
-  if (pass.length() > 0)    s_prefs.putString("wifi_pass", pass);
-  if (server.length() > 0)  s_prefs.putString("server_url", server);
-  if (devId.length() > 0)   s_prefs.putString("device_id", devId);
-  if (token.length() > 0)   s_prefs.putString("device_token", token);
+  s_prefs.putString("wifi_ssid", ssid);
+  s_prefs.putString("wifi_pass", pass);
+  s_prefs.putString("server_url", server);
+  s_prefs.putString("device_id", devId);
+  s_prefs.putString("device_token", token);
   s_prefs.end();
 
   g_wifiSsid = ssid;
@@ -383,7 +383,8 @@ void saveConfigToNVS(const String& ssid, const String& pass, const String& serve
   g_deviceId = devId;
   g_deviceToken = token;
   cacheClear();
-  Serial.println("[Config] New configuration saved to NVS!");
+  Serial.printf("[Config] Configuration saved: SSID='%s', Server='%s', DeviceID='%s'\n",
+                g_wifiSsid.c_str(), g_serverUrl.c_str(), g_deviceId.c_str());
 }
 
 void factoryResetNVS() {
@@ -397,7 +398,7 @@ void factoryResetNVS() {
 }
 
 // ─── Network & Power Management ───────────────────────────────────────────────
-bool connectWiFi(uint32_t timeoutMs = 15000) {
+bool connectWiFi(uint32_t timeoutMs = 20000) {
   if (WiFi.status() == WL_CONNECTED) return true;
   if (g_wifiSsid.length() == 0 || g_wifiSsid == "Your-WiFi-SSID") {
     Serial.println("[WiFi] No valid SSID configured. Use Serial / Web-Flasher to configure.");
@@ -407,7 +408,15 @@ bool connectWiFi(uint32_t timeoutMs = 15000) {
   Serial.printf("[WiFi] Connecting to '%s'...", g_wifiSsid.c_str());
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
-  WiFi.begin(g_wifiSsid.c_str(), g_wifiPass.c_str());
+  WiFi.setSleep(false);
+  WiFi.disconnect();
+  delay(100);
+
+  if (g_wifiPass.length() > 0) {
+    WiFi.begin(g_wifiSsid.c_str(), g_wifiPass.c_str());
+  } else {
+    WiFi.begin(g_wifiSsid.c_str());
+  }
 
   uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED) {

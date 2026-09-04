@@ -22,7 +22,7 @@ void gfx_draw_string(uint8_t* buf, int x, int y, const char* str, uint8_t color,
 void renderOnboardingScreen(uint8_t* buffer, Language lang = LANG_EN);
 void renderNoWifiScreen(uint8_t* buffer, const char* ssid, Language lang = LANG_EN);
 void renderPairingCodeScreen(uint8_t* buffer, const char* code, Language lang = LANG_EN);
-void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang = LANG_EN);
+void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang = LANG_EN, bool isMultiZone = false);
 void renderPowerOffScreen(uint8_t* buffer, Language lang = LANG_EN);
 void gfx_draw_offline_badge(uint8_t* buffer);
 

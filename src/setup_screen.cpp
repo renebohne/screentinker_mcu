@@ -429,7 +429,7 @@ void renderPairingCodeScreen(uint8_t* buffer, const char* code, Language lang) {
 }
 
 // ─── System Menu Rendering ───────────────────────────────────────────────────
-void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang) {
+void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, bool isMultiZone) {
   gfx_fill(buffer, 1); // White canvas
 
   // Outer border
@@ -441,57 +441,74 @@ void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang) {
   gfx_draw_string(buffer, 40, 32, "SYSTEM MENU / SYSTEM-MENUE", 1, 2);
 
   // Subtitle navigation bar
-  gfx_draw_rect(buffer, 20, 80, EPD_WIDTH - 40, 32, 0);
+  gfx_draw_rect(buffer, 20, 76, EPD_WIDTH - 40, 30, 0);
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 36, 88, "[ UP / DOWN ]: Navigieren    |    [ OK ]: Auswaehlen & Bestaetigen", 0, 1);
+    gfx_draw_string(buffer, 36, 84, "[ UP / DOWN ]: Navigieren    |    [ OK ]: Auswaehlen & Umschalten", 0, 1);
   } else {
-    gfx_draw_string(buffer, 36, 88, "[ UP / DOWN ]: Navigate      |    [ OK ]: Select & Confirm", 0, 1);
+    gfx_draw_string(buffer, 36, 84, "[ UP / DOWN ]: Navigate      |    [ OK ]: Select & Toggle", 0, 1);
   }
 
-  // Menu items list
-  const int itemY[3] = { 130, 210, 290 };
-  const int itemH = 60;
+  // Menu items list (4 items)
+  const int itemY[4] = { 114, 172, 230, 288 };
+  const int itemH = 50;
   const int itemW = EPD_WIDTH - 80;
   const int itemX = 40;
 
   // Item 0: Back / Zurück (Default)
   if (selectedIndex == 0) {
     gfx_fill_rect(buffer, itemX, itemY[0], itemW, itemH, 0);
-    gfx_draw_string(buffer, itemX + 24, itemY[0] + 16, "> 1. ZURUECK / BACK (Default)", 1, 2);
-    gfx_draw_string(buffer, itemX + 24, itemY[0] + 38, "     Menue schliessen & zur vorherigen Anzeige zurueckkehren", 1, 1);
+    gfx_draw_string(buffer, itemX + 20, itemY[0] + 12, "> 1. ZURUECK / BACK (Default)", 1, 2);
+    gfx_draw_string(buffer, itemX + 20, itemY[0] + 32, "     Menue schliessen & zur vorherigen Anzeige zurueckkehren", 1, 1);
   } else {
     gfx_draw_rect(buffer, itemX, itemY[0], itemW, itemH, 0);
-    gfx_draw_string(buffer, itemX + 24, itemY[0] + 16, "  1. ZURUECK / BACK (Default)", 0, 2);
-    gfx_draw_string(buffer, itemX + 24, itemY[0] + 38, "     Menue schliessen & zur vorherigen Anzeige zurueckkehren", 0, 1);
+    gfx_draw_string(buffer, itemX + 20, itemY[0] + 12, "  1. ZURUECK / BACK (Default)", 0, 2);
+    gfx_draw_string(buffer, itemX + 20, itemY[0] + 32, "     Menue schliessen & zur vorherigen Anzeige zurueckkehren", 0, 1);
   }
 
-  // Item 1: Power Off / Ausschalten
+  // Item 1: Layout Mode Toggle
+  char modeTitle[64];
+  snprintf(modeTitle, sizeof(modeTitle), "%s 2. LAYOUT-MODUS: [ %s ]",
+           (selectedIndex == 1 ? ">" : " "),
+           (isMultiZone ? "MULTI-ZONE" : "STANDARD / VOLLBILD"));
+
   if (selectedIndex == 1) {
     gfx_fill_rect(buffer, itemX, itemY[1], itemW, itemH, 0);
-    gfx_draw_string(buffer, itemX + 24, itemY[1] + 16, "> 2. AUSSCHALTEN / POWER OFF", 1, 2);
-    gfx_draw_string(buffer, itemX + 24, itemY[1] + 38, "     Geraet ausschalten / Deep Sleep (Aufwecken mit OK-Taste)", 1, 1);
+    gfx_draw_string(buffer, itemX + 20, itemY[1] + 12, modeTitle, 1, 2);
+    gfx_draw_string(buffer, itemX + 20, itemY[1] + 32, "     [OK] druecken zum Umschalten (Multi-Zonen vs. Vollbild)", 1, 1);
   } else {
     gfx_draw_rect(buffer, itemX, itemY[1], itemW, itemH, 0);
-    gfx_draw_string(buffer, itemX + 24, itemY[1] + 16, "  2. AUSSCHALTEN / POWER OFF", 0, 2);
-    gfx_draw_string(buffer, itemX + 24, itemY[1] + 38, "     Geraet ausschalten / Deep Sleep (Aufwecken mit OK-Taste)", 0, 1);
+    gfx_draw_string(buffer, itemX + 20, itemY[1] + 12, modeTitle, 0, 2);
+    gfx_draw_string(buffer, itemX + 20, itemY[1] + 32, "     [OK] druecken zum Umschalten (Multi-Zonen vs. Vollbild)", 0, 1);
   }
 
-  // Item 2: Factory Reset / Werkseinstellungen
+  // Item 2: Power Off / Ausschalten
   if (selectedIndex == 2) {
     gfx_fill_rect(buffer, itemX, itemY[2], itemW, itemH, 0);
-    gfx_draw_string(buffer, itemX + 24, itemY[2] + 16, "> 3. FACTORY RESET / WERKSEINSTELLUNGEN", 1, 2);
-    gfx_draw_string(buffer, itemX + 24, itemY[2] + 38, "     NVS-Speicher loeschen & Einrichtungs-Modus neu starten", 1, 1);
+    gfx_draw_string(buffer, itemX + 20, itemY[2] + 12, "> 3. AUSSCHALTEN / POWER OFF", 1, 2);
+    gfx_draw_string(buffer, itemX + 20, itemY[2] + 32, "     Geraet ausschalten / Deep Sleep (Aufwecken mit OK-Taste)", 1, 1);
   } else {
     gfx_draw_rect(buffer, itemX, itemY[2], itemW, itemH, 0);
-    gfx_draw_string(buffer, itemX + 24, itemY[2] + 16, "  3. FACTORY RESET / WERKSEINSTELLUNGEN", 0, 2);
-    gfx_draw_string(buffer, itemX + 24, itemY[2] + 38, "     NVS-Speicher loeschen & Einrichtungs-Modus neu starten", 0, 1);
+    gfx_draw_string(buffer, itemX + 20, itemY[2] + 12, "  3. AUSSCHALTEN / POWER OFF", 0, 2);
+    gfx_draw_string(buffer, itemX + 20, itemY[2] + 32, "     Geraet ausschalten / Deep Sleep (Aufwecken mit OK-Taste)", 0, 1);
+  }
+
+  // Item 3: Factory Reset / Werkseinstellungen
+  if (selectedIndex == 3) {
+    gfx_fill_rect(buffer, itemX, itemY[3], itemW, itemH, 0);
+    gfx_draw_string(buffer, itemX + 20, itemY[3] + 12, "> 4. FACTORY RESET / WERKSEINSTELLUNGEN", 1, 2);
+    gfx_draw_string(buffer, itemX + 20, itemY[3] + 32, "     NVS-Speicher loeschen & Einrichtungs-Modus neu starten", 1, 1);
+  } else {
+    gfx_draw_rect(buffer, itemX, itemY[3], itemW, itemH, 0);
+    gfx_draw_string(buffer, itemX + 20, itemY[3] + 12, "  4. FACTORY RESET / WERKSEINSTELLUNGEN", 0, 2);
+    gfx_draw_string(buffer, itemX + 20, itemY[3] + 32, "     NVS-Speicher loeschen & Einrichtungs-Modus neu starten", 0, 1);
   }
 
   // Footer note box
-  gfx_fill_rect(buffer, 40, 370, EPD_WIDTH - 80, 80, 0);
-  gfx_draw_string(buffer, 56, 385, "HINWEISE / NOTES:", 1, 1);
-  gfx_draw_string(buffer, 56, 405, "* OK-Taste lange halten (2 Sek.) : Oeffnet dieses System-Menue jederzeit", 1, 1);
-  gfx_draw_string(buffer, 56, 425, "* Inaktivitaet (30 Sek.)         : Menue schliesst automatisch", 1, 1);
+  gfx_fill_rect(buffer, 40, 350, EPD_WIDTH - 80, 100, 0);
+  gfx_draw_string(buffer, 56, 365, "HINWEISE / NOTES:", 1, 1);
+  gfx_draw_string(buffer, 56, 385, "* Standard: Vollbild-Wiedergabe von Slides, Bildern und Widgets", 1, 1);
+  gfx_draw_string(buffer, 56, 405, "* Multi-Zone: Rendert das zugewiesene ScreenTinker Multi-Zonen-Layout", 1, 1);
+  gfx_draw_string(buffer, 56, 425, "* OK-Taste (1.5s halten) : Oeffnet dieses System-Menue jederzeit", 1, 1);
 }
 
 // ─── Power Off / Shutdown Screen ──────────────────────────────────────────────

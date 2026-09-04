@@ -26,6 +26,7 @@ static String g_wifiPass = "";
 static String g_serverUrl = "";
 static String g_deviceId = "";
 static String g_deviceToken = "";
+static bool g_multiZone = DEFAULT_MULTI_ZONE;
 
 // ─── Captive Portal State ────────────────────────────────────────────────────
 static DNSServer s_dnsServer;
@@ -364,9 +365,9 @@ static uint32_t s_menuOpenMillis = 0;
 void showSystemMenu(int selectedIndex, Language lang = LANG_EN) {
   s_currentLang = lang;
   if (!s_rawBuffer || !s_rotatedBuffer) return;
-  Serial.printf("[Display] Rendering System Menu on E-Paper (Item: %d, %s)...\n",
-                selectedIndex, (lang == LANG_DE ? "Deutsch" : "English"));
-  renderSystemMenu(s_rawBuffer, selectedIndex, lang);
+  Serial.printf("[Display] Rendering System Menu on E-Paper (Item: %d, %s, MultiZone: %d)...\n",
+                selectedIndex, (lang == LANG_DE ? "Deutsch" : "English"), g_multiZone ? 1 : 0);
+  renderSystemMenu(s_rawBuffer, selectedIndex, lang, g_multiZone);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
   renderRotatedBuffer(s_rotatedBuffer);
 }
@@ -425,6 +426,7 @@ void loadConfigFromNVS() {
   g_serverUrl   = s_prefs.getString("server_url", SCREENTINKER_HOST);
   g_deviceId    = s_prefs.getString("device_id", DEVICE_ID);
   g_deviceToken = s_prefs.getString("device_token", DEVICE_TOKEN);
+  g_multiZone   = s_prefs.getBool("multi_zone", DEFAULT_MULTI_ZONE);
   s_prefs.end();
 
   Serial.println("[Config] Loaded configuration from NVS/Defaults:");
@@ -432,11 +434,12 @@ void loadConfigFromNVS() {
   Serial.printf("  Server:     %s\n", g_serverUrl.c_str());
   Serial.printf("  Device ID:  %s\n", g_deviceId.c_str());
   Serial.printf("  Token set:  %s\n", g_deviceToken.length() > 0 ? "YES" : "NO");
+  Serial.printf("  Multi-Zone: %s\n", g_multiZone ? "ENABLED" : "DISABLED");
 }
 
 void stopCaptivePortal();
 
-void saveConfigToNVS(const String& ssid, const String& pass, const String& server, const String& devId, const String& token) {
+void saveConfigToNVS(const String& ssid, const String& pass, const String& server, const String& devId, const String& token, bool multiZone = false) {
   stopCaptivePortal();
   s_prefs.begin("screentinker", false);
   s_prefs.putString("wifi_ssid", ssid);
@@ -444,6 +447,7 @@ void saveConfigToNVS(const String& ssid, const String& pass, const String& serve
   s_prefs.putString("server_url", server);
   s_prefs.putString("device_id", devId);
   s_prefs.putString("device_token", token);
+  s_prefs.putBool("multi_zone", multiZone);
   s_prefs.end();
 
   g_wifiSsid = ssid;
@@ -451,9 +455,10 @@ void saveConfigToNVS(const String& ssid, const String& pass, const String& serve
   g_serverUrl = server;
   g_deviceId = devId;
   g_deviceToken = token;
+  g_multiZone = multiZone;
   cacheClear();
-  Serial.printf("[Config] Configuration saved: SSID='%s', Server='%s', DeviceID='%s'\n",
-                g_wifiSsid.c_str(), g_serverUrl.c_str(), g_deviceId.c_str());
+  Serial.printf("[Config] Configuration saved: SSID='%s', Server='%s', DeviceID='%s', MultiZone=%d\n",
+                g_wifiSsid.c_str(), g_serverUrl.c_str(), g_deviceId.c_str(), g_multiZone ? 1 : 0);
 }
 
 void factoryResetNVS() {
@@ -482,8 +487,8 @@ static const char CAPTIVE_PORTAL_HTML[] PROGMEM = R"rawliteral(
     h1 { margin: 0 0 4px; font-size: 22px; color: #38bdf8; display: flex; align-items: center; gap: 8px; }
     p.sub { margin: 0 0 20px; color: #94a3b8; font-size: 14px; }
     label { display: block; font-weight: 600; font-size: 13px; margin: 14px 0 4px; color: #cbd5e1; }
-    input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 15px; }
-    input:focus { outline: none; border-color: #38bdf8; }
+    input, select { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 15px; }
+    input:focus, select:focus { outline: none; border-color: #38bdf8; }
     .btn { margin-top: 24px; width: 100%; padding: 14px; border: none; border-radius: 8px; background: #0284c7; color: #fff; font-size: 16px; font-weight: 600; cursor: pointer; }
     .btn:hover { background: #0369a1; }
     .footer { margin-top: 16px; font-size: 12px; color: #64748b; text-align: center; }
@@ -500,6 +505,11 @@ static const char CAPTIVE_PORTAL_HTML[] PROGMEM = R"rawliteral(
       <input type="password" name="pass" placeholder="••••••••">
       <label>ScreenTinker Server URL</label>
       <input type="text" name="server" value="http://192.168.1.100:3001" placeholder="http://192.168.1.100:3001" required>
+      <label>Layout / Rendering Mode</label>
+      <select name="multizone">
+        <option value="0">Standard (Fullscreen Slides & Widgets)</option>
+        <option value="1">Multi-Zone Layouts</option>
+      </select>
       <button class="btn" type="submit">💾 Save & Connect / Speichern</button>
     </form>
     <div class="footer">reTerminal Sticky • SSD1677 800x480 E-Paper</div>
@@ -508,18 +518,7 @@ static const char CAPTIVE_PORTAL_HTML[] PROGMEM = R"rawliteral(
 </html>
 )rawliteral";
 
-void stopCaptivePortal() {
-  if (!s_apModeActive) return;
-  Serial.println("[CaptivePortal] Stopping SoftAP and WebServer...");
-  if (s_webServer) {
-    s_webServer->stop();
-    delete s_webServer;
-    s_webServer = nullptr;
-  }
-  s_dnsServer.stop();
-  WiFi.softAPdisconnect(true);
-  s_apModeActive = false;
-}
+void stopCaptivePortal();
 
 static void handleCaptivePortalRoot() {
   if (!s_webServer) return;
@@ -531,12 +530,14 @@ static uint32_t s_pendingSaveMillis = 0;
 static String s_pendingSsid = "";
 static String s_pendingPass = "";
 static String s_pendingServer = "";
+static bool s_pendingMultiZone = false;
 
 static void handleCaptivePortalSave() {
   if (!s_webServer) return;
   String ssid = s_webServer->arg("ssid");
   String pass = s_webServer->arg("pass");
   String server = s_webServer->arg("server");
+  String mzStr = s_webServer->arg("multizone");
 
   ssid.trim();
   pass.trim();
@@ -550,12 +551,27 @@ static void handleCaptivePortalSave() {
   s_pendingSsid = ssid;
   s_pendingPass = pass;
   s_pendingServer = server;
+  s_pendingMultiZone = (mzStr == "1" || mzStr == "true");
   s_pendingConfigSave = true;
   s_pendingSaveMillis = millis();
 
   String successHtml = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Saving...</title><style>body{font-family:system-ui;background:#0f172a;color:#fff;padding:40px;text-align:center;}.card{background:#1e293b;padding:30px;border-radius:12px;max-width:400px;margin:auto;border:1px solid #334155;}</style></head><body><div class='card'><h2>✅ Settings Saved!</h2><p>Connecting to <b>" + ssid + "</b> and pairing with ScreenTinker...</p><p>Please check your E-Paper display for the 6-digit code!</p></div></body></html>";
   s_webServer->send(200, "text/html", successHtml);
   Serial.printf("[CaptivePortal] Credentials received for SSID '%s', scheduling save & pairing in loop...\n", ssid.c_str());
+}
+
+void stopCaptivePortal() {
+  if (!s_apModeActive) return;
+  Serial.println("[CaptivePortal] Stopping SoftAP and WebServer...");
+  if (s_webServer) {
+    s_webServer->stop();
+    delete s_webServer;
+    s_webServer = nullptr;
+  }
+  s_dnsServer.stop();
+  WiFi.softAPdisconnect(true);
+  s_apModeActive = false;
+  Serial.println("[CaptivePortal] SoftAP stopped.");
 }
 
 void startCaptivePortal() {
@@ -745,9 +761,14 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     return;
   }
 
-  String url = g_serverUrl + "/api/embedded/render?device_id=" + g_deviceId;
-  if (requestedItemIndex >= 0) {
-    url += "&item=" + String(requestedItemIndex);
+  String url;
+  if (g_multiZone) {
+    url = g_serverUrl + "/api/embedded/render-layout?device_id=" + g_deviceId;
+  } else {
+    url = g_serverUrl + "/api/embedded/render?device_id=" + g_deviceId;
+    if (requestedItemIndex >= 0) {
+      url += "&item=" + String(requestedItemIndex);
+    }
   }
   Serial.printf("[Sync] Fetching %s\n", url.c_str());
 
@@ -842,17 +863,26 @@ void processSerialLine(const String& line) {
   DeserializationError err = deserializeJson(doc, line);
   if (err) {
     if (line == "status") {
-      Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"ssid\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"psram_free\":%u,\"rssi\":%d}\n",
+      Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"ssid\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"multi_zone\":%s,\"psram_free\":%u,\"rssi\":%d}\n",
                     FIRMWARE_VERSION,
                     WiFi.localIP().toString().c_str(), g_wifiSsid.c_str(),
                     WiFi.status() == WL_CONNECTED ? "true" : "false",
                     g_deviceId.c_str(),
+                    g_multiZone ? "true" : "false",
                     psramFound() ? ESP.getFreePsram() : 0,
                     WiFi.RSSI());
     } else if (line == "reset") {
       Serial.println("{\"status\":\"ok\",\"v\":1,\"message\":\"NVS wiped. Restarting device.\"}");
       delay(500);
       factoryResetNVS();
+    } else if (line == "multizone" || line == "layout") {
+      g_multiZone = !g_multiZone;
+      s_prefs.begin("screentinker", false);
+      s_prefs.putBool("multi_zone", g_multiZone);
+      s_prefs.end();
+      cacheClear();
+      Serial.printf("{\"status\":\"ok\",\"v\":1,\"multi_zone\":%s}\n", g_multiZone ? "true" : "false");
+      fetchAndRender(true);
     } else if (line == "refresh") {
       fetchAndRender(true, s_currentItemIndex);
     } else if (line == "next") {
@@ -898,7 +928,7 @@ void processSerialLine(const String& line) {
   if (!cmd) return;
 
   if (strcmp(cmd, "config") == 0 || strcmp(cmd, "setup") == 0) {
-    if (!doc.containsKey("ssid") || doc["ssid"].as<String>().length() == 0) {
+    if (!doc["ssid"].is<String>() || doc["ssid"].as<String>().length() == 0) {
       Serial.println("{\"status\":\"error\",\"v\":1,\"message\":\"Missing required field: ssid\"}");
       return;
     }
@@ -908,8 +938,9 @@ void processSerialLine(const String& line) {
     String server  = doc["server"] | g_serverUrl;
     String devId   = doc["device_id"] | "";
     String token   = doc["device_token"] | "";
+    bool multiZone = !doc["multi_zone"].isNull() ? doc["multi_zone"].as<bool>() : (!doc["multizone"].isNull() ? doc["multizone"].as<bool>() : g_multiZone);
 
-    saveConfigToNVS(ssid, pass, server, devId, token);
+    saveConfigToNVS(ssid, pass, server, devId, token, multiZone);
     Serial.println("{\"status\":\"ok\",\"v\":1,\"message\":\"Configuration saved.\"}");
 
     if (devId.length() > 0 && token.length() > 0) {
@@ -918,13 +949,28 @@ void processSerialLine(const String& line) {
       registerAndStartPairing();
     }
   } else if (strcmp(cmd, "status") == 0) {
-    Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"psram_free\":%u,\"rssi\":%d}\n",
+    Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"multi_zone\":%s,\"psram_free\":%u,\"rssi\":%d}\n",
                   FIRMWARE_VERSION,
                   WiFi.localIP().toString().c_str(),
                   WiFi.status() == WL_CONNECTED ? "true" : "false",
                   g_deviceId.c_str(),
+                  g_multiZone ? "true" : "false",
                   psramFound() ? ESP.getFreePsram() : 0,
                   WiFi.RSSI());
+  } else if (strcmp(cmd, "set_multizone") == 0 || strcmp(cmd, "multizone") == 0) {
+    if (!doc["enabled"].isNull()) {
+      g_multiZone = doc["enabled"].as<bool>();
+    } else if (!doc["multi_zone"].isNull()) {
+      g_multiZone = doc["multi_zone"].as<bool>();
+    } else {
+      g_multiZone = !g_multiZone;
+    }
+    s_prefs.begin("screentinker", false);
+    s_prefs.putBool("multi_zone", g_multiZone);
+    s_prefs.end();
+    cacheClear();
+    Serial.printf("{\"status\":\"ok\",\"v\":1,\"multi_zone\":%s}\n", g_multiZone ? "true" : "false");
+    fetchAndRender(true);
   } else if (strcmp(cmd, "reset") == 0) {
     Serial.println("{\"status\":\"ok\",\"v\":1,\"message\":\"NVS wiped. Restarting device.\"}");
     delay(500);
@@ -993,7 +1039,7 @@ void loop() {
   if (s_pendingConfigSave && (millis() - s_pendingSaveMillis > 800)) {
     s_pendingConfigSave = false;
     Serial.println("[CaptivePortal] Applying pending configuration...");
-    saveConfigToNVS(s_pendingSsid, s_pendingPass, s_pendingServer, "", "");
+    saveConfigToNVS(s_pendingSsid, s_pendingPass, s_pendingServer, "", "", s_pendingMultiZone);
     registerAndStartPairing();
   }
 
@@ -1058,10 +1104,20 @@ void loop() {
             s_inSystemMenu = false;
             redrawCurrentState();
           } else if (s_menuSelection == 1) {
-            // 1: Ausschalten / Power Off
-            powerOffDevice();
+            // 1: Toggle Layout Mode (Multi-Zone <-> Standard)
+            g_multiZone = !g_multiZone;
+            s_prefs.begin("screentinker", false);
+            s_prefs.putBool("multi_zone", g_multiZone);
+            s_prefs.end();
+            cacheClear();
+            s_menuOpenMillis = millis();
+            Serial.printf("\n>>> [SystemMenu] Layout Mode toggled to: %s\n", g_multiZone ? "MULTI-ZONE" : "STANDARD");
+            showSystemMenu(s_menuSelection, s_currentLang);
           } else if (s_menuSelection == 2) {
-            // 2: Factory Reset
+            // 2: Ausschalten / Power Off
+            powerOffDevice();
+          } else if (s_menuSelection == 3) {
+            // 3: Factory Reset
             s_inSystemMenu = false;
             factoryResetNVS();
           }
@@ -1094,7 +1150,7 @@ void loop() {
   if (digitalRead(PIN_BTN_UP) == LOW && millis() - lastBtnUp > 300) {
     lastBtnUp = millis();
     if (s_inSystemMenu) {
-      s_menuSelection = (s_menuSelection - 1 + 3) % 3;
+      s_menuSelection = (s_menuSelection - 1 + 4) % 4;
       s_menuOpenMillis = millis();
       Serial.printf("\n>>> [SystemMenu] UP pressed -> Selection: %d\n", s_menuSelection);
       showSystemMenu(s_menuSelection, s_currentLang);
@@ -1119,7 +1175,7 @@ void loop() {
   if (digitalRead(PIN_BTN_DOWN) == LOW && millis() - lastBtnDown > 300) {
     lastBtnDown = millis();
     if (s_inSystemMenu) {
-      s_menuSelection = (s_menuSelection + 1) % 3;
+      s_menuSelection = (s_menuSelection + 1) % 4;
       s_menuOpenMillis = millis();
       Serial.printf("\n>>> [SystemMenu] DOWN pressed -> Selection: %d\n", s_menuSelection);
       showSystemMenu(s_menuSelection, s_currentLang);

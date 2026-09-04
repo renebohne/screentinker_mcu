@@ -28,3 +28,7 @@
 
 // Set to true to always download and draw the frame (bypasses 304 on boot)
 #define FORCE_REFRESH_ON_BOOT false
+
+// Set to true to render multi-zone layouts by default
+#define DEFAULT_MULTI_ZONE    false
+

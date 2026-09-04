@@ -357,8 +357,56 @@ void showPairingCodeScreen(const char* code, Language lang = LANG_EN) {
   renderRotatedBuffer(s_rotatedBuffer);
 }
 
+static bool s_inSystemMenu = false;
+static int s_menuSelection = 0;
+static uint32_t s_menuOpenMillis = 0;
+
+void showSystemMenu(int selectedIndex, Language lang = LANG_EN) {
+  s_currentLang = lang;
+  if (!s_rawBuffer || !s_rotatedBuffer) return;
+  Serial.printf("[Display] Rendering System Menu on E-Paper (Item: %d, %s)...\n",
+                selectedIndex, (lang == LANG_DE ? "Deutsch" : "English"));
+  renderSystemMenu(s_rawBuffer, selectedIndex, lang);
+  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
+  renderRotatedBuffer(s_rotatedBuffer);
+}
+
+void powerOffDevice() {
+  Serial.println("\n=============================================");
+  Serial.println("  [Power] SHUTTING DOWN / ENTERING DEEP SLEEP");
+  Serial.println("=============================================");
+  
+  // Release display power boost circuit
+  digitalWrite(PIN_EPD_PWR_EN, LOW);
+  delay(50);
+  
+  // Release hardware power latches (cuts battery power on battery mode)
+  digitalWrite(PIN_PWR_HOLD, LOW);
+  digitalWrite(PIN_PWR_LOCK, LOW);
+  
+  // Set wakeup on OK button (GPIO 4 is active LOW)
+  esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_BTN_OK, 0);
+  
+  Serial.println("[Power] Power latch released. Entering Deep Sleep (Press OK to wake)...");
+  delay(100);
+  esp_deep_sleep_start();
+}
+
 bool registerAndStartPairing();
 bool checkPairingStatus();
+void fetchAndRender(bool forceFreshFetch = false, int requestedItemIndex = -1);
+
+void redrawCurrentState() {
+  bool isConfigured = (g_wifiSsid.length() > 0 && g_wifiSsid != "Your-WiFi-SSID");
+  bool isPaired = (isConfigured && g_deviceId.length() > 0 && g_deviceToken.length() > 0 && g_deviceId != "your-device-uuid");
+  if (!isConfigured) {
+    showOnboardingScreen(s_currentLang);
+  } else if (!isPaired) {
+    showPairingCodeScreen(s_activePairingCode.c_str(), s_currentLang);
+  } else {
+    fetchAndRender(false, s_currentItemIndex);
+  }
+}
 
 // ─── NVS Configuration Management ─────────────────────────────────────────────
 void loadConfigFromNVS() {
@@ -469,6 +517,12 @@ static void handleCaptivePortalRoot() {
   s_webServer->send(200, "text/html", CAPTIVE_PORTAL_HTML);
 }
 
+static bool s_pendingConfigSave = false;
+static uint32_t s_pendingSaveMillis = 0;
+static String s_pendingSsid = "";
+static String s_pendingPass = "";
+static String s_pendingServer = "";
+
 static void handleCaptivePortalSave() {
   if (!s_webServer) return;
   String ssid = s_webServer->arg("ssid");
@@ -484,23 +538,34 @@ static void handleCaptivePortalSave() {
     return;
   }
 
-  String successHtml = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Saving...</title><style>body{font-family:system-ui;background:#0f172a;color:#fff;padding:40px;text-align:center;}.card{background:#1e293b;padding:30px;border-radius:12px;max-width:400px;margin:auto;}</style></head><body><div class='card'><h2>✅ Settings Saved!</h2><p>Connecting to <b>" + ssid + "</b> and pairing with ScreenTinker...</p><p>Please check your E-Paper display!</p></div></body></html>";
-  s_webServer->send(200, "text/html", successHtml);
-  delay(500);
+  s_pendingSsid = ssid;
+  s_pendingPass = pass;
+  s_pendingServer = server;
+  s_pendingConfigSave = true;
+  s_pendingSaveMillis = millis();
 
-  saveConfigToNVS(ssid, pass, server, "", "");
-  registerAndStartPairing();
+  String successHtml = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Saving...</title><style>body{font-family:system-ui;background:#0f172a;color:#fff;padding:40px;text-align:center;}.card{background:#1e293b;padding:30px;border-radius:12px;max-width:400px;margin:auto;border:1px solid #334155;}</style></head><body><div class='card'><h2>✅ Settings Saved!</h2><p>Connecting to <b>" + ssid + "</b> and pairing with ScreenTinker...</p><p>Please check your E-Paper display for the 6-digit code!</p></div></body></html>";
+  s_webServer->send(200, "text/html", successHtml);
+  Serial.printf("[CaptivePortal] Credentials received for SSID '%s', scheduling save & pairing in loop...\n", ssid.c_str());
 }
 
 void startCaptivePortal() {
   if (s_apModeActive) return;
 
-  Serial.println("\n[CaptivePortal] Starting SoftAP 'ScreenTinker-Setup'...");
+  Serial.println("\n[CaptivePortal] Initializing SoftAP 'ScreenTinker-Setup'...");
+  WiFi.persistent(false);
+  WiFi.disconnect();
+  delay(100);
   WiFi.mode(WIFI_AP);
+  WiFi.setSleep(false);
+
   IPAddress apIP(192, 168, 4, 1);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
-  WiFi.softAP("ScreenTinker-Setup");
+  bool apSuccess = WiFi.softAP("ScreenTinker-Setup", "", 1, 0, 4);
+  Serial.printf("[CaptivePortal] SoftAP started: %s (IP: %s)\n",
+                apSuccess ? "SUCCESS" : "FAILED", WiFi.softAPIP().toString().c_str());
 
+  s_dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
   s_dnsServer.start(53, "*", apIP);
 
   if (s_webServer) delete s_webServer;
@@ -635,7 +700,7 @@ bool checkPairingStatus() {
 }
 
 // ─── Fetch & Render (with PSRAM Caching) ──────────────────────────────────────
-void fetchAndRender(bool forceRefresh = false, int requestedItemIndex = -1) {
+void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   int targetIndex = (requestedItemIndex >= 0) ? requestedItemIndex : s_currentItemIndex;
 
   // 1. Check if frame is available in PSRAM cache for instant display
@@ -797,6 +862,13 @@ void processSerialLine(const String& line) {
       showNoWifiScreen(s_currentLang);
     } else if (line == "pair") {
       registerAndStartPairing();
+    } else if (line == "poweroff" || line == "shutdown" || line == "off") {
+      powerOffDevice();
+    } else if (line == "menu") {
+      s_inSystemMenu = true;
+      s_menuSelection = 0;
+      s_menuOpenMillis = millis();
+      showSystemMenu(0, s_currentLang);
     }
     return;
   }
@@ -836,6 +908,13 @@ void processSerialLine(const String& line) {
     showNoWifiScreen(s_currentLang);
   } else if (strcmp(cmd, "pair") == 0) {
     registerAndStartPairing();
+  } else if (strcmp(cmd, "poweroff") == 0 || strcmp(cmd, "shutdown") == 0) {
+    powerOffDevice();
+  } else if (strcmp(cmd, "menu") == 0) {
+    s_inSystemMenu = true;
+    s_menuSelection = 0;
+    s_menuOpenMillis = millis();
+    showSystemMenu(0, s_currentLang);
   }
 }
 
@@ -879,6 +958,14 @@ void loop() {
     if (s_webServer) s_webServer->handleClient();
   }
 
+  // Handle pending config save from Captive Portal
+  if (s_pendingConfigSave && (millis() - s_pendingSaveMillis > 800)) {
+    s_pendingConfigSave = false;
+    Serial.println("[CaptivePortal] Applying pending configuration...");
+    saveConfigToNVS(s_pendingSsid, s_pendingPass, s_pendingServer, "", "");
+    registerAndStartPairing();
+  }
+
   // Check for incoming serial configuration commands
   if (Serial.available() > 0) {
     String line = Serial.readStringUntil('\n');
@@ -906,25 +993,70 @@ void loop() {
     }
   }
 
-  // Button handling
-  static uint32_t lastBtnOk = 0;
+  // Button & Double-Click handling
   static uint32_t lastBtnUp = 0;
   static uint32_t lastBtnDown = 0;
   static uint32_t okPressStart = 0;
+  static uint32_t lastOkRelease = 0;
+  static int okClickCount = 0;
 
-  // OK Button (GPIO 4): Short press -> Refresh; Long press (5s) -> Factory reset
+  // Track OK Button state transitions
   if (digitalRead(PIN_BTN_OK) == LOW) {
     if (okPressStart == 0) okPressStart = millis();
+    // Long press (5s) for emergency factory reset
     if (millis() - okPressStart > 5000) {
       Serial.println("\n>>> [Button] Long press (5s) detected -> Performing Factory Reset!");
+      okPressStart = 0;
+      okClickCount = 0;
       factoryResetNVS();
     }
   } else {
     if (okPressStart > 0) {
       uint32_t duration = millis() - okPressStart;
       okPressStart = 0;
-      if (duration > 50 && duration < 3000 && millis() - lastBtnOk > 800) {
-        lastBtnOk = millis();
+      if (duration > 40 && duration < 1200) {
+        okClickCount++;
+        lastOkRelease = millis();
+      }
+    }
+  }
+
+  // Evaluate single vs double click on OK button
+  if (okClickCount > 0) {
+    if (okClickCount >= 2) {
+      // DOUBLE CLICK DETECTED!
+      okClickCount = 0;
+      if (!s_inSystemMenu) {
+        Serial.println("\n>>> [Button] Double-click on OK detected -> Opening System Menu!");
+        s_inSystemMenu = true;
+        s_menuSelection = 0; // Default: Zurück / Back
+        s_menuOpenMillis = millis();
+        showSystemMenu(s_menuSelection, s_currentLang);
+      } else {
+        Serial.println("\n>>> [Button] Double-click on OK detected -> Exiting System Menu!");
+        s_inSystemMenu = false;
+        redrawCurrentState();
+      }
+    } else if (millis() - lastOkRelease > 380) {
+      // SINGLE CLICK TIMEOUT -> Execute Single Click Action
+      okClickCount = 0;
+      if (s_inSystemMenu) {
+        // Confirm current selection in menu!
+        Serial.printf("\n>>> [SystemMenu] Selection %d confirmed!\n", s_menuSelection);
+        if (s_menuSelection == 0) {
+          // 0: Zurück / Back
+          s_inSystemMenu = false;
+          redrawCurrentState();
+        } else if (s_menuSelection == 1) {
+          // 1: Ausschalten / Power Off
+          powerOffDevice();
+        } else if (s_menuSelection == 2) {
+          // 2: Factory Reset
+          s_inSystemMenu = false;
+          factoryResetNVS();
+        }
+      } else {
+        // Normal Single Click outside menu
         if (!isConfigured) {
           Serial.println("\n>>> [Button] OK pressed -> Redrawing setup instructions...");
           showOnboardingScreen(s_currentLang);
@@ -940,10 +1072,22 @@ void loop() {
     }
   }
 
+  // System Menu Timeout: auto-exit after 30 seconds of inactivity
+  if (s_inSystemMenu && (millis() - s_menuOpenMillis > 30000)) {
+    Serial.println("\n>>> [SystemMenu] Inactivity timeout (30s) -> Exiting menu.");
+    s_inSystemMenu = false;
+    redrawCurrentState();
+  }
+
   // UP Button (GPIO 5):
-  if (digitalRead(PIN_BTN_UP) == LOW && millis() - lastBtnUp > 600) {
+  if (digitalRead(PIN_BTN_UP) == LOW && millis() - lastBtnUp > 300) {
     lastBtnUp = millis();
-    if (!isConfigured) {
+    if (s_inSystemMenu) {
+      s_menuSelection = (s_menuSelection - 1 + 3) % 3;
+      s_menuOpenMillis = millis();
+      Serial.printf("\n>>> [SystemMenu] UP pressed -> Selection: %d\n", s_menuSelection);
+      showSystemMenu(s_menuSelection, s_currentLang);
+    } else if (!isConfigured) {
       Serial.println("\n>>> [Button] UP pressed -> Language: DE (Deutsch)");
       showOnboardingScreen(LANG_DE);
     } else if (!isPaired) {
@@ -961,9 +1105,14 @@ void loop() {
   }
 
   // DOWN Button (GPIO 6):
-  if (digitalRead(PIN_BTN_DOWN) == LOW && millis() - lastBtnDown > 600) {
+  if (digitalRead(PIN_BTN_DOWN) == LOW && millis() - lastBtnDown > 300) {
     lastBtnDown = millis();
-    if (!isConfigured) {
+    if (s_inSystemMenu) {
+      s_menuSelection = (s_menuSelection + 1) % 3;
+      s_menuOpenMillis = millis();
+      Serial.printf("\n>>> [SystemMenu] DOWN pressed -> Selection: %d\n", s_menuSelection);
+      showSystemMenu(s_menuSelection, s_currentLang);
+    } else if (!isConfigured) {
       Serial.println("\n>>> [Button] DOWN pressed -> Language: EN (English)");
       showOnboardingScreen(LANG_EN);
     } else if (!isPaired) {

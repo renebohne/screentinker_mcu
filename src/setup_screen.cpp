@@ -422,7 +422,74 @@ void renderPairingCodeScreen(uint8_t* buffer, const char* code, Language lang) {
     gfx_draw_string(buffer, 48, 354, "BUTTONS & HELP:", 1, 1);
     gfx_draw_string(buffer, 48, 372, "* UP / DOWN Buttons        : Switch Language [ English / Deutsch ]", 1, 1);
     gfx_draw_string(buffer, 48, 390, "* OK Button (Short press)  : Refresh / Request new Pairing Code", 1, 1);
-    gfx_draw_string(buffer, 48, 408, "* OK Button (Hold 5 sec)   : Factory Reset / Wipe NVS configuration", 1, 1);
+    gfx_draw_string(buffer, 48, 408, "* OK Button (Double-click) : Open System Menu [ Power Off / Reset ]", 1, 1);
     gfx_draw_string(buffer, 48, 426, "* Status                   : Automatic pairing check every 4 seconds...", 1, 1);
   }
 }
+
+// ─── System Menu Rendering ───────────────────────────────────────────────────
+void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang) {
+  gfx_fill(buffer, 1); // White canvas
+
+  // Outer border
+  gfx_draw_rect(buffer, 10, 10, EPD_WIDTH - 20, EPD_HEIGHT - 20, 0);
+  gfx_draw_rect(buffer, 14, 14, EPD_WIDTH - 28, EPD_HEIGHT - 28, 0);
+
+  // Top header bar
+  gfx_fill_rect(buffer, 20, 20, EPD_WIDTH - 40, 50, 0);
+  gfx_draw_string(buffer, 40, 32, "SYSTEM MENU / SYSTEM-MENUE", 1, 2);
+
+  // Subtitle navigation bar
+  gfx_draw_rect(buffer, 20, 80, EPD_WIDTH - 40, 32, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 36, 88, "[ UP / DOWN ]: Navigieren    |    [ OK ]: Auswaehlen & Bestaetigen", 0, 1);
+  } else {
+    gfx_draw_string(buffer, 36, 88, "[ UP / DOWN ]: Navigate      |    [ OK ]: Select & Confirm", 0, 1);
+  }
+
+  // Menu items list
+  const int itemY[3] = { 130, 210, 290 };
+  const int itemH = 60;
+  const int itemW = EPD_WIDTH - 80;
+  const int itemX = 40;
+
+  // Item 0: Back / Zurück (Default)
+  if (selectedIndex == 0) {
+    gfx_fill_rect(buffer, itemX, itemY[0], itemW, itemH, 0);
+    gfx_draw_string(buffer, itemX + 24, itemY[0] + 16, "> 1. ZURUECK / BACK (Default)", 1, 2);
+    gfx_draw_string(buffer, itemX + 24, itemY[0] + 38, "     Menue schliessen & zur vorherigen Anzeige zurueckkehren", 1, 1);
+  } else {
+    gfx_draw_rect(buffer, itemX, itemY[0], itemW, itemH, 0);
+    gfx_draw_string(buffer, itemX + 24, itemY[0] + 16, "  1. ZURUECK / BACK (Default)", 0, 2);
+    gfx_draw_string(buffer, itemX + 24, itemY[0] + 38, "     Menue schliessen & zur vorherigen Anzeige zurueckkehren", 0, 1);
+  }
+
+  // Item 1: Power Off / Ausschalten
+  if (selectedIndex == 1) {
+    gfx_fill_rect(buffer, itemX, itemY[1], itemW, itemH, 0);
+    gfx_draw_string(buffer, itemX + 24, itemY[1] + 16, "> 2. AUSSCHALTEN / POWER OFF", 1, 2);
+    gfx_draw_string(buffer, itemX + 24, itemY[1] + 38, "     Geraet ausschalten / Deep Sleep (Aufwecken mit OK-Taste)", 1, 1);
+  } else {
+    gfx_draw_rect(buffer, itemX, itemY[1], itemW, itemH, 0);
+    gfx_draw_string(buffer, itemX + 24, itemY[1] + 16, "  2. AUSSCHALTEN / POWER OFF", 0, 2);
+    gfx_draw_string(buffer, itemX + 24, itemY[1] + 38, "     Geraet ausschalten / Deep Sleep (Aufwecken mit OK-Taste)", 0, 1);
+  }
+
+  // Item 2: Factory Reset / Werkseinstellungen
+  if (selectedIndex == 2) {
+    gfx_fill_rect(buffer, itemX, itemY[2], itemW, itemH, 0);
+    gfx_draw_string(buffer, itemX + 24, itemY[2] + 16, "> 3. FACTORY RESET / WERKSEINSTELLUNGEN", 1, 2);
+    gfx_draw_string(buffer, itemX + 24, itemY[2] + 38, "     NVS-Speicher loeschen & Einrichtungs-Modus neu starten", 1, 1);
+  } else {
+    gfx_draw_rect(buffer, itemX, itemY[2], itemW, itemH, 0);
+    gfx_draw_string(buffer, itemX + 24, itemY[2] + 16, "  3. FACTORY RESET / WERKSEINSTELLUNGEN", 0, 2);
+    gfx_draw_string(buffer, itemX + 24, itemY[2] + 38, "     NVS-Speicher loeschen & Einrichtungs-Modus neu starten", 0, 1);
+  }
+
+  // Footer note box
+  gfx_fill_rect(buffer, 40, 370, EPD_WIDTH - 80, 80, 0);
+  gfx_draw_string(buffer, 56, 385, "HINWEISE / NOTES:", 1, 1);
+  gfx_draw_string(buffer, 56, 405, "* Doppel-Klick OK-Taste : Oeffnet dieses System-Menue jederzeit", 1, 1);
+  gfx_draw_string(buffer, 56, 425, "* Timeout               : Menue schliesst nach 30 Sekunden automatisch", 1, 1);
+}
+

@@ -407,7 +407,7 @@ void renderPairingCodeScreen(uint8_t* buffer, const char* code, Language lang) {
     gfx_draw_string(buffer, 48, 354, "TASTEN & HILFE:", 1, 1);
     gfx_draw_string(buffer, 48, 372, "* UP / DOWN Tasten         : Sprache umschalten [ Deutsch / English ]", 1, 1);
     gfx_draw_string(buffer, 48, 390, "* OK-Taste (kurz)          : Neuen Pairing-Code generieren & pruefen", 1, 1);
-    gfx_draw_string(buffer, 48, 408, "* OK-Taste (5 Sek. halten) : Factory Reset / NVS-Konfiguration loeschen", 1, 1);
+    gfx_draw_string(buffer, 48, 408, "* OK-Taste (2 Sek. halten) : System-Menue [ Ausschalten / Reset ]", 1, 1);
     gfx_draw_string(buffer, 48, 426, "* Status                   : Automatisches Pruefen alle 4 Sekunden...", 1, 1);
   } else {
     gfx_draw_string(buffer, 35, 238, "HOW TO PAIR THIS DISPLAY:", 0, 2);
@@ -423,7 +423,7 @@ void renderPairingCodeScreen(uint8_t* buffer, const char* code, Language lang) {
     gfx_draw_string(buffer, 48, 354, "BUTTONS & HELP:", 1, 1);
     gfx_draw_string(buffer, 48, 372, "* UP / DOWN Buttons        : Switch Language [ English / Deutsch ]", 1, 1);
     gfx_draw_string(buffer, 48, 390, "* OK Button (Short press)  : Refresh / Request new Pairing Code", 1, 1);
-    gfx_draw_string(buffer, 48, 408, "* OK Button (Double-click) : Open System Menu [ Power Off / Reset ]", 1, 1);
+    gfx_draw_string(buffer, 48, 408, "* OK Button (Hold 2 sec)   : Open System Menu [ Power Off / Reset ]", 1, 1);
     gfx_draw_string(buffer, 48, 426, "* Status                   : Automatic pairing check every 4 seconds...", 1, 1);
   }
 }
@@ -490,8 +490,8 @@ void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang) {
   // Footer note box
   gfx_fill_rect(buffer, 40, 370, EPD_WIDTH - 80, 80, 0);
   gfx_draw_string(buffer, 56, 385, "HINWEISE / NOTES:", 1, 1);
-  gfx_draw_string(buffer, 56, 405, "* Doppel-Klick OK-Taste : Oeffnet dieses System-Menue jederzeit", 1, 1);
-  gfx_draw_string(buffer, 56, 425, "* Timeout               : Menue schliesst nach 30 Sekunden automatisch", 1, 1);
+  gfx_draw_string(buffer, 56, 405, "* OK-Taste lange halten (2 Sek.) : Oeffnet dieses System-Menue jederzeit", 1, 1);
+  gfx_draw_string(buffer, 56, 425, "* Inaktivitaet (30 Sek.)         : Menue schliesst automatisch", 1, 1);
 }
 
 // ─── Power Off / Shutdown Screen ──────────────────────────────────────────────

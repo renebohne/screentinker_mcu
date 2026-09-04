@@ -1002,75 +1002,61 @@ void loop() {
     }
   }
 
-  // Button & Double-Click handling
+  // Button Handling: Long Press (1.5s) -> System Menu; Short Press -> Refresh / Confirm
   static uint32_t lastBtnUp = 0;
   static uint32_t lastBtnDown = 0;
   static uint32_t okPressStart = 0;
-  static uint32_t lastOkRelease = 0;
-  static int okClickCount = 0;
 
-  // Track OK Button state transitions
+  // Track OK Button state
   if (digitalRead(PIN_BTN_OK) == LOW) {
     if (okPressStart == 0) okPressStart = millis();
-    // Long press (5s) for emergency factory reset
-    if (millis() - okPressStart > 5000) {
-      Serial.println("\n>>> [Button] Long press (5s) detected -> Performing Factory Reset!");
-      okPressStart = 0;
-      okClickCount = 0;
-      s_inSystemMenu = false;
-      factoryResetNVS();
+
+    // If held for 1.5 seconds while outside menu -> Open System Menu immediately!
+    if (!s_inSystemMenu && okPressStart > 0 && (millis() - okPressStart >= 1500)) {
+      Serial.println("\n>>> [Button] Long press (1.5s) on OK detected -> Opening System Menu!");
+      okPressStart = 0; // Reset so it doesn't re-trigger while held
+      s_inSystemMenu = true;
+      s_menuSelection = 0; // Default: Zurück / Back
+      s_menuOpenMillis = millis();
+      showSystemMenu(s_menuSelection, s_currentLang);
     }
   } else {
+    // Button released
     if (okPressStart > 0) {
       uint32_t duration = millis() - okPressStart;
       okPressStart = 0;
-      if (duration > 40 && duration < 1000) {
-        okClickCount++;
-        lastOkRelease = millis();
-      }
-    }
-  }
 
-  // Evaluate single vs double click on OK button
-  if (okClickCount > 0) {
-    if (!s_inSystemMenu) {
-      // OUTSIDE MENU: Double-click opens menu, Single-click refreshes/pairs
-      if (okClickCount >= 2) {
-        okClickCount = 0;
-        Serial.println("\n>>> [Button] Double-click on OK detected -> Opening System Menu!");
-        s_inSystemMenu = true;
-        s_menuSelection = 0; // Default: Zurück / Back
-        s_menuOpenMillis = millis();
-        showSystemMenu(s_menuSelection, s_currentLang);
-      } else if (millis() - lastOkRelease > 350) {
-        okClickCount = 0;
-        if (!isConfigured) {
-          Serial.println("\n>>> [Button] OK pressed -> Redrawing setup instructions...");
-          showOnboardingScreen(s_currentLang);
-        } else if (!isPaired) {
-          Serial.println("\n>>> [Button] OK pressed -> Requesting new pairing code...");
-          registerAndStartPairing();
+      // Valid Short Press (between 40ms and 1400ms)
+      if (duration > 40 && duration < 1400) {
+        if (s_inSystemMenu) {
+          // INSIDE MENU: Confirm current selection!
+          Serial.printf("\n>>> [SystemMenu] Selection %d confirmed!\n", s_menuSelection);
+          if (s_menuSelection == 0) {
+            // 0: Zurück / Back
+            s_inSystemMenu = false;
+            redrawCurrentState();
+          } else if (s_menuSelection == 1) {
+            // 1: Ausschalten / Power Off
+            powerOffDevice();
+          } else if (s_menuSelection == 2) {
+            // 2: Factory Reset
+            s_inSystemMenu = false;
+            factoryResetNVS();
+          }
         } else {
-          Serial.println("\n>>> [Button] OK pressed -> Forcing refresh...");
-          fetchAndRender(true, s_currentItemIndex);
-          s_lastSyncMillis = millis();
+          // OUTSIDE MENU: Normal Short Press
+          if (!isConfigured) {
+            Serial.println("\n>>> [Button] OK pressed -> Redrawing setup instructions...");
+            showOnboardingScreen(s_currentLang);
+          } else if (!isPaired) {
+            Serial.println("\n>>> [Button] OK pressed -> Requesting new pairing code...");
+            registerAndStartPairing();
+          } else {
+            Serial.println("\n>>> [Button] OK pressed -> Forcing refresh...");
+            fetchAndRender(true, s_currentItemIndex);
+            s_lastSyncMillis = millis();
+          }
         }
-      }
-    } else {
-      // INSIDE MENU: Any click confirms current selection immediately!
-      okClickCount = 0;
-      Serial.printf("\n>>> [SystemMenu] Selection %d confirmed!\n", s_menuSelection);
-      if (s_menuSelection == 0) {
-        // 0: Zurück / Back
-        s_inSystemMenu = false;
-        redrawCurrentState();
-      } else if (s_menuSelection == 1) {
-        // 1: Ausschalten / Power Off
-        powerOffDevice();
-      } else if (s_menuSelection == 2) {
-        // 2: Factory Reset
-        s_inSystemMenu = false;
-        factoryResetNVS();
       }
     }
   }

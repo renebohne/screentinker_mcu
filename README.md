@@ -23,6 +23,15 @@ Ultra-low-power, high-performance C++ firmware for the **[Seeed Studio reTermina
 - **Bilingual Onboarding (German & English):**
   - Standalone, lightweight 1-bit monochrome graphics engine with embedded ASCII font (no bulky external GFX dependencies).
   - Dynamically switch between English (default) and German using the hardware buttons (`UP` = Deutsch, `DOWN` = English).
+- **Multi-Zone & Fullscreen Layout Rendering:**
+  - Switch between standard Fullscreen slides/widgets and multi-zone layout rendering directly from the On-Device System Menu, Captive Portal, or WebSerial commands.
+  - Automatically queries `/api/embedded/render-layout` to render complex screen layouts divided into multiple independent zones.
+- **On-Device System Menu & Power Management:**
+  - Hold the `OK` button for 1.5 seconds to access the on-screen System Menu:
+    1. `BACK / ZURÜCK` (Dismiss menu)
+    2. `LAYOUT-MODUS: [ MULTI-ZONE / STANDARD ]` (Toggle rendering engine)
+    3. `POWER OFF / AUSSCHALTEN` (Enter deep sleep with QR-code shutdown screen)
+    4. `FACTORY RESET / WERKSEINSTELLUNGEN` (Wipe NVS and restart)
 - **Offline Reliability & Visual Indicators:**
   - When Wi-Fi is unavailable but frames are cached, images rotate offline seamlessly with a discreet top-right `[! NO WI-FI]` badge.
   - If Wi-Fi fails on an empty cache, an informative full-screen troubleshooting diagnostic is rendered.
@@ -47,7 +56,7 @@ Ultra-low-power, high-performance C++ firmware for the **[Seeed Studio reTermina
 1. Power on the reTerminal Sticky. If unconfigured, it broadcasts a Wi-Fi network called **`ScreenTinker-Setup`**.
 2. Connect your smartphone/laptop to **`ScreenTinker-Setup`**.
 3. A setup page will open automatically (or navigate to `http://192.168.4.1`).
-4. Enter your Wi-Fi details and ScreenTinker Server URL, then click **"Save & Connect"**.
+4. Enter your Wi-Fi details, ScreenTinker Server URL, and select your preferred Layout Mode, then click **"Save & Connect"**.
 
 ### Option B: USB-C Web Installer
 1. Connect the reTerminal Sticky to your PC/Mac using a USB-C data cable.
@@ -63,12 +72,12 @@ Ultra-low-power, high-performance C++ firmware for the **[Seeed Studio reTermina
 
 ## Button Controls
 
-| Button | Setup / Pairing Mode | Signage Playback Mode |
-| :--- | :--- | :--- |
-| **UP (Volume Up / GPIO 5)** | Switch Language to **Deutsch** | Navigate to **Previous Item** in PSRAM cache |
-| **DOWN (Volume Down / GPIO 6)** | Switch Language to **English** | Navigate to **Next Item** in PSRAM cache |
-| **OK (Short Press / GPIO 4)** | Request / Refresh Pairing Code | Force immediate server synchronization |
-| **OK (Hold 5 Seconds / GPIO 4)**| **Factory Reset:** Wipe NVS configuration and restart | **Factory Reset:** Wipe NVS configuration and restart |
+| Button | Setup / Pairing Mode | Signage Playback Mode | System Menu Mode |
+| :--- | :--- | :--- | :--- |
+| **UP (GPIO 5)** | Switch Language to **Deutsch** | Navigate to **Previous Item** in cache | Navigate menu UP |
+| **DOWN (GPIO 6)** | Switch Language to **English** | Navigate to **Next Item** in cache | Navigate menu DOWN |
+| **OK (Short Press / GPIO 4)** | Refresh / Request Pairing Code | Force immediate sync with server | Confirm selection / Toggle option |
+| **OK (Hold 1.5s / GPIO 4)** | Open **System Menu** | Open **System Menu** | — |
 
 ---
 

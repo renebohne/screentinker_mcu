@@ -979,9 +979,9 @@ void loop() {
   bool isPaired = (isConfigured && g_deviceId.length() > 0 && g_deviceToken.length() > 0 && g_deviceId != "your-device-uuid");
   int cachedCount = cacheValidCount();
 
-  // If Wi-Fi is configured but device is not paired yet, poll pairing status periodically
+  // If Wi-Fi is configured but device is not paired yet, poll pairing status periodically (NOT in menu)
   static uint32_t lastPairCheckMillis = 0;
-  if (isConfigured && !isPaired) {
+  if (!s_inSystemMenu && isConfigured && !isPaired) {
     if (s_activePairingDeviceId.length() == 0 && (millis() - lastPairCheckMillis > 6000)) {
       lastPairCheckMillis = millis();
       registerAndStartPairing();
@@ -1008,13 +1008,14 @@ void loop() {
       Serial.println("\n>>> [Button] Long press (5s) detected -> Performing Factory Reset!");
       okPressStart = 0;
       okClickCount = 0;
+      s_inSystemMenu = false;
       factoryResetNVS();
     }
   } else {
     if (okPressStart > 0) {
       uint32_t duration = millis() - okPressStart;
       okPressStart = 0;
-      if (duration > 40 && duration < 1200) {
+      if (duration > 40 && duration < 1000) {
         okClickCount++;
         lastOkRelease = millis();
       }
@@ -1023,40 +1024,17 @@ void loop() {
 
   // Evaluate single vs double click on OK button
   if (okClickCount > 0) {
-    if (okClickCount >= 2) {
-      // DOUBLE CLICK DETECTED!
-      okClickCount = 0;
-      if (!s_inSystemMenu) {
+    if (!s_inSystemMenu) {
+      // OUTSIDE MENU: Double-click opens menu, Single-click refreshes/pairs
+      if (okClickCount >= 2) {
+        okClickCount = 0;
         Serial.println("\n>>> [Button] Double-click on OK detected -> Opening System Menu!");
         s_inSystemMenu = true;
         s_menuSelection = 0; // Default: Zurück / Back
         s_menuOpenMillis = millis();
         showSystemMenu(s_menuSelection, s_currentLang);
-      } else {
-        Serial.println("\n>>> [Button] Double-click on OK detected -> Exiting System Menu!");
-        s_inSystemMenu = false;
-        redrawCurrentState();
-      }
-    } else if (millis() - lastOkRelease > 380) {
-      // SINGLE CLICK TIMEOUT -> Execute Single Click Action
-      okClickCount = 0;
-      if (s_inSystemMenu) {
-        // Confirm current selection in menu!
-        Serial.printf("\n>>> [SystemMenu] Selection %d confirmed!\n", s_menuSelection);
-        if (s_menuSelection == 0) {
-          // 0: Zurück / Back
-          s_inSystemMenu = false;
-          redrawCurrentState();
-        } else if (s_menuSelection == 1) {
-          // 1: Ausschalten / Power Off
-          powerOffDevice();
-        } else if (s_menuSelection == 2) {
-          // 2: Factory Reset
-          s_inSystemMenu = false;
-          factoryResetNVS();
-        }
-      } else {
-        // Normal Single Click outside menu
+      } else if (millis() - lastOkRelease > 350) {
+        okClickCount = 0;
         if (!isConfigured) {
           Serial.println("\n>>> [Button] OK pressed -> Redrawing setup instructions...");
           showOnboardingScreen(s_currentLang);
@@ -1068,6 +1046,22 @@ void loop() {
           fetchAndRender(true, s_currentItemIndex);
           s_lastSyncMillis = millis();
         }
+      }
+    } else {
+      // INSIDE MENU: Any click confirms current selection immediately!
+      okClickCount = 0;
+      Serial.printf("\n>>> [SystemMenu] Selection %d confirmed!\n", s_menuSelection);
+      if (s_menuSelection == 0) {
+        // 0: Zurück / Back
+        s_inSystemMenu = false;
+        redrawCurrentState();
+      } else if (s_menuSelection == 1) {
+        // 1: Ausschalten / Power Off
+        powerOffDevice();
+      } else if (s_menuSelection == 2) {
+        // 2: Factory Reset
+        s_inSystemMenu = false;
+        factoryResetNVS();
       }
     }
   }
@@ -1129,8 +1123,8 @@ void loop() {
     }
   }
 
-  // Periodic Auto-Sync (Only when device is fully configured & paired)
-  if (isPaired && (millis() - s_lastSyncMillis > s_syncIntervalMs)) {
+  // Periodic Auto-Sync (Only when device is fully configured & paired, and NOT in menu)
+  if (!s_inSystemMenu && isPaired && (millis() - s_lastSyncMillis > s_syncIntervalMs)) {
     s_lastSyncMillis = millis();
     Serial.println("\n[AutoSync] Periodic sync triggered...");
     fetchAndRender(false);

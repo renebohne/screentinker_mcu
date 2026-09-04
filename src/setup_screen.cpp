@@ -493,3 +493,45 @@ void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang) {
   gfx_draw_string(buffer, 56, 425, "* Timeout               : Menue schliesst nach 30 Sekunden automatisch", 1, 1);
 }
 
+// ─── Power Off / Shutdown Screen ──────────────────────────────────────────────
+void renderPowerOffScreen(uint8_t* buffer, Language lang) {
+  gfx_fill(buffer, 1); // White canvas
+
+  // Outer double borders
+  gfx_draw_rect(buffer, 10, 10, EPD_WIDTH - 20, EPD_HEIGHT - 20, 0);
+  gfx_draw_rect(buffer, 14, 14, EPD_WIDTH - 28, EPD_HEIGHT - 28, 0);
+
+  // Large centered black title banner
+  gfx_fill_rect(buffer, 40, 50, EPD_WIDTH - 80, 80, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 150, 72, "GERAET AUSGESCHALTET", 1, 3);
+    gfx_draw_string(buffer, 290, 108, "( POWER OFF / STANDBY )", 1, 1);
+  } else {
+    gfx_draw_string(buffer, 200, 72, "DEVICE POWERED OFF", 1, 3);
+    gfx_draw_string(buffer, 290, 108, "( POWER OFF / STANDBY )", 1, 1);
+  }
+
+  // Information Card in Center
+  gfx_draw_rect(buffer, 40, 150, EPD_WIDTH - 80, 170, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 70, 175, "* Stromverbrauch : 0 uA im Akkubetrieb (Hardware getrennt)", 0, 2);
+    gfx_draw_string(buffer, 70, 215, "* E-Paper        : Bildschirminhalt bleibt dauerhaft erhalten", 0, 2);
+    gfx_draw_string(buffer, 70, 255, "* Akkulaufzeit   : Keine Entladung waehrend des Standbys", 0, 2);
+    gfx_draw_string(buffer, 70, 292, "* Status         : Sicher fuer Transport und Lagerung", 0, 1);
+  } else {
+    gfx_draw_string(buffer, 70, 175, "* Power Draw     : 0 uA on battery (Hardware unlatched)", 0, 2);
+    gfx_draw_string(buffer, 70, 215, "* E-Paper        : Screen contents preserved indefinitely", 0, 2);
+    gfx_draw_string(buffer, 70, 255, "* Battery Life   : Zero discharge during power off state", 0, 2);
+    gfx_draw_string(buffer, 70, 292, "* Status         : Safe for transport and storage", 0, 1);
+  }
+
+  // Big Action Prompt at Bottom
+  gfx_fill_rect(buffer, 40, 340, EPD_WIDTH - 80, 90, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 140, 372, "[ OK ]-Taste druecken zum Einschalten", 1, 2);
+  } else {
+    gfx_draw_string(buffer, 160, 372, "Press [ OK ] Button to Turn On", 1, 2);
+  }
+}
+
+

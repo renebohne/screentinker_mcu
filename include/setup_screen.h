@@ -23,5 +23,6 @@ void renderOnboardingScreen(uint8_t* buffer, Language lang = LANG_EN);
 void renderNoWifiScreen(uint8_t* buffer, const char* ssid, Language lang = LANG_EN);
 void renderPairingCodeScreen(uint8_t* buffer, const char* code, Language lang = LANG_EN);
 void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang = LANG_EN);
+void renderPowerOffScreen(uint8_t* buffer, Language lang = LANG_EN);
 void gfx_draw_offline_badge(uint8_t* buffer);
 

@@ -373,9 +373,18 @@ void showSystemMenu(int selectedIndex, Language lang = LANG_EN) {
 
 void powerOffDevice() {
   Serial.println("\n=============================================");
-  Serial.println("  [Power] SHUTTING DOWN / ENTERING DEEP SLEEP");
+  Serial.println("  [Power] RENDERING SHUTDOWN SCREEN & POWERING OFF");
   Serial.println("=============================================");
   
+  // Render dedicated Power Off screen on E-Paper so user knows the device is off
+  if (s_rawBuffer && s_rotatedBuffer) {
+    renderPowerOffScreen(s_rawBuffer, s_currentLang);
+    rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
+    renderRotatedBuffer(s_rotatedBuffer);
+  }
+
+  delay(200);
+
   // Release display power boost circuit
   digitalWrite(PIN_EPD_PWR_EN, LOW);
   delay(50);

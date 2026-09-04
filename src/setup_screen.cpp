@@ -1,5 +1,6 @@
 #include "setup_screen.h"
 #include <string.h>
+#include <qrcode.h>
 
 // 8x8 Basic ASCII Font (characters 32 to 126)
 const uint8_t font8x8_basic[95][8] = {
@@ -501,37 +502,67 @@ void renderPowerOffScreen(uint8_t* buffer, Language lang) {
   gfx_draw_rect(buffer, 10, 10, EPD_WIDTH - 20, EPD_HEIGHT - 20, 0);
   gfx_draw_rect(buffer, 14, 14, EPD_WIDTH - 28, EPD_HEIGHT - 28, 0);
 
-  // Large centered black title banner
-  gfx_fill_rect(buffer, 40, 50, EPD_WIDTH - 80, 80, 0);
+  // Top header banner
+  gfx_fill_rect(buffer, 40, 40, EPD_WIDTH - 80, 70, 0);
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 150, 72, "GERAET AUSGESCHALTET", 1, 3);
-    gfx_draw_string(buffer, 290, 108, "( POWER OFF / STANDBY )", 1, 1);
+    gfx_draw_string(buffer, 150, 56, "GERAET AUSGESCHALTET", 1, 3);
+    gfx_draw_string(buffer, 290, 88, "( POWER OFF / STANDBY )", 1, 1);
   } else {
-    gfx_draw_string(buffer, 200, 72, "DEVICE POWERED OFF", 1, 3);
-    gfx_draw_string(buffer, 290, 108, "( POWER OFF / STANDBY )", 1, 1);
+    gfx_draw_string(buffer, 200, 56, "DEVICE POWERED OFF", 1, 3);
+    gfx_draw_string(buffer, 290, 88, "( POWER OFF / STANDBY )", 1, 1);
   }
 
-  // Information Card in Center
-  gfx_draw_rect(buffer, 40, 150, EPD_WIDTH - 80, 170, 0);
-  if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 70, 175, "* Stromverbrauch : 0 uA im Akkubetrieb (Hardware getrennt)", 0, 2);
-    gfx_draw_string(buffer, 70, 215, "* E-Paper        : Bildschirminhalt bleibt dauerhaft erhalten", 0, 2);
-    gfx_draw_string(buffer, 70, 255, "* Akkulaufzeit   : Keine Entladung waehrend des Standbys", 0, 2);
-    gfx_draw_string(buffer, 70, 292, "* Status         : Sicher fuer Transport und Lagerung", 0, 1);
-  } else {
-    gfx_draw_string(buffer, 70, 175, "* Power Draw     : 0 uA on battery (Hardware unlatched)", 0, 2);
-    gfx_draw_string(buffer, 70, 215, "* E-Paper        : Screen contents preserved indefinitely", 0, 2);
-    gfx_draw_string(buffer, 70, 255, "* Battery Life   : Zero discharge during power off state", 0, 2);
-    gfx_draw_string(buffer, 70, 292, "* Status         : Safe for transport and storage", 0, 1);
+  // 1. Generate & Draw QR Code for GitHub Repo
+  const char* repoUrl = "https://github.com/renebohne/screentinker_mcu";
+  QRCode qrcode;
+  uint8_t qrcodeData[qrcode_getBufferSize(4)];
+  qrcode_initText(&qrcode, qrcodeData, 4, ECC_LOW, repoUrl);
+
+  const int qrScale = 5;
+  const int qrSizePx = qrcode.size * qrScale; // 33 * 5 = 165 px
+  const int qrX = 65;
+  const int qrY = 145;
+
+  // White box with border for QR Code
+  gfx_draw_rect(buffer, qrX - 8, qrY - 8, qrSizePx + 16, qrSizePx + 16, 0);
+
+  for (uint8_t y = 0; y < qrcode.size; y++) {
+    for (uint8_t x = 0; x < qrcode.size; x++) {
+      if (qrcode_getModule(&qrcode, x, y)) {
+        gfx_fill_rect(buffer, qrX + x * qrScale, qrY + y * qrScale, qrScale, qrScale, 0);
+      }
+    }
   }
 
-  // Big Action Prompt at Bottom
-  gfx_fill_rect(buffer, 40, 340, EPD_WIDTH - 80, 90, 0);
+  // 2. Right Side Card (Repository Info)
+  const int cardX = qrX + qrSizePx + 24;
+  const int cardW = EPD_WIDTH - cardX - 40;
+  gfx_draw_rect(buffer, cardX, qrY - 8, cardW, qrSizePx + 16, 0);
+
+  gfx_draw_string(buffer, cardX + 18, qrY + 8, "ScreenTinker MCU Client", 0, 2);
+  gfx_draw_string(buffer, cardX + 18, qrY + 34, "Firmware for Seeed Studio reTerminal Sticky", 0, 1);
+  gfx_draw_hline(buffer, cardX + 18, qrY + 52, cardW - 36, 0);
+
+  gfx_draw_string(buffer, cardX + 18, qrY + 66, "GitHub Repository & Documentation:", 0, 1);
+  gfx_fill_rect(buffer, cardX + 18, qrY + 84, cardW - 36, 28, 0);
+  gfx_draw_string(buffer, cardX + 26, qrY + 92, repoUrl, 1, 1);
+
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 140, 372, "[ OK ]-Taste druecken zum Einschalten", 1, 2);
+    gfx_draw_string(buffer, cardX + 18, qrY + 128, "Scanne den QR-Code mit deinem Smartphone.", 0, 1);
+    gfx_draw_string(buffer, cardX + 18, qrY + 144, "Dokumentation, Updates & Quellcode auf GitHub.", 0, 1);
   } else {
-    gfx_draw_string(buffer, 160, 372, "Press [ OK ] Button to Turn On", 1, 2);
+    gfx_draw_string(buffer, cardX + 18, qrY + 128, "Scan QR code with your smartphone camera.", 0, 1);
+    gfx_draw_string(buffer, cardX + 18, qrY + 144, "Documentation, updates & source on GitHub.", 0, 1);
+  }
+
+  // 3. Bottom Wake-up Action Prompt
+  gfx_fill_rect(buffer, 40, 355, EPD_WIDTH - 80, 75, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 140, 382, "[ OK ]-Taste druecken zum Einschalten", 1, 2);
+  } else {
+    gfx_draw_string(buffer, 170, 382, "Press [ OK ] Button to Turn On", 1, 2);
   }
 }
+
 
 

@@ -1,6 +1,6 @@
 # ScreenTinker Firmware for Seeed Studio reTerminal Sticky
 
-Ultra-low-power, high-performance C++ firmware for the **Seeed Studio reTerminal Sticky** (ESP32-S3R8 with 8MB Flash, 8MB PSRAM, 3.97" 800×480 B/W E-Paper & SSD1677 driver) targeting the **ScreenTinker Digital Signage Server**.
+Ultra-low-power, high-performance C++ firmware for the **[Seeed Studio reTerminal Sticky](https://www.seeedstudio.com/reTerminal-Sticky-p-6861.html)** (ESP32-S3R8 with 8MB Flash, 8MB PSRAM, 3.97" 800×480 B/W E-Paper & SSD1677 driver) targeting the **ScreenTinker Digital Signage Server**.
 
 ---
 

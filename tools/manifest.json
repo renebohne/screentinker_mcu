@@ -1,6 +1,6 @@
 {
   "name": "ScreenTinker Seeed Studio reTerminal Sticky",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "home_assistant_domain": "screentinker",
   "new_install_prompt_erase": false,
   "builds": [

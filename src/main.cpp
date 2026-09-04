@@ -842,10 +842,16 @@ void processSerialLine(const String& line) {
   DeserializationError err = deserializeJson(doc, line);
   if (err) {
     if (line == "status") {
-      Serial.printf("{\"status\":\"ok\",\"ip\":\"%s\",\"ssid\":\"%s\",\"device_id\":\"%s\",\"psram_free\":%u}\n",
-                    WiFi.localIP().toString().c_str(), g_wifiSsid.c_str(), g_deviceId.c_str(),
-                    psramFound() ? ESP.getFreePsram() : 0);
+      Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"ssid\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"psram_free\":%u,\"rssi\":%d}\n",
+                    FIRMWARE_VERSION,
+                    WiFi.localIP().toString().c_str(), g_wifiSsid.c_str(),
+                    WiFi.status() == WL_CONNECTED ? "true" : "false",
+                    g_deviceId.c_str(),
+                    psramFound() ? ESP.getFreePsram() : 0,
+                    WiFi.RSSI());
     } else if (line == "reset") {
+      Serial.println("{\"status\":\"ok\",\"v\":1,\"message\":\"NVS wiped. Restarting device.\"}");
+      delay(500);
       factoryResetNVS();
     } else if (line == "refresh") {
       fetchAndRender(true, s_currentItemIndex);
@@ -882,18 +888,29 @@ void processSerialLine(const String& line) {
     return;
   }
 
+  int protoVersion = doc["v"] | 0;
+  if (protoVersion == 0 || protoVersion > 1) {
+    Serial.printf("{\"status\":\"error\",\"v\":1,\"message\":\"Unsupported protocol version: %d\"}\n", protoVersion);
+    return;
+  }
+
   const char* cmd = doc["cmd"];
   if (!cmd) return;
 
   if (strcmp(cmd, "config") == 0 || strcmp(cmd, "setup") == 0) {
-    String ssid    = doc["ssid"] | g_wifiSsid;
-    String pass    = doc["pass"] | g_wifiPass;
+    if (!doc.containsKey("ssid") || doc["ssid"].as<String>().length() == 0) {
+      Serial.println("{\"status\":\"error\",\"v\":1,\"message\":\"Missing required field: ssid\"}");
+      return;
+    }
+
+    String ssid    = doc["ssid"] | "";
+    String pass    = doc["pass"] | "";
     String server  = doc["server"] | g_serverUrl;
     String devId   = doc["device_id"] | "";
     String token   = doc["device_token"] | "";
 
     saveConfigToNVS(ssid, pass, server, devId, token);
-    Serial.println("{\"status\":\"ok\",\"message\":\"Configuration applied.\"}");
+    Serial.println("{\"status\":\"ok\",\"v\":1,\"message\":\"Configuration saved.\"}");
 
     if (devId.length() > 0 && token.length() > 0) {
       fetchAndRender(true);
@@ -901,7 +918,7 @@ void processSerialLine(const String& line) {
       registerAndStartPairing();
     }
   } else if (strcmp(cmd, "status") == 0) {
-    Serial.printf("{\"status\":\"ok\",\"version\":\"%s\",\"ip\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"psram_free\":%u,\"rssi\":%d}\n",
+    Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"psram_free\":%u,\"rssi\":%d}\n",
                   FIRMWARE_VERSION,
                   WiFi.localIP().toString().c_str(),
                   WiFi.status() == WL_CONNECTED ? "true" : "false",
@@ -909,6 +926,8 @@ void processSerialLine(const String& line) {
                   psramFound() ? ESP.getFreePsram() : 0,
                   WiFi.RSSI());
   } else if (strcmp(cmd, "reset") == 0) {
+    Serial.println("{\"status\":\"ok\",\"v\":1,\"message\":\"NVS wiped. Restarting device.\"}");
+    delay(500);
     factoryResetNVS();
   } else if (strcmp(cmd, "refresh") == 0) {
     fetchAndRender(true, s_currentItemIndex);
@@ -925,6 +944,8 @@ void processSerialLine(const String& line) {
     s_menuSelection = 0;
     s_menuOpenMillis = millis();
     showSystemMenu(0, s_currentLang);
+  } else {
+    Serial.printf("{\"status\":\"error\",\"v\":1,\"message\":\"Unknown command: %s\"}\n", cmd);
   }
 }
 

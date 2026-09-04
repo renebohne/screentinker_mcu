@@ -313,11 +313,11 @@
     }
 
     function sendStatusQuery() {
-      sendSerial('{"cmd":"status"}');
+      sendSerial('{"v":1,"cmd":"status"}');
     }
 
     btnStatus.addEventListener('click', () => {
-      log('Sende Statusabfrage...');
+      log('Sende Statusabfrage (WSCP v1)...');
       sendStatusQuery();
     });
 
@@ -334,6 +334,7 @@
       }
 
       const payload = {
+        v: 1,
         cmd: 'config',
         ssid: ssid,
         pass: pass,
@@ -342,14 +343,14 @@
         device_token: deviceToken
       };
 
-      log('Sende Konfiguration an Sticky...');
+      log('Sende Konfiguration an Sticky (WSCP v1)...');
       sendSerial(JSON.stringify(payload));
     });
 
     btnReset.addEventListener('click', () => {
       if (confirm('Möchtest du die gespeicherten Zugangsdaten auf dem Sticky wirklich löschen?')) {
-        log('Sende Factory Reset...');
-        sendSerial('{"cmd":"reset"}');
+        log('Sende Factory Reset (WSCP v1)...');
+        sendSerial('{"v":1,"cmd":"reset"}');
       }
     });
   </script>

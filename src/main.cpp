@@ -901,7 +901,8 @@ void processSerialLine(const String& line) {
       registerAndStartPairing();
     }
   } else if (strcmp(cmd, "status") == 0) {
-    Serial.printf("{\"status\":\"ok\",\"ip\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"psram_free\":%u,\"rssi\":%d}\n",
+    Serial.printf("{\"status\":\"ok\",\"version\":\"%s\",\"ip\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"psram_free\":%u,\"rssi\":%d}\n",
+                  FIRMWARE_VERSION,
                   WiFi.localIP().toString().c_str(),
                   WiFi.status() == WL_CONNECTED ? "true" : "false",
                   g_deviceId.c_str(),
@@ -934,7 +935,7 @@ void setup() {
   delay(300);
 
   Serial.println("\n=============================================");
-  Serial.println("  ScreenTinker — Seeed Studio reTerminal Sticky");
+  Serial.printf("  ScreenTinker v%s — Seeed Studio reTerminal Sticky\n", FIRMWARE_VERSION);
   Serial.println("  PSRAM Cache Engine & Ultra-Low-Power Sync");
   Serial.println("=============================================");
 

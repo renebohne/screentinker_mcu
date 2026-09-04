@@ -1,5 +1,7 @@
 #pragma once
 
+#define FIRMWARE_VERSION      "1.1.0"
+
 // ─── Network & Wi-Fi Configuration ───────────────────────────────────────────
 #define WIFI_SSID             "Your-WiFi-SSID"
 #define WIFI_PASSWORD         "Your-WiFi-Password"

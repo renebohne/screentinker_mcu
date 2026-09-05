@@ -765,7 +765,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   if (g_multiZone) {
     url = g_serverUrl + "/api/embedded/render-layout?device_id=" + g_deviceId;
   } else {
-    url = g_serverUrl + "/api/embedded/render?device_id=" + g_deviceId;
+    url = g_serverUrl + "/api/embedded/render?mode=single&device_id=" + g_deviceId;
     if (requestedItemIndex >= 0) {
       url += "&item=" + String(requestedItemIndex);
     }

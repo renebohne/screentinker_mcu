@@ -163,6 +163,7 @@ void gfx_draw_char(uint8_t* buf, int x, int y, char c, uint8_t color, int scale)
 }
 
 void gfx_draw_string(uint8_t* buf, int x, int y, const char* str, uint8_t color, int scale) {
+  if (!str) return;
   int cur_x = x;
   int cur_y = y;
   while (*str) {
@@ -177,209 +178,150 @@ void gfx_draw_string(uint8_t* buf, int x, int y, const char* str, uint8_t color,
   }
 }
 
-// ─── Onboarding / Instruction Screen (Optimized for 800x480 E-Paper) ──────────
-void renderOnboardingScreen(uint8_t* buffer, Language lang) {
-  // 1. Fill entire screen white
-  gfx_fill(buffer, 1);
+// ─── ScreenTinker Monitor Logo ───────────────────────────────────────────────
+void gfx_draw_screentinker_logo(uint8_t* buf, int x, int y, int scale) {
+  int w = 24 * scale;
+  int h = 15 * scale;
+  int border = max(1, scale / 2);
+  for (int b = 0; b < border; b++) {
+    gfx_draw_rect(buf, x + b, y + b, w - 2 * b, h - 2 * b, 0);
+  }
+  // Stand neck
+  int neckW = max(2, scale);
+  int neckH = 4 * scale;
+  int neckX = x + (w - neckW) / 2;
+  int neckY = y + h;
+  gfx_fill_rect(buf, neckX, neckY, neckW, neckH, 0);
+  // Stand base
+  int baseW = 12 * scale;
+  int baseH = max(2, scale);
+  int baseX = x + (w - baseW) / 2;
+  int baseY = neckY + neckH;
+  gfx_fill_rect(buf, baseX, baseY, baseW, baseH, 0);
+}
 
-  // 2. Outer decorative frame
-  gfx_draw_rect(buffer, 12, 12, EPD_WIDTH - 24, EPD_HEIGHT - 24, 0);
-  gfx_draw_rect(buffer, 15, 15, EPD_WIDTH - 30, EPD_HEIGHT - 30, 0);
+// ─── QR Code Generator Helper ────────────────────────────────────────────────
+void gfx_draw_qr(uint8_t* buf, int x, int y, const char* text, int scale) {
+  if (!text || strlen(text) == 0) return;
+  QRCode qrcode;
+  int len = strlen(text);
+  int version = (len > 70) ? 6 : ((len > 40) ? 4 : 3);
+  uint8_t qrcodeData[qrcode_getBufferSize(6)];
+  int res = qrcode_initText(&qrcode, qrcodeData, version, ECC_LOW, text);
+  if (res != 0) {
+    uint8_t qrcodeData8[qrcode_getBufferSize(8)];
+    qrcode_initText(&qrcode, qrcodeData8, 8, ECC_LOW, text);
+  }
 
-  // 3. Header Banner (Black background with white text)
-  gfx_fill_rect(buffer, 18, 18, EPD_WIDTH - 36, 62, 0);
-  gfx_draw_string(buffer, 35, 32, "ScreenTinker", 1, 3);
-  gfx_draw_string(buffer, 480, 40, "reTerminal Sticky", 1, 2);
+  int qrSizePx = qrcode.size * scale;
+  int pad = 8;
+  gfx_fill_rect(buf, x - pad, y - pad, qrSizePx + 2 * pad, qrSizePx + 2 * pad, 1);
+  gfx_draw_rect(buf, x - pad, y - pad, qrSizePx + 2 * pad, qrSizePx + 2 * pad, 0);
 
-  if (lang == LANG_DE) {
-    // 4. Status badge (German)
-    gfx_draw_rect(buffer, 35, 92, EPD_WIDTH - 70, 42, 0);
-    gfx_draw_string(buffer, 48, 100, "[!] Geraet bereit zur Einrichtung (Kein WLAN hinterlegt)", 0, 1);
-    gfx_draw_string(buffer, 48, 116, "    [ UP: Deutsch | DOWN: English ]", 0, 1);
-
-    // 5. Instruction Steps Heading
-    gfx_draw_string(buffer, 35, 148, "SCHRITTE ZUR EINRICHTUNG:", 0, 2);
-    gfx_draw_hline(buffer, 35, 168, EPD_WIDTH - 70, 0);
-
-    // Step 1: Smartphone Hotspot
-    gfx_fill_rect(buffer, 35, 180, 26, 26, 0);
-    gfx_draw_string(buffer, 43, 185, "A", 1, 2);
-    gfx_draw_string(buffer, 70, 180, "Option A: Smartphone / WLAN-Hotspot", 0, 2);
-    gfx_draw_string(buffer, 70, 200, "Mit WLAN 'ScreenTinker-Setup' verbinden -> Browser: http://192.168.4.1", 0, 1);
-
-    // Step 2: USB Web-Flasher
-    gfx_fill_rect(buffer, 35, 222, 26, 26, 0);
-    gfx_draw_string(buffer, 43, 227, "B", 1, 2);
-    gfx_draw_string(buffer, 70, 222, "Option B: USB-C & Web-Installer", 0, 2);
-    gfx_draw_string(buffer, 70, 242, "Per USB verbinden -> tools/sticky-installer.html in Chrome/Edge oeffnen", 0, 1);
-
-    // Step 3: ScreenTinker Pairing
-    gfx_fill_rect(buffer, 35, 264, 26, 26, 0);
-    gfx_draw_string(buffer, 43, 269, "C", 1, 2);
-    gfx_draw_string(buffer, 70, 264, "Kopplung: 6-stelligen Code eingeben", 0, 2);
-    gfx_draw_string(buffer, 70, 284, "Im ScreenTinker Dashboard auf '+ Add Display' klicken & Code eingeben.", 0, 1);
-
-    // 6. Footer Information Box
-    gfx_fill_rect(buffer, 35, 316, EPD_WIDTH - 70, 134, 0);
-    gfx_draw_string(buffer, 48, 328, "TASTEN-FUNKTIONEN / BUTTONS:", 1, 1);
-    gfx_draw_string(buffer, 48, 348, "* UP / DOWN Tasten         : Sprache wechseln [ Deutsch / English ]", 1, 1);
-    gfx_draw_string(buffer, 48, 368, "* OK-Taste (kurzer Druck)  : Bildschirm aktualisieren / Status abfragen", 1, 1);
-    gfx_draw_string(buffer, 48, 388, "* OK-Taste (5 Sek. halten) : Factory Reset / NVS-Konfiguration loeschen", 1, 1);
-    gfx_draw_string(buffer, 48, 408, "* WebSerial / CLI          : JSON-Befehle (config, status, cache, reset, next, prev)", 1, 1);
-    gfx_draw_string(buffer, 48, 428, "* Energie-Management       : Automatischer WLAN-Ruhezustand aktiv", 1, 1);
-  } else {
-    // 4. Status badge (English - Default)
-    gfx_draw_rect(buffer, 35, 92, EPD_WIDTH - 70, 42, 0);
-    gfx_draw_string(buffer, 48, 100, "[!] Device ready for setup (No Wi-Fi credentials configured)", 0, 1);
-    gfx_draw_string(buffer, 48, 116, "    [ DOWN: English | UP: Deutsch ]", 0, 1);
-
-    // 5. Instruction Steps Heading
-    gfx_draw_string(buffer, 35, 148, "SETUP INSTRUCTIONS:", 0, 2);
-    gfx_draw_hline(buffer, 35, 168, EPD_WIDTH - 70, 0);
-
-    // Step 1: Smartphone Hotspot
-    gfx_fill_rect(buffer, 35, 180, 26, 26, 0);
-    gfx_draw_string(buffer, 43, 185, "A", 1, 2);
-    gfx_draw_string(buffer, 70, 180, "Option A: Smartphone / Wi-Fi Hotspot", 0, 2);
-    gfx_draw_string(buffer, 70, 200, "Connect to Wi-Fi 'ScreenTinker-Setup' -> Browser: http://192.168.4.1", 0, 1);
-
-    // Step 2: USB Web-Flasher
-    gfx_fill_rect(buffer, 35, 222, 26, 26, 0);
-    gfx_draw_string(buffer, 43, 227, "B", 1, 2);
-    gfx_draw_string(buffer, 70, 222, "Option B: USB-C & Web-Installer", 0, 2);
-    gfx_draw_string(buffer, 70, 242, "Connect via USB -> Open tools/sticky-installer.html in Chrome/Edge", 0, 1);
-
-    // Step 3: ScreenTinker Pairing
-    gfx_fill_rect(buffer, 35, 264, 26, 26, 0);
-    gfx_draw_string(buffer, 43, 269, "C", 1, 2);
-    gfx_draw_string(buffer, 70, 264, "Pairing: Enter 6-digit code in Dashboard", 0, 2);
-    gfx_draw_string(buffer, 70, 284, "In ScreenTinker Dashboard, click '+ Add Display' and enter the on-screen code.", 0, 1);
-
-    // 6. Footer Information Box
-    gfx_fill_rect(buffer, 35, 316, EPD_WIDTH - 70, 134, 0);
-    gfx_draw_string(buffer, 48, 328, "BUTTON FUNCTIONS:", 1, 1);
-    gfx_draw_string(buffer, 48, 348, "* UP / DOWN Buttons        : Switch Language [ English / Deutsch ]", 1, 1);
-    gfx_draw_string(buffer, 48, 368, "* OK Button (Short press)  : Refresh display / check status", 1, 1);
-    gfx_draw_string(buffer, 48, 388, "* OK Button (Hold 5 sec)   : Factory Reset / wipe NVS configuration", 1, 1);
-    gfx_draw_string(buffer, 48, 408, "* WebSerial / CLI          : JSON commands (config, status, cache, reset, next, prev)", 1, 1);
-    gfx_draw_string(buffer, 48, 428, "* Power Management         : Automatic Wi-Fi sleep enabled", 1, 1);
+  for (uint8_t r = 0; r < qrcode.size; r++) {
+    for (uint8_t c = 0; c < qrcode.size; c++) {
+      if (qrcode_getModule(&qrcode, c, r)) {
+        gfx_fill_rect(buf, x + c * scale, y + r * scale, scale, scale, 0);
+      }
+    }
   }
 }
 
-// ─── Offline Badge for Cache-Rotation Overlay (Upright buffer coordinates) ─────
-void gfx_draw_offline_badge(uint8_t* buffer) {
-  // Top-Right corner badge (x: 642 to 780, y: 14 to 44)
-  gfx_fill_rect(buffer, 642, 14, 142, 30, 0); // Black box
-  gfx_draw_rect(buffer, 644, 16, 138, 26, 1); // White inner outline
-
-  // Exclamation mark icon in white box
-  gfx_fill_rect(buffer, 648, 19, 18, 18, 1);
-  gfx_draw_string(buffer, 654, 20, "!", 0, 2);
-
-  // Text label
-  gfx_draw_string(buffer, 672, 24, "NO WI-FI", 1, 1);
-}
-
-// ─── Prominent "No Wi-Fi Connection" Screen (When Cache is Empty) ──────────────
-void renderNoWifiScreen(uint8_t* buffer, const char* ssid, Language lang) {
-  // 1. Fill screen white
+// ─── 1. Boot / Splash Screen ─────────────────────────────────────────────────
+void renderSplashScreen(uint8_t* buffer, const char* version, const char* statusMsg, Language lang) {
   gfx_fill(buffer, 1);
 
-  // 2. Outer double border
-  gfx_draw_rect(buffer, 12, 12, EPD_WIDTH - 24, EPD_HEIGHT - 24, 0);
-  gfx_draw_rect(buffer, 15, 15, EPD_WIDTH - 30, EPD_HEIGHT - 30, 0);
+  // Outer double border
+  gfx_draw_rect(buffer, 10, 10, EPD_WIDTH - 20, EPD_HEIGHT - 20, 0);
+  gfx_draw_rect(buffer, 14, 14, EPD_WIDTH - 28, EPD_HEIGHT - 28, 0);
 
-  // 3. Header Banner
-  gfx_fill_rect(buffer, 18, 18, EPD_WIDTH - 36, 62, 0);
-  gfx_draw_string(buffer, 35, 32, "ScreenTinker", 1, 3);
-  gfx_draw_string(buffer, 480, 40, "reTerminal Sticky", 1, 2);
+  // ScreenTinker Monitor Logo (Scale 4: 96x80)
+  gfx_draw_screentinker_logo(buffer, 352, 45, 4);
 
-  if (lang == LANG_DE) {
-    // 4. Alert Box (Inverted black)
-    gfx_fill_rect(buffer, 35, 90, EPD_WIDTH - 70, 48, 0);
-    gfx_draw_string(buffer, 48, 104, "[!] KEINE WLAN-VERBINDUNG (OFFLINE)", 1, 2);
+  // "ScreenTinker" Header (Scale 4: 12 chars * 32px = 384px -> centered at 208)
+  gfx_draw_string(buffer, 208, 145, "ScreenTinker", 0, 4);
 
-    // 5. Details Box
-    gfx_draw_rect(buffer, 35, 148, EPD_WIDTH - 70, 48, 0);
-    gfx_draw_string(buffer, 48, 156, "Konfigurierte SSID: ", 0, 1);
-    gfx_draw_string(buffer, 215, 156, (ssid && strlen(ssid) > 0) ? ssid : "(Keine SSID)", 0, 1);
-    gfx_draw_string(buffer, 48, 174, "Status: Verbindungsversuch fehlgeschlagen (Timeout)", 0, 1);
+  // Subtitle
+  gfx_draw_string(buffer, 224, 195, "Smart Digital Signage", 0, 2);
 
-    // 6. Troubleshooting steps
-    gfx_draw_string(buffer, 35, 208, "MOEGLICHE URSACHEN & SCHRITTE:", 0, 2);
-    gfx_draw_hline(buffer, 35, 228, EPD_WIDTH - 70, 0);
-    gfx_draw_string(buffer, 48, 238, "1. WLAN-Router / Access Point und Signalstaerke pruefen", 0, 1);
-    gfx_draw_string(buffer, 48, 256, "2. Pruefen, ob WLAN-Name (SSID) und Passwort korrekt sind", 0, 1);
-    gfx_draw_string(buffer, 48, 274, "3. Sicherstellen, dass der ScreenTinker Server erreichbar ist", 0, 1);
-    gfx_draw_string(buffer, 48, 292, "4. Zum Neukonfigurieren: per USB verbinden und Web-Flasher oeffnen", 0, 1);
+  // Hardware Model line
+  const char* hwModel = "Seeed Studio reTerminal Sticky";
+  int hwLen = strlen(hwModel);
+  int hwX = (EPD_WIDTH - hwLen * 16) / 2;
+  gfx_draw_string(buffer, hwX, 235, hwModel, 0, 2);
 
-    // 7. Footer Actions
-    gfx_fill_rect(buffer, 35, 320, EPD_WIDTH - 70, 130, 0);
-    gfx_draw_string(buffer, 48, 332, "AKTIONEN / TASTEN:", 1, 1);
-    gfx_draw_string(buffer, 48, 352, "* OK-Taste (kurz)          : Sofort erneut versuchen zu verbinden", 1, 1);
-    gfx_draw_string(buffer, 48, 372, "* OK-Taste (5 Sek. halten) : Factory Reset / NVS-Konfiguration loeschen", 1, 1);
-    gfx_draw_string(buffer, 48, 392, "* UP / DOWN Tasten         : Sprache umschalten [ Deutsch / English ]", 1, 1);
-    gfx_draw_string(buffer, 48, 412, "* Automatischer Retry      : Neuer Verbindungsversuch alle 30 Sekunden", 1, 1);
-    gfx_draw_string(buffer, 48, 430, "* WebSerial / CLI          : USB-Befehle (config, status, reset)", 1, 1);
-  } else {
-    // 4. Alert Box (Inverted black)
-    gfx_fill_rect(buffer, 35, 90, EPD_WIDTH - 70, 48, 0);
-    gfx_draw_string(buffer, 48, 104, "[!] NO WI-FI CONNECTION (OFFLINE)", 1, 2);
+  // Firmware Version Pill
+  char verStr[32];
+  snprintf(verStr, sizeof(verStr), "Firmware v%s", version ? version : FIRMWARE_VERSION);
+  int verLen = strlen(verStr);
+  int verW = verLen * 16 + 32;
+  int verX = (EPD_WIDTH - verW) / 2;
+  gfx_draw_rect(buffer, verX, 272, verW, 34, 0);
+  gfx_draw_string(buffer, verX + 16, 281, verStr, 0, 2);
 
-    // 5. Details Box
-    gfx_draw_rect(buffer, 35, 148, EPD_WIDTH - 70, 48, 0);
-    gfx_draw_string(buffer, 48, 156, "Configured SSID: ", 0, 1);
-    gfx_draw_string(buffer, 195, 156, (ssid && strlen(ssid) > 0) ? ssid : "(None)", 0, 1);
-    gfx_draw_string(buffer, 48, 174, "Status: Connection attempt timed out / Host unreachable", 0, 1);
-
-    // 6. Troubleshooting steps
-    gfx_draw_string(buffer, 35, 208, "TROUBLESHOOTING & STEPS:", 0, 2);
-    gfx_draw_hline(buffer, 35, 228, EPD_WIDTH - 70, 0);
-    gfx_draw_string(buffer, 48, 238, "1. Check your Wi-Fi router / Access Point and signal range", 0, 1);
-    gfx_draw_string(buffer, 48, 256, "2. Verify that Wi-Fi SSID and password are correct", 0, 1);
-    gfx_draw_string(buffer, 48, 274, "3. Ensure ScreenTinker Server is online and reachable", 0, 1);
-    gfx_draw_string(buffer, 48, 292, "4. To reconfigure: Connect via USB-C and open Web-Flasher", 0, 1);
-
-    // 7. Footer Actions
-    gfx_fill_rect(buffer, 35, 320, EPD_WIDTH - 70, 130, 0);
-    gfx_draw_string(buffer, 48, 332, "ACTIONS & BUTTONS:", 1, 1);
-    gfx_draw_string(buffer, 48, 352, "* OK Button (Short press)  : Retry connecting to Wi-Fi now", 1, 1);
-    gfx_draw_string(buffer, 48, 372, "* OK Button (Hold 5 sec)   : Factory Reset / Wipe NVS configuration", 1, 1);
-    gfx_draw_string(buffer, 48, 392, "* UP / DOWN Buttons        : Switch Language [ English / Deutsch ]", 1, 1);
-    gfx_draw_string(buffer, 48, 412, "* Automatic Retry          : Background reconnection attempt every 30s", 1, 1);
-    gfx_draw_string(buffer, 48, 430, "* WebSerial / CLI          : USB commands (config, status, reset)", 1, 1);
-  }
+  // Status message bar (Inverted)
+  gfx_fill_rect(buffer, 50, 350, EPD_WIDTH - 100, 56, 0);
+  const char* defMsg = (lang == LANG_DE) ? "Verbindung wird aufgebaut..." : "Connecting to network...";
+  const char* msg = statusMsg ? statusMsg : defMsg;
+  int msgLen = strlen(msg);
+  int msgX = max(60, (EPD_WIDTH - msgLen * 16) / 2);
+  gfx_draw_string(buffer, msgX, 368, msg, 1, 2);
 }
 
-// ─── Big 6-Digit Pairing Code Screen ──────────────────────────────────────────
-void renderPairingCodeScreen(uint8_t* buffer, const char* code, Language lang) {
-  // 1. Fill screen white
+// ─── 2. Pairing Code Screen (Setup / PIN + QR Code) ─────────────────────────
+void renderPairingCodeScreen(uint8_t* buffer, const char* code, const char* serverUrl, Language lang) {
   gfx_fill(buffer, 1);
 
-  // 2. Outer double border
-  gfx_draw_rect(buffer, 12, 12, EPD_WIDTH - 24, EPD_HEIGHT - 24, 0);
-  gfx_draw_rect(buffer, 15, 15, EPD_WIDTH - 30, EPD_HEIGHT - 30, 0);
+  // Top header banner
+  gfx_fill_rect(buffer, 0, 0, EPD_WIDTH, 54, 0);
+  gfx_draw_screentinker_logo(buffer, 20, 12, 1);
+  gfx_draw_string(buffer, 56, 16, "ScreenTinker — Setup", 1, 3);
 
-  // 3. Header Banner
-  gfx_fill_rect(buffer, 18, 18, EPD_WIDTH - 36, 52, 0);
-  gfx_draw_string(buffer, 35, 28, "ScreenTinker", 1, 3);
-  gfx_draw_string(buffer, 480, 34, "reTerminal Sticky", 1, 2);
-
-  // 4. Subtitle / Pairing Mode Indicator
-  gfx_draw_rect(buffer, 35, 78, EPD_WIDTH - 70, 32, 0);
-  if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 48, 88, "GERAET BEREIT ZUM KOPPELN — KOPPLUNGSCODE:", 0, 1);
-    gfx_draw_string(buffer, 540, 88, "[ DOWN: EN | UP: DE ]", 0, 1);
+  // Left Column: QR Code (Direct URL to dashboard / claim)
+  char claimUrl[128];
+  if (serverUrl && strlen(serverUrl) > 0) {
+    snprintf(claimUrl, sizeof(claimUrl), "%s/app", serverUrl);
   } else {
-    gfx_draw_string(buffer, 48, 88, "READY TO PAIR — 6-DIGIT PAIRING CODE:", 0, 1);
-    gfx_draw_string(buffer, 540, 88, "[ DOWN: EN | UP: DE ]", 0, 1);
+    snprintf(claimUrl, sizeof(claimUrl), "http://localhost:3001/app");
   }
 
-  // 5. Big Center Code Box (Black with huge white digits)
-  gfx_fill_rect(buffer, 150, 118, 500, 110, 0);
-  gfx_draw_rect(buffer, 154, 122, 492, 102, 1);
+  // QR Code placed centrally in left half (x = 100, y = 72)
+  gfx_draw_qr(buffer, 100, 72, claimUrl, 5);
 
-  // Format code with space in middle: e.g. "482 915"
+  // Left Column text instructions (max 22 chars per line for Scale 2 in 360px)
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 36, 255, "1. QR-Code scannen", 0, 2);
+    gfx_draw_string(buffer, 36, 285, "   oder URL oeffnen:", 0, 2);
+  } else {
+    gfx_draw_string(buffer, 36, 255, "1. Scan QR code", 0, 2);
+    gfx_draw_string(buffer, 36, 285, "   or open URL:", 0, 2);
+  }
+
+  // URL display box
+  gfx_draw_rect(buffer, 24, 320, 330, 26, 0);
+  int urlLen = strlen(claimUrl);
+  int urlX = max(30, 24 + (330 - urlLen * 8) / 2);
+  gfx_draw_string(buffer, urlX, 329, claimUrl, 0, 1);
+
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 36, 365, "Auto-Kopplung aktiv...", 0, 2);
+  } else {
+    gfx_draw_string(buffer, 36, 365, "Auto-sync active...", 0, 2);
+  }
+
+  // Vertical Separator between columns
+  gfx_draw_vline(buffer, 380, 68, 344, 0);
+
+  // Right Column: Huge 6-Digit PIN Code Box
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 410, 72, "2. PIN-CODE EINGEBEN:", 0, 2);
+  } else {
+    gfx_draw_string(buffer, 410, 72, "2. ENTER PIN CODE:", 0, 2);
+  }
+
+  gfx_fill_rect(buffer, 410, 104, 360, 92, 0);
+  gfx_draw_rect(buffer, 414, 108, 352, 84, 1);
+
   char formattedCode[16];
   if (code && strlen(code) == 6) {
     snprintf(formattedCode, sizeof(formattedCode), "%c%c%c %c%c%c",
@@ -387,199 +329,331 @@ void renderPairingCodeScreen(uint8_t* buffer, const char* code, Language lang) {
   } else {
     snprintf(formattedCode, sizeof(formattedCode), "%s", code ? code : "------");
   }
+  // 7 chars * 40px = 280px wide -> centered in 360px box: x = 410 + (360 - 280) / 2 = 450
+  gfx_draw_string(buffer, 450, 130, formattedCode, 1, 5);
 
-  // Draw huge code in center: 7 chars * (8 * 5 = 40px) = 280px width
-  // Center in 800px: (800 - 280) / 2 = 260px
-  gfx_draw_string(buffer, 260, 150, formattedCode, 1, 5);
-
-  // 6. Step-by-Step Instructions
+  // Step 3 & 4 (Clean lines within 22 chars limit in Scale 2)
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 35, 238, "SO KOPPELST DU DIESEN BILDSCHIRM:", 0, 2);
-    gfx_draw_hline(buffer, 35, 258, EPD_WIDTH - 70, 0);
-
-    gfx_draw_string(buffer, 48, 268, "1. Oeffne ScreenTinker im Browser am PC, Mac oder Smartphone.", 0, 1);
-    gfx_draw_string(buffer, 48, 286, "2. Klicke im Menue auf 'Displays' -> 'Bildschirm hinzufuegen' (+ Add Display).", 0, 1);
-    gfx_draw_string(buffer, 48, 304, "3. Gib den obigen 6-stelligen Code ein und vergib einen Namen (z. B. 'Kueche').", 0, 1);
-    gfx_draw_string(buffer, 48, 322, "4. Nach dem Bestaetigen startet die Bild-Wiedergabe in wenigen Sekunden!", 0, 1);
-
-    // 7. Footer Box
-    gfx_fill_rect(buffer, 35, 344, EPD_WIDTH - 70, 106, 0);
-    gfx_draw_string(buffer, 48, 354, "TASTEN & HILFE:", 1, 1);
-    gfx_draw_string(buffer, 48, 372, "* UP / DOWN Tasten         : Sprache umschalten [ Deutsch / English ]", 1, 1);
-    gfx_draw_string(buffer, 48, 390, "* OK-Taste (kurz)          : Neuen Pairing-Code generieren & pruefen", 1, 1);
-    gfx_draw_string(buffer, 48, 408, "* OK-Taste (2 Sek. halten) : System-Menue [ Ausschalten / Reset ]", 1, 1);
-    gfx_draw_string(buffer, 48, 426, "* Status                   : Automatisches Pruefen alle 4 Sekunden...", 1, 1);
+    gfx_draw_string(buffer, 410, 220, "3. '+ Add Display'", 0, 2);
+    gfx_draw_string(buffer, 410, 250, "   im Dashboard waehlen", 0, 2);
+    gfx_draw_string(buffer, 410, 295, "4. Code eingeben &", 0, 2);
+    gfx_draw_string(buffer, 410, 325, "   Display koppeln", 0, 2);
+    gfx_draw_string(buffer, 410, 365, "-> Startet automatisch!", 0, 2);
   } else {
-    gfx_draw_string(buffer, 35, 238, "HOW TO PAIR THIS DISPLAY:", 0, 2);
-    gfx_draw_hline(buffer, 35, 258, EPD_WIDTH - 70, 0);
+    gfx_draw_string(buffer, 410, 220, "3. Click '+ Add Display'", 0, 2);
+    gfx_draw_string(buffer, 410, 250, "   in your Dashboard", 0, 2);
+    gfx_draw_string(buffer, 410, 295, "4. Enter PIN code &", 0, 2);
+    gfx_draw_string(buffer, 410, 325, "   pair display", 0, 2);
+    gfx_draw_string(buffer, 410, 365, "-> Starts automatically!", 0, 2);
+  }
 
-    gfx_draw_string(buffer, 48, 268, "1. Open ScreenTinker in your browser on PC, Mac or Smartphone.", 0, 1);
-    gfx_draw_string(buffer, 48, 286, "2. Navigate to 'Displays' -> Click '+ Add Display' button.", 0, 1);
-    gfx_draw_string(buffer, 48, 304, "3. Enter the 6-digit pairing code shown above and choose a display name.", 0, 1);
-    gfx_draw_string(buffer, 48, 322, "4. Once submitted, your playlist content will display automatically!", 0, 1);
-
-    // 7. Footer Box
-    gfx_fill_rect(buffer, 35, 344, EPD_WIDTH - 70, 106, 0);
-    gfx_draw_string(buffer, 48, 354, "BUTTONS & HELP:", 1, 1);
-    gfx_draw_string(buffer, 48, 372, "* UP / DOWN Buttons        : Switch Language [ English / Deutsch ]", 1, 1);
-    gfx_draw_string(buffer, 48, 390, "* OK Button (Short press)  : Refresh / Request new Pairing Code", 1, 1);
-    gfx_draw_string(buffer, 48, 408, "* OK Button (Hold 2 sec)   : Open System Menu [ Power Off / Reset ]", 1, 1);
-    gfx_draw_string(buffer, 48, 426, "* Status                   : Automatic pairing check every 4 seconds...", 1, 1);
+  // Bottom Navigation Bar
+  gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 30, 442, "[ OK 1.5s ]: Einstellungen", 1, 2);
+    gfx_draw_string(buffer, 460, 442, "[ OK kurz ]: Refresh", 1, 2);
+  } else {
+    gfx_draw_string(buffer, 30, 442, "[ OK 1.5s ]: Settings", 1, 2);
+    gfx_draw_string(buffer, 460, 442, "[ OK short ]: Refresh", 1, 2);
   }
 }
 
-// ─── System Menu Rendering ───────────────────────────────────────────────────
-void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, bool isMultiZone) {
-  gfx_fill(buffer, 1); // White canvas
+// ─── 3. Settings Menu (7 Items with Language Selection) ──────────────────────
+// ─── 3. Settings Menu (7 Items with Wi-Fi Power & Language) ──────────────────
+void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t wifiTxLevel) {
+  gfx_fill(buffer, 1);
 
-  // Outer border
-  gfx_draw_rect(buffer, 10, 10, EPD_WIDTH - 20, EPD_HEIGHT - 20, 0);
-  gfx_draw_rect(buffer, 14, 14, EPD_WIDTH - 28, EPD_HEIGHT - 28, 0);
-
-  // Top header bar
-  gfx_fill_rect(buffer, 20, 20, EPD_WIDTH - 40, 50, 0);
-  gfx_draw_string(buffer, 40, 32, "SYSTEM MENU / SYSTEM-MENUE", 1, 2);
-
-  // Subtitle navigation bar
-  gfx_draw_rect(buffer, 20, 76, EPD_WIDTH - 40, 30, 0);
+  // Header Banner
+  gfx_fill_rect(buffer, 0, 0, EPD_WIDTH, 54, 0);
+  gfx_draw_screentinker_logo(buffer, 20, 12, 1);
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 36, 84, "[ UP / DOWN ]: Navigieren    |    [ OK ]: Auswaehlen & Umschalten", 0, 1);
+    gfx_draw_string(buffer, 56, 16, "ScreenTinker — Einstellungen", 1, 3);
   } else {
-    gfx_draw_string(buffer, 36, 84, "[ UP / DOWN ]: Navigate      |    [ OK ]: Select & Toggle", 0, 1);
+    gfx_draw_string(buffer, 56, 16, "ScreenTinker — Settings", 1, 3);
   }
 
-  // Menu items list (4 items)
-  const int itemY[4] = { 114, 172, 230, 288 };
-  const int itemH = 50;
-  const int itemW = EPD_WIDTH - 80;
-  const int itemX = 40;
-
-  // Item 0: Back / Zurück (Default)
-  if (selectedIndex == 0) {
-    gfx_fill_rect(buffer, itemX, itemY[0], itemW, itemH, 0);
-    gfx_draw_string(buffer, itemX + 20, itemY[0] + 12, "> 1. ZURUECK / BACK (Default)", 1, 2);
-    gfx_draw_string(buffer, itemX + 20, itemY[0] + 32, "     Menue schliessen & zur vorherigen Anzeige zurueckkehren", 1, 1);
+  char wifiPwrDE[64];
+  char wifiPwrEN[64];
+  if (wifiTxLevel == 1) {
+    snprintf(wifiPwrDE, sizeof(wifiPwrDE), "2. WLAN-LEISTUNG: MITTEL [15 dBm]");
+    snprintf(wifiPwrEN, sizeof(wifiPwrEN), "2. WI-FI POWER: MED [15 dBm]");
+  } else if (wifiTxLevel == 2) {
+    snprintf(wifiPwrDE, sizeof(wifiPwrDE), "2. WLAN-LEISTUNG: NIEDRIG [11 dBm]");
+    snprintf(wifiPwrEN, sizeof(wifiPwrEN), "2. WI-FI POWER: LOW [11 dBm]");
   } else {
-    gfx_draw_rect(buffer, itemX, itemY[0], itemW, itemH, 0);
-    gfx_draw_string(buffer, itemX + 20, itemY[0] + 12, "  1. ZURUECK / BACK (Default)", 0, 2);
-    gfx_draw_string(buffer, itemX + 20, itemY[0] + 32, "     Menue schliessen & zur vorherigen Anzeige zurueckkehren", 0, 1);
+    snprintf(wifiPwrDE, sizeof(wifiPwrDE), "2. WLAN-LEISTUNG: MAX [19.5 dBm]");
+    snprintf(wifiPwrEN, sizeof(wifiPwrEN), "2. WI-FI POWER: MAX [19.5 dBm]");
   }
 
-  // Item 1: Layout Mode Toggle
-  char modeTitle[64];
-  snprintf(modeTitle, sizeof(modeTitle), "%s 2. LAYOUT-MODUS: [ %s ]",
-           (selectedIndex == 1 ? ">" : " "),
-           (isMultiZone ? "MULTI-ZONE" : "STANDARD / VOLLBILD"));
+  const char* menuItemsDE[7] = {
+    "1. STATUS & INFO",
+    wifiPwrDE,
+    "3. SPRACHE: DEUTSCH [DE]",
+    "4. GERAET ENTKOPPELN (UNPAIR)",
+    "5. AUSSCHALTEN / STANDBY",
+    "6. WERKSEINSTELLUNGEN (RESET)",
+    "7. ZURUECK / SCHLIESSEN"
+  };
 
-  if (selectedIndex == 1) {
-    gfx_fill_rect(buffer, itemX, itemY[1], itemW, itemH, 0);
-    gfx_draw_string(buffer, itemX + 20, itemY[1] + 12, modeTitle, 1, 2);
-    gfx_draw_string(buffer, itemX + 20, itemY[1] + 32, "     [OK] druecken zum Umschalten (Multi-Zonen vs. Vollbild)", 1, 1);
-  } else {
-    gfx_draw_rect(buffer, itemX, itemY[1], itemW, itemH, 0);
-    gfx_draw_string(buffer, itemX + 20, itemY[1] + 12, modeTitle, 0, 2);
-    gfx_draw_string(buffer, itemX + 20, itemY[1] + 32, "     [OK] druecken zum Umschalten (Multi-Zonen vs. Vollbild)", 0, 1);
-  }
+  const char* menuItemsEN[7] = {
+    "1. STATUS & INFO",
+    wifiPwrEN,
+    "3. LANGUAGE: ENGLISH [EN]",
+    "4. UNPAIR DEVICE",
+    "5. POWER OFF / STANDBY",
+    "6. FACTORY RESET",
+    "7. BACK / CLOSE"
+  };
 
-  // Item 2: Power Off / Ausschalten
-  if (selectedIndex == 2) {
-    gfx_fill_rect(buffer, itemX, itemY[2], itemW, itemH, 0);
-    gfx_draw_string(buffer, itemX + 20, itemY[2] + 12, "> 3. AUSSCHALTEN / POWER OFF", 1, 2);
-    gfx_draw_string(buffer, itemX + 20, itemY[2] + 32, "     Geraet ausschalten / Deep Sleep (Aufwecken mit OK-Taste)", 1, 1);
-  } else {
-    gfx_draw_rect(buffer, itemX, itemY[2], itemW, itemH, 0);
-    gfx_draw_string(buffer, itemX + 20, itemY[2] + 12, "  3. AUSSCHALTEN / POWER OFF", 0, 2);
-    gfx_draw_string(buffer, itemX + 20, itemY[2] + 32, "     Geraet ausschalten / Deep Sleep (Aufwecken mit OK-Taste)", 0, 1);
-  }
+  const char** menuItems = (lang == LANG_DE) ? menuItemsDE : menuItemsEN;
 
-  // Item 3: Factory Reset / Werkseinstellungen
-  if (selectedIndex == 3) {
-    gfx_fill_rect(buffer, itemX, itemY[3], itemW, itemH, 0);
-    gfx_draw_string(buffer, itemX + 20, itemY[3] + 12, "> 4. FACTORY RESET / WERKSEINSTELLUNGEN", 1, 2);
-    gfx_draw_string(buffer, itemX + 20, itemY[3] + 32, "     NVS-Speicher loeschen & Einrichtungs-Modus neu starten", 1, 1);
-  } else {
-    gfx_draw_rect(buffer, itemX, itemY[3], itemW, itemH, 0);
-    gfx_draw_string(buffer, itemX + 20, itemY[3] + 12, "  4. FACTORY RESET / WERKSEINSTELLUNGEN", 0, 2);
-    gfx_draw_string(buffer, itemX + 20, itemY[3] + 32, "     NVS-Speicher loeschen & Einrichtungs-Modus neu starten", 0, 1);
-  }
+  int startY = 66;
+  int itemH = 43;
+  int itemW = EPD_WIDTH - 60;
+  int itemX = 30;
 
-  // Footer note box
-  gfx_fill_rect(buffer, 40, 350, EPD_WIDTH - 80, 100, 0);
-  gfx_draw_string(buffer, 56, 365, "HINWEISE / NOTES:", 1, 1);
-  gfx_draw_string(buffer, 56, 385, "* Standard: Vollbild-Wiedergabe von Slides, Bildern und Widgets", 1, 1);
-  gfx_draw_string(buffer, 56, 405, "* Multi-Zone: Rendert das zugewiesene ScreenTinker Multi-Zonen-Layout", 1, 1);
-  gfx_draw_string(buffer, 56, 425, "* OK-Taste (1.5s halten) : Oeffnet dieses System-Menue jederzeit", 1, 1);
-}
-
-// ─── Power Off / Shutdown Screen ──────────────────────────────────────────────
-void renderPowerOffScreen(uint8_t* buffer, Language lang) {
-  gfx_fill(buffer, 1); // White canvas
-
-  // Outer double borders
-  gfx_draw_rect(buffer, 10, 10, EPD_WIDTH - 20, EPD_HEIGHT - 20, 0);
-  gfx_draw_rect(buffer, 14, 14, EPD_WIDTH - 28, EPD_HEIGHT - 28, 0);
-
-  // Top header banner
-  gfx_fill_rect(buffer, 40, 40, EPD_WIDTH - 80, 70, 0);
-  if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 150, 56, "GERAET AUSGESCHALTET", 1, 3);
-    gfx_draw_string(buffer, 290, 88, "( POWER OFF / STANDBY )", 1, 1);
-  } else {
-    gfx_draw_string(buffer, 200, 56, "DEVICE POWERED OFF", 1, 3);
-    gfx_draw_string(buffer, 290, 88, "( POWER OFF / STANDBY )", 1, 1);
-  }
-
-  // 1. Generate & Draw QR Code for GitHub Repo
-  const char* repoUrl = "https://github.com/renebohne/screentinker_mcu";
-  QRCode qrcode;
-  uint8_t qrcodeData[qrcode_getBufferSize(4)];
-  qrcode_initText(&qrcode, qrcodeData, 4, ECC_LOW, repoUrl);
-
-  const int qrScale = 5;
-  const int qrSizePx = qrcode.size * qrScale; // 33 * 5 = 165 px
-  const int qrX = 65;
-  const int qrY = 145;
-
-  // White box with border for QR Code
-  gfx_draw_rect(buffer, qrX - 8, qrY - 8, qrSizePx + 16, qrSizePx + 16, 0);
-
-  for (uint8_t y = 0; y < qrcode.size; y++) {
-    for (uint8_t x = 0; x < qrcode.size; x++) {
-      if (qrcode_getModule(&qrcode, x, y)) {
-        gfx_fill_rect(buffer, qrX + x * qrScale, qrY + y * qrScale, qrScale, qrScale, 0);
-      }
+  for (int i = 0; i < 7; i++) {
+    int y = startY + i * (itemH + 6);
+    if (i == selectedIndex) {
+      gfx_fill_rect(buffer, itemX, y, itemW, itemH, 0);
+      char selText[64];
+      snprintf(selText, sizeof(selText), "> %s", menuItems[i]);
+      gfx_draw_string(buffer, itemX + 20, y + 12, selText, 1, 2);
+    } else {
+      gfx_draw_rect(buffer, itemX, y, itemW, itemH, 0);
+      char normText[64];
+      snprintf(normText, sizeof(normText), "  %s", menuItems[i]);
+      gfx_draw_string(buffer, itemX + 20, y + 12, normText, 0, 2);
     }
   }
 
-  // 2. Right Side Card (Repository Info)
-  const int cardX = qrX + qrSizePx + 24;
-  const int cardW = EPD_WIDTH - cardX - 40;
-  gfx_draw_rect(buffer, cardX, qrY - 8, cardW, qrSizePx + 16, 0);
-
-  gfx_draw_string(buffer, cardX + 18, qrY + 8, "ScreenTinker MCU Client", 0, 2);
-  gfx_draw_string(buffer, cardX + 18, qrY + 34, "Firmware for Seeed Studio reTerminal Sticky", 0, 1);
-  gfx_draw_hline(buffer, cardX + 18, qrY + 52, cardW - 36, 0);
-
-  gfx_draw_string(buffer, cardX + 18, qrY + 66, "GitHub Repository & Documentation:", 0, 1);
-  gfx_fill_rect(buffer, cardX + 18, qrY + 84, cardW - 36, 28, 0);
-  gfx_draw_string(buffer, cardX + 26, qrY + 92, repoUrl, 1, 1);
-
+  // Footer Navigation Hint
+  gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, cardX + 18, qrY + 128, "Scanne den QR-Code mit deinem Smartphone.", 0, 1);
-    gfx_draw_string(buffer, cardX + 18, qrY + 144, "Dokumentation, Updates & Quellcode auf GitHub.", 0, 1);
+    gfx_draw_string(buffer, 30, 442, "[ UP / DOWN ]: Navigieren", 1, 2);
+    gfx_draw_string(buffer, 500, 442, "[ OK ]: Auswaehlen", 1, 2);
   } else {
-    gfx_draw_string(buffer, cardX + 18, qrY + 128, "Scan QR code with your smartphone camera.", 0, 1);
-    gfx_draw_string(buffer, cardX + 18, qrY + 144, "Documentation, updates & source on GitHub.", 0, 1);
-  }
-
-  // 3. Bottom Wake-up Action Prompt
-  gfx_fill_rect(buffer, 40, 355, EPD_WIDTH - 80, 75, 0);
-  if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 140, 382, "[ OK ]-Taste druecken zum Einschalten", 1, 2);
-  } else {
-    gfx_draw_string(buffer, 170, 382, "Press [ OK ] Button to Turn On", 1, 2);
+    gfx_draw_string(buffer, 30, 442, "[ UP / DOWN ]: Navigate", 1, 2);
+    gfx_draw_string(buffer, 520, 442, "[ OK ]: Select", 1, 2);
   }
 }
+
+// ─── 4. Status & Diagnostic Info Screen (5 Full-Width Spacious Rows) ─────────
+void renderStatusInfoScreen(uint8_t* buffer, const char* ip, const char* ssid, int rssi, const char* serverUrl, const char* devId, const char* version, Language lang) {
+  gfx_fill(buffer, 1);
+
+  // Header Banner
+  gfx_fill_rect(buffer, 0, 0, EPD_WIDTH, 52, 0);
+  gfx_draw_string(buffer, 20, 15, "ScreenTinker — Status & Info", 1, 3);
+
+  int y = 64;
+  int rowH = 54;
+  int rowGap = 12;
+  int boxW = EPD_WIDTH - 20; // 780px wide (x = 10 to 790)
+  int boxX = 10;
+  int labelX = boxX + 10;   // x = 20
+  int valueX = 212;         // x = 212 (guarantees a full space after "IP Address:" and "Server URL:")
+
+  // Row 1: IP Address
+  gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
+  gfx_draw_string(buffer, labelX, y + 18, (lang == LANG_DE) ? "IP-Adresse:" : "IP Address:", 0, 2);
+  const char* defIp = (lang == LANG_DE) ? "Standby (Power Save)" : "Standby (Power Save)";
+  const char* ipDisplay = (ip && strlen(ip) > 0 && strcmp(ip, "0.0.0.0") != 0) ? ip : defIp;
+  gfx_draw_string(buffer, valueX, y + 18, ipDisplay, 0, 2);
+
+  // Row 2: Wi-Fi SSID & RSSI
+  y += rowH + rowGap;
+  gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
+  gfx_draw_string(buffer, labelX, y + 18, (lang == LANG_DE) ? "WLAN-Netz:" : "Wi-Fi:", 0, 2);
+  char wifiStr[64];
+  if (rssi != 0) {
+    snprintf(wifiStr, sizeof(wifiStr), "%s (%d dBm)", (ssid && strlen(ssid) > 0) ? ssid : "-", rssi);
+  } else {
+    snprintf(wifiStr, sizeof(wifiStr), "%s", (ssid && strlen(ssid) > 0) ? ssid : "-");
+  }
+  gfx_draw_string(buffer, valueX, y + 18, wifiStr, 0, 2);
+
+  // Row 3: Server URL
+  y += rowH + rowGap;
+  gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
+  gfx_draw_string(buffer, labelX, y + 18, (lang == LANG_DE) ? "Server-URL:" : "Server URL:", 0, 2);
+  gfx_draw_string(buffer, valueX, y + 18, (serverUrl && strlen(serverUrl) > 0) ? serverUrl : "-", 0, 2);
+
+  // Row 4: Firmware Version
+  y += rowH + rowGap;
+  gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
+  gfx_draw_string(buffer, labelX, y + 18, "Firmware:", 0, 2);
+  char verStr[64];
+  snprintf(verStr, sizeof(verStr), "v%s (Seeed Sticky E-Paper)", version ? version : FIRMWARE_VERSION);
+  gfx_draw_string(buffer, valueX, y + 18, verStr, 0, 2);
+
+  // Row 5: Device ID
+  y += rowH + rowGap;
+  gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
+  gfx_draw_string(buffer, labelX, y + 18, (lang == LANG_DE) ? "Device-ID:" : "Device ID:", 0, 2);
+  gfx_draw_string(buffer, valueX, y + 18, (devId && strlen(devId) > 0) ? devId : "-", 0, 2);
+
+  // Footer Navigation Hint
+  gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 200, 442, "[ OK / UP / DOWN ]: Zurueck", 1, 2);
+  } else {
+    gfx_draw_string(buffer, 220, 442, "[ OK / UP / DOWN ]: Back", 1, 2);
+  }
+}
+
+// ─── 5. Prominent No Wi-Fi Screen ────────────────────────────────────────────
+void renderNoWifiScreen(uint8_t* buffer, const char* ssid, Language lang) {
+  gfx_fill(buffer, 1);
+
+  // Header Banner
+  gfx_fill_rect(buffer, 0, 0, EPD_WIDTH, 54, 0);
+  gfx_draw_string(buffer, 30, 16, "ScreenTinker — Offline", 1, 3);
+
+  // Big Warning Box
+  gfx_fill_rect(buffer, 40, 80, EPD_WIDTH - 80, 70, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 120, 100, "[!] KEINE WLAN-VERBINDUNG", 1, 3);
+  } else {
+    gfx_draw_string(buffer, 120, 100, "[!] NO WI-FI CONNECTION", 1, 3);
+  }
+
+  // Details
+  gfx_draw_rect(buffer, 40, 170, EPD_WIDTH - 80, 80, 0);
+  gfx_draw_string(buffer, 60, 185, (lang == LANG_DE) ? "Konfigurierte SSID:" : "Configured SSID:   ", 0, 2);
+  gfx_draw_string(buffer, 320, 185, (ssid && strlen(ssid) > 0) ? ssid : "-", 0, 2);
+  gfx_draw_string(buffer, 60, 218, (lang == LANG_DE) ? "Status: Verbindungsversuch fehlgeschlagen" : "Status: Connection attempt failed", 0, 2);
+
+  // Actions Box
+  gfx_draw_string(buffer, 40, 280, (lang == LANG_DE) ? "AKTIONEN:" : "ACTIONS:", 0, 2);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 60, 315, "* [ OK kurz ]  : Sofort erneut verbinden", 0, 2);
+    gfx_draw_string(buffer, 60, 350, "* [ OK 1.5s ]  : Einstellungen oeffnen", 0, 2);
+  } else {
+    gfx_draw_string(buffer, 60, 315, "* [ OK short ] : Retry connection now", 0, 2);
+    gfx_draw_string(buffer, 60, 350, "* [ OK 1.5s ]  : Open settings menu", 0, 2);
+  }
+
+  // Footer Navigation Hint
+  gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 30, 442, "[ OK ]: Neu verbinden", 1, 2);
+    gfx_draw_string(buffer, 460, 442, "[ OK 1.5s ]: Einstellungen", 1, 2);
+  } else {
+    gfx_draw_string(buffer, 30, 442, "[ OK ]: Retry", 1, 2);
+    gfx_draw_string(buffer, 480, 442, "[ OK 1.5s ]: Settings", 1, 2);
+  }
+}
+
+// ─── 6. Onboarding / Setup Screen ────────────────────────────────────────────
+void renderOnboardingScreen(uint8_t* buffer, Language lang) {
+  gfx_fill(buffer, 1);
+
+  // Header Banner
+  gfx_fill_rect(buffer, 0, 0, EPD_WIDTH, 54, 0);
+  gfx_draw_screentinker_logo(buffer, 20, 12, 1);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 56, 16, "ScreenTinker — Ersteinrichtung", 1, 3);
+  } else {
+    gfx_draw_string(buffer, 56, 16, "ScreenTinker — Initial Setup", 1, 3);
+  }
+
+  // QR Code to SoftAP portal (http://192.168.4.1)
+  gfx_draw_qr(buffer, 60, 95, "http://192.168.4.1", 5);
+  gfx_draw_string(buffer, 50, 300, (lang == LANG_DE) ? "WLAN: ScreenTinker-Setup" : "Wi-Fi: ScreenTinker-Setup", 0, 2);
+  gfx_draw_string(buffer, 50, 330, "URL:  http://192.168.4.1", 0, 2);
+
+  // Vertical Separator
+  gfx_draw_vline(buffer, 380, 75, 330, 0);
+
+  // Steps on Right Side
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 410, 75, "SCHRITTE ZUM SETUP:", 0, 2);
+    gfx_draw_string(buffer, 410, 115, "1. WLAN verbinden mit:", 0, 2);
+    gfx_draw_string(buffer, 410, 145, "   'ScreenTinker-Setup'", 0, 2);
+
+    gfx_draw_string(buffer, 410, 200, "2. Browser oeffnen:", 0, 2);
+    gfx_draw_string(buffer, 410, 230, "   http://192.168.4.1", 0, 2);
+
+    gfx_draw_string(buffer, 410, 285, "3. WLAN auswaehlen &", 0, 2);
+    gfx_draw_string(buffer, 410, 315, "   Passwort speichern", 0, 2);
+
+    gfx_draw_string(buffer, 410, 365, "-> Display verbindet sich!", 0, 2);
+  } else {
+    gfx_draw_string(buffer, 410, 75, "SETUP STEPS:", 0, 2);
+    gfx_draw_string(buffer, 410, 115, "1. Connect Wi-Fi to:", 0, 2);
+    gfx_draw_string(buffer, 410, 145, "   'ScreenTinker-Setup'", 0, 2);
+
+    gfx_draw_string(buffer, 410, 200, "2. Open web browser:", 0, 2);
+    gfx_draw_string(buffer, 410, 230, "   http://192.168.4.1", 0, 2);
+
+    gfx_draw_string(buffer, 410, 285, "3. Select your Wi-Fi &", 0, 2);
+    gfx_draw_string(buffer, 410, 315, "   save credentials", 0, 2);
+
+    gfx_draw_string(buffer, 410, 365, "-> Display connects now!", 0, 2);
+  }
+
+  // Footer Navigation Hint
+  gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 30, 442, "[ OK 1.5s ]: Einstellungen", 1, 2);
+    gfx_draw_string(buffer, 480, 442, "Warte auf Setup...", 1, 2);
+  } else {
+    gfx_draw_string(buffer, 30, 442, "[ OK 1.5s ]: Settings", 1, 2);
+    gfx_draw_string(buffer, 480, 442, "Waiting for setup...", 1, 2);
+  }
+}
+
+// ─── 7. Power Off Screen ─────────────────────────────────────────────────────
+void renderPowerOffScreen(uint8_t* buffer, Language lang) {
+  gfx_fill(buffer, 1);
+
+  // Header Banner
+  gfx_fill_rect(buffer, 0, 0, EPD_WIDTH, 54, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 180, 16, "ScreenTinker — Standby", 1, 3);
+  } else {
+    gfx_draw_string(buffer, 180, 16, "ScreenTinker — Power Off", 1, 3);
+  }
+
+  // QR Code to Repo
+  gfx_draw_qr(buffer, 80, 95, "https://github.com/renebohne/screentinker_mcu", 5);
+
+  // Details
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 380, 110, "GERAET IM STANDBY", 0, 3);
+    gfx_draw_string(buffer, 380, 160, "Seeed reTerminal Sticky", 0, 2);
+    gfx_draw_string(buffer, 380, 190, "Ultra-Low-Power E-Paper Client", 0, 2);
+
+    gfx_draw_rect(buffer, 380, 240, 380, 80, 0);
+    gfx_draw_string(buffer, 400, 265, "Druecke die [ OK ]-Taste", 0, 2);
+    gfx_draw_string(buffer, 400, 290, "zum Einschalten!", 0, 2);
+  } else {
+    gfx_draw_string(buffer, 380, 110, "DEVICE IN STANDBY", 0, 3);
+    gfx_draw_string(buffer, 380, 160, "Seeed reTerminal Sticky", 0, 2);
+    gfx_draw_string(buffer, 380, 190, "Ultra-Low-Power E-Paper Client", 0, 2);
+
+    gfx_draw_rect(buffer, 380, 240, 380, 80, 0);
+    gfx_draw_string(buffer, 400, 265, "Press the [ OK ] button", 0, 2);
+    gfx_draw_string(buffer, 400, 290, "to wake up / power on!", 0, 2);
+  }
+
+  // Footer Navigation Hint
+  gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 180, 442, "[ OK ]: Aufwecken & Einschalten", 1, 2);
+  } else {
+    gfx_draw_string(buffer, 180, 442, "[ OK ]: Wake Up & Turn On", 1, 2);
+  }
+}
+
+// ─── Offline Badge for Cache-Rotation Overlay ────────────────────────────────
+void gfx_draw_offline_badge(uint8_t* buffer) {
+  gfx_fill_rect(buffer, 642, 14, 142, 30, 0);
+  gfx_draw_rect(buffer, 644, 16, 138, 26, 1);
+  gfx_draw_string(buffer, 660, 22, "OFFLINE", 1, 2);
+}
+
 
 
 

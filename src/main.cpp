@@ -301,11 +301,10 @@ static void rotate_mono_180(const uint8_t *source, uint8_t *destination, uint16_
   }
 }
 
-static bool renderRotatedBuffer(const uint8_t* rotatedBuf) {
+static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = false) {
   if (!initStickyEpaper()) return false;
 
   const seeed_epaper_area_t full_screen = {0, 0, 800, 480};
-  Serial.println("[EPD] Refreshing E-Paper display...");
   uint32_t refStart = millis();
 
   esp_err_t refErr = seeed_epaper_panel_refresh_area(
@@ -314,34 +313,42 @@ static bool renderRotatedBuffer(const uint8_t* rotatedBuf) {
     rotatedBuf,
     100,
     SEEED_EPAPER_PIXEL_FORMAT_MONO1_MSB,
-    SEEED_EPAPER_REFRESH_FULL
+    fastPartial ? SEEED_EPAPER_REFRESH_PARTIAL : SEEED_EPAPER_REFRESH_FULL
   );
 
   uint32_t refElapsed = millis() - refStart;
-  Serial.printf("[EPD] Refresh completed in %u ms (result: %s)\n", refElapsed, esp_err_to_name(refErr));
+  Serial.printf("[EPD] Refresh (%s) completed in %u ms (result: %s)\n",
+                fastPartial ? "PARTIAL" : "FULL", refElapsed, esp_err_to_name(refErr));
   return refErr == ESP_OK;
 }
 
 static Language s_currentLang = LANG_EN;
+static uint8_t s_wifiTxPowerLevel = 0; // 0 = MAX (19.5 dBm), 1 = MED (15 dBm), 2 = LOW (11 dBm)
+
+void showSplashScreen(const char* version, const char* statusMsg) {
+  if (!s_rawBuffer || !s_rotatedBuffer) return;
+  Serial.printf("[Display] Rendering Splash Screen (v%s, %s)...\n", version ? version : FIRMWARE_VERSION, statusMsg ? statusMsg : "");
+  renderSplashScreen(s_rawBuffer, version, statusMsg, s_currentLang);
+  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
+  renderRotatedBuffer(s_rotatedBuffer, false);
+}
 
 void showOnboardingScreen(Language lang = LANG_EN) {
   s_currentLang = lang;
   if (!s_rawBuffer || !s_rotatedBuffer) return;
-  Serial.printf("[Display] Rendering Onboarding Instructions on E-Paper (%s, 180 deg rotated)...\n",
-                (lang == LANG_DE ? "Deutsch" : "English"));
+  Serial.println("[Display] Rendering Onboarding Screen on E-Paper...");
   renderOnboardingScreen(s_rawBuffer, lang);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
-  renderRotatedBuffer(s_rotatedBuffer);
+  renderRotatedBuffer(s_rotatedBuffer, false);
 }
 
 void showNoWifiScreen(Language lang = LANG_EN) {
   s_currentLang = lang;
   if (!s_rawBuffer || !s_rotatedBuffer) return;
-  Serial.printf("[Display] Rendering No Wi-Fi Screen on E-Paper (%s, 180 deg rotated)...\n",
-                (lang == LANG_DE ? "Deutsch" : "English"));
+  Serial.println("[Display] Rendering No Wi-Fi Screen on E-Paper...");
   renderNoWifiScreen(s_rawBuffer, g_wifiSsid.c_str(), lang);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
-  renderRotatedBuffer(s_rotatedBuffer);
+  renderRotatedBuffer(s_rotatedBuffer, false);
 }
 
 static String s_activePairingCode = "";
@@ -351,25 +358,86 @@ static String s_activeClaimSecret = "";
 void showPairingCodeScreen(const char* code, Language lang = LANG_EN) {
   s_currentLang = lang;
   if (!s_rawBuffer || !s_rotatedBuffer) return;
-  Serial.printf("[Display] Rendering Pairing Code Screen (%s, Code: %s, 180 deg rotated)...\n",
-                (lang == LANG_DE ? "Deutsch" : "English"), code ? code : "");
-  renderPairingCodeScreen(s_rawBuffer, code, lang);
+  Serial.printf("[Display] Rendering Pairing Code Screen (Code: %s)...\n", code ? code : "");
+  renderPairingCodeScreen(s_rawBuffer, code, g_serverUrl.c_str(), lang);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
-  renderRotatedBuffer(s_rotatedBuffer);
+  renderRotatedBuffer(s_rotatedBuffer, false);
 }
 
 static bool s_inSystemMenu = false;
+static bool s_inStatusScreen = false;
 static int s_menuSelection = 0;
 static uint32_t s_menuOpenMillis = 0;
 
-void showSystemMenu(int selectedIndex, Language lang = LANG_EN) {
-  s_currentLang = lang;
+void showSystemMenu(int selectedIndex, bool fastPartial = false) {
   if (!s_rawBuffer || !s_rotatedBuffer) return;
-  Serial.printf("[Display] Rendering System Menu on E-Paper (Item: %d, %s, MultiZone: %d)...\n",
-                selectedIndex, (lang == LANG_DE ? "Deutsch" : "English"), g_multiZone ? 1 : 0);
-  renderSystemMenu(s_rawBuffer, selectedIndex, lang, g_multiZone);
+  Serial.printf("[Display] Rendering System Menu (Item: %d, Fast: %d, Lang: %s, TxPwr: %d)...\n",
+                selectedIndex, fastPartial ? 1 : 0, (s_currentLang == LANG_DE) ? "DE" : "EN", s_wifiTxPowerLevel);
+  renderSystemMenu(s_rawBuffer, selectedIndex, s_currentLang, s_wifiTxPowerLevel);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
-  renderRotatedBuffer(s_rotatedBuffer);
+  renderRotatedBuffer(s_rotatedBuffer, fastPartial);
+}
+
+static String s_lastIp = "";
+static int s_lastRssi = 0;
+
+void showStatusInfoScreen() {
+  if (!s_rawBuffer || !s_rotatedBuffer) return;
+  Serial.println("[Display] Rendering Status & Info Screen...");
+  String currentIp = s_lastIp;
+  int currentRssi = s_lastRssi;
+  if (WiFi.status() == WL_CONNECTED) {
+    currentIp = WiFi.localIP().toString();
+    currentRssi = WiFi.RSSI();
+  }
+  renderStatusInfoScreen(
+    s_rawBuffer,
+    currentIp.c_str(),
+    g_wifiSsid.c_str(),
+    currentRssi,
+    g_serverUrl.c_str(),
+    g_deviceId.c_str(),
+    FIRMWARE_VERSION,
+    s_currentLang
+  );
+  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
+  renderRotatedBuffer(s_rotatedBuffer, false);
+}
+
+// ─── Adaptive Deep Sleep & RTC State ──────────────────────────────────────────
+RTC_DATA_ATTR int      rtc_unchangedCycles   = 0;
+RTC_DATA_ATTR int      rtc_currentItemIndex  = 0;
+RTC_DATA_ATTR uint32_t rtc_lastSyncIntervalS = 30;
+RTC_DATA_ATTR char     rtc_lastEtag[64]      = {0};
+
+static bool     s_inInteractiveMode      = false;
+static uint32_t s_interactiveUntilMillis = 0;
+
+void enterDeepSleepWithWakeup(uint32_t sleepSeconds) {
+  if (sleepSeconds < 5) sleepSeconds = 5;
+
+  Serial.printf("\n[Power] Entering Deep Sleep for %u seconds (Adaptive 304 Count: %d)...\n",
+                sleepSeconds, rtc_unchangedCycles);
+  Serial.println("[Power] Wakeup: RTC Timer OR Buttons (OK / UP / DOWN). Standby ~15 µA.");
+
+  // Release display power boost circuit
+  digitalWrite(PIN_EPD_PWR_EN, LOW);
+  delay(10);
+
+  // Maintain board power latches across deep sleep
+  gpio_hold_en((gpio_num_t)PIN_PWR_HOLD);
+  gpio_hold_en((gpio_num_t)PIN_PWR_LOCK);
+  gpio_deep_sleep_hold_en();
+
+  // 1. Timer Wakeup
+  esp_sleep_enable_timer_wakeup((uint64_t)sleepSeconds * 1000000ULL);
+
+  // 2. Button Wakeup (OK, UP, DOWN on GPIO 4, 5, 6 - active LOW)
+  uint64_t btn_mask = (1ULL << PIN_BTN_OK) | (1ULL << PIN_BTN_UP) | (1ULL << PIN_BTN_DOWN);
+  esp_sleep_enable_ext1_wakeup(btn_mask, ESP_EXT1_WAKEUP_ANY_LOW);
+
+  Serial.flush();
+  esp_deep_sleep_start();
 }
 
 void powerOffDevice() {
@@ -427,6 +495,10 @@ void loadConfigFromNVS() {
   g_deviceId    = s_prefs.getString("device_id", DEVICE_ID);
   g_deviceToken = s_prefs.getString("device_token", DEVICE_TOKEN);
   g_multiZone   = s_prefs.getBool("multi_zone", DEFAULT_MULTI_ZONE);
+  uint8_t langCode = s_prefs.getUChar("lang", (uint8_t)LANG_EN);
+  s_currentLang = (langCode == 1) ? LANG_DE : LANG_EN;
+  s_wifiTxPowerLevel = s_prefs.getUChar("wifi_tx_pwr", 0);
+  if (s_wifiTxPowerLevel > 2) s_wifiTxPowerLevel = 0;
   s_prefs.end();
 
   Serial.println("[Config] Loaded configuration from NVS/Defaults:");
@@ -435,6 +507,8 @@ void loadConfigFromNVS() {
   Serial.printf("  Device ID:  %s\n", g_deviceId.c_str());
   Serial.printf("  Token set:  %s\n", g_deviceToken.length() > 0 ? "YES" : "NO");
   Serial.printf("  Multi-Zone: %s\n", g_multiZone ? "ENABLED" : "DISABLED");
+  Serial.printf("  Language:   %s\n", (s_currentLang == LANG_DE) ? "Deutsch (DE)" : "English (EN)");
+  Serial.printf("  Wi-Fi TX:   %s\n", (s_wifiTxPowerLevel == 1) ? "15.0 dBm" : (s_wifiTxPowerLevel == 2) ? "11.0 dBm" : "19.5 dBm (MAX)");
 }
 
 void stopCaptivePortal();
@@ -620,6 +694,9 @@ bool connectWiFi(uint32_t timeoutMs = 20000) {
   Serial.printf("[WiFi] Connecting to '%s'...", g_wifiSsid.c_str());
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
+  wifi_power_t pwrEnum = (s_wifiTxPowerLevel == 1) ? WIFI_POWER_15dBm :
+                         (s_wifiTxPowerLevel == 2) ? WIFI_POWER_11dBm : WIFI_POWER_19_5dBm;
+  WiFi.setTxPower(pwrEnum);
   WiFi.setSleep(false);
   WiFi.disconnect();
   delay(100);
@@ -642,6 +719,8 @@ bool connectWiFi(uint32_t timeoutMs = 20000) {
 
   Serial.printf("\n[WiFi] Connected! IP: %s (RSSI: %d dBm)\n",
                 WiFi.localIP().toString().c_str(), WiFi.RSSI());
+  s_lastIp = WiFi.localIP().toString();
+  s_lastRssi = WiFi.RSSI();
   return true;
 }
 
@@ -728,14 +807,7 @@ bool checkPairingStatus() {
 void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   int targetIndex = (requestedItemIndex >= 0) ? requestedItemIndex : s_currentItemIndex;
 
-  // 1. Check if frame is available in PSRAM cache for instant display
-  if (!forceRefresh && cacheGet(targetIndex, s_rotatedBuffer)) {
-    Serial.printf("[Sync] Item %d found in PSRAM cache -> Instant render!\n", targetIndex);
-    s_currentItemIndex = targetIndex;
-    renderRotatedBuffer(s_rotatedBuffer);
-  }
-
-  // 2. Fetch or re-validate from server over Wi-Fi
+  // 1. Fetch or re-validate from server over Wi-Fi
   if (!connectWiFi()) {
     int validCount = cacheValidCount();
     if (validCount == 0) {
@@ -761,14 +833,9 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     return;
   }
 
-  String url;
-  if (g_multiZone) {
-    url = g_serverUrl + "/api/embedded/render-layout?device_id=" + g_deviceId;
-  } else {
-    url = g_serverUrl + "/api/embedded/render?mode=single&device_id=" + g_deviceId;
-    if (requestedItemIndex >= 0) {
-      url += "&item=" + String(requestedItemIndex);
-    }
+  String url = g_serverUrl + "/api/embedded/render?device_id=" + g_deviceId;
+  if (requestedItemIndex >= 0) {
+    url += "&item=" + String(requestedItemIndex);
   }
   Serial.printf("[Sync] Fetching %s\n", url.c_str());
 
@@ -776,40 +843,61 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   http.begin(url);
   http.setTimeout(HTTP_TIMEOUT_MS);
   http.addHeader("Authorization", String("Bearer ") + g_deviceToken);
-  http.addHeader("User-Agent", "ScreenTinker-Sticky/1.1 (ESP32-S3-PSRAM)");
+  http.addHeader("User-Agent", "ScreenTinker-Sticky/1.2 (ESP32-S3-PSRAM)");
 
   String cachedEtag = cacheGetEtag(targetIndex);
+  if (cachedEtag.length() == 0 && strlen(rtc_lastEtag) > 0) {
+    cachedEtag = String(rtc_lastEtag);
+  }
   if (!forceRefresh && !FORCE_REFRESH_ON_BOOT && cachedEtag.length() > 0) {
     http.addHeader("If-None-Match", cachedEtag);
     Serial.printf("[Sync] Sent conditional ETag: %s\n", cachedEtag.c_str());
   }
 
-  const char* headerKeys[] = {"ETag", "X-ST-Expires-In", "X-ST-Item-Index", "X-ST-Total-Items"};
-  http.collectHeaders(headerKeys, 4);
+  const char* headerKeys[] = {"ETag", "X-ST-Expires-In", "X-ST-Item-Index", "X-ST-Total-Items", "X-ST-Total-Zones", "X-ST-Layout-Fallback"};
+  http.collectHeaders(headerKeys, 6);
 
   int httpCode = http.GET();
   Serial.printf("[Sync] HTTP Response: %d\n", httpCode);
 
   if (http.hasHeader("X-ST-Expires-In")) {
     int exp = http.header("X-ST-Expires-In").toInt();
-    if (exp > 0) s_syncIntervalMs = exp * 1000;
+    // Enforce minimum 10s sync interval to protect E-Paper display
+    if (exp > 0) s_syncIntervalMs = max((uint32_t)10000, (uint32_t)(exp * 1000));
   }
+  int resolvedIndex = s_currentItemIndex;
   if (http.hasHeader("X-ST-Item-Index")) {
-    s_currentItemIndex = http.header("X-ST-Item-Index").toInt();
+    resolvedIndex = http.header("X-ST-Item-Index").toInt();
   }
   if (http.hasHeader("X-ST-Total-Items")) {
     s_totalItems = http.header("X-ST-Total-Items").toInt();
   }
 
   if (httpCode == HTTP_CODE_NOT_MODIFIED) {
-    Serial.println("[Sync] 304 Not Modified — Content unchanged.");
+    rtc_unchangedCycles++;
+    Serial.printf("[Sync] 304 Not Modified — Content for item %d unchanged (0 bytes download, consecutive 304s: %d).\n",
+                  resolvedIndex, rtc_unchangedCycles);
     http.end();
     disconnectWiFiIfPowerSave();
+    // If playlist advanced to another item that is in cache, display it without re-downloading
+    if (resolvedIndex != s_currentItemIndex && cacheGet(resolvedIndex, s_rotatedBuffer)) {
+      s_currentItemIndex = resolvedIndex;
+      rtc_currentItemIndex = resolvedIndex;
+      Serial.printf("[Sync] Switched display to cached item %d.\n", resolvedIndex);
+      renderRotatedBuffer(s_rotatedBuffer);
+    }
     return;
   }
 
+  s_currentItemIndex = resolvedIndex;
+  rtc_currentItemIndex = resolvedIndex;
+
   if (httpCode == HTTP_CODE_OK) {
+    rtc_unchangedCycles = 0; // Reset adaptive backoff counter on content update
     String newEtag = http.header("ETag");
+    if (newEtag.length() > 0) {
+      strncpy(rtc_lastEtag, newEtag.c_str(), sizeof(rtc_lastEtag) - 1);
+    }
 
     if (!s_rawBuffer || !s_rotatedBuffer) {
       Serial.println("[Sync] Buffers not initialized!");
@@ -846,6 +934,16 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     }
 
     disconnectWiFiIfPowerSave();
+    return;
+  }
+
+  if (httpCode == 401) {
+    String errBody = http.getString();
+    Serial.printf("[Sync] HTTP 401 Unauthorized (%s). Device unlinked from server.\n", errBody.c_str());
+    Serial.println("[Sync] Resetting device pairing credentials and switching to Pairing Mode...");
+    http.end();
+    saveConfigToNVS(g_wifiSsid, g_wifiPass, g_serverUrl, "", "", g_multiZone);
+    registerAndStartPairing();
     return;
   }
 
@@ -911,9 +1009,10 @@ void processSerialLine(const String& line) {
       powerOffDevice();
     } else if (line == "menu") {
       s_inSystemMenu = true;
+      s_inStatusScreen = false;
       s_menuSelection = 0;
       s_menuOpenMillis = millis();
-      showSystemMenu(0, s_currentLang);
+      showSystemMenu(0, false);
     }
     return;
   }
@@ -987,9 +1086,10 @@ void processSerialLine(const String& line) {
     powerOffDevice();
   } else if (strcmp(cmd, "menu") == 0) {
     s_inSystemMenu = true;
+    s_inStatusScreen = false;
     s_menuSelection = 0;
     s_menuOpenMillis = millis();
-    showSystemMenu(0, s_currentLang);
+    showSystemMenu(0, false);
   } else {
     Serial.printf("{\"status\":\"error\",\"v\":1,\"message\":\"Unknown command: %s\"}\n", cmd);
   }
@@ -999,20 +1099,74 @@ void processSerialLine(const String& line) {
 void setup() {
   initBoardPowerAndPins();
   Serial.begin(115200);
-  delay(300);
+  delay(100);
 
-  Serial.println("\n=============================================");
-  Serial.printf("  ScreenTinker v%s — Seeed Studio reTerminal Sticky\n", FIRMWARE_VERSION);
-  Serial.println("  PSRAM Cache Engine & Ultra-Low-Power Sync");
-  Serial.println("=============================================");
+  esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
 
   initPsramBuffers();
   loadConfigFromNVS();
 
-  if (g_wifiSsid.length() > 0 && g_wifiSsid != "Your-WiFi-SSID") {
-    if (g_deviceId.length() > 0 && g_deviceToken.length() > 0 && g_deviceId != "your-device-uuid") {
+  bool isConfigured = (g_wifiSsid.length() > 0 && g_wifiSsid != "Your-WiFi-SSID");
+  bool isPaired = (isConfigured && g_deviceId.length() > 0 && g_deviceToken.length() > 0 && g_deviceId != "your-device-uuid");
+
+  if (wakeup_cause == ESP_SLEEP_WAKEUP_EXT1 || wakeup_cause == ESP_SLEEP_WAKEUP_EXT0) {
+    // ─── Button Wakeup: Instant Responsiveness & Open System Menu ───
+    Serial.println("\n>>> [Wakeup] Woken by Button Press! Opening System Menu in Interactive Mode...");
+    rtc_unchangedCycles = 0; // Reset adaptive backoff on user action
+    s_inInteractiveMode = true;
+    s_interactiveUntilMillis = millis() + 30000;
+    s_inSystemMenu = true;
+    s_inStatusScreen = false;
+    s_menuSelection = 0;
+    s_menuOpenMillis = millis();
+    showSystemMenu(0, false);
+    return;
+  }
+
+  if (wakeup_cause == ESP_SLEEP_WAKEUP_TIMER) {
+    // ─── Scheduled Background Timer Wakeup ───
+    Serial.printf("\n>>> [Wakeup] Woken by RTC Timer (Adaptive 304 Count: %d). Running background sync...\n", rtc_unchangedCycles);
+    s_inInteractiveMode = false;
+    if (isConfigured && isPaired) {
+      s_currentItemIndex = rtc_currentItemIndex;
+      fetchAndRender(false);
+
+      // Adaptive Sleep Calculation
+      uint32_t baseSec = max((uint32_t)10, (uint32_t)(s_syncIntervalMs / 1000));
+      uint32_t sleepSec = baseSec;
+      if (rtc_unchangedCycles >= 10) {
+        sleepSec = min((uint32_t)1800, baseSec * 10); // up to 30 min
+      } else if (rtc_unchangedCycles >= 6) {
+        sleepSec = min((uint32_t)600, baseSec * 4);  // up to 10 min
+      } else if (rtc_unchangedCycles >= 3) {
+        sleepSec = min((uint32_t)300, baseSec * 2);  // up to 5 min
+      }
+      rtc_lastSyncIntervalS = sleepSec;
+      enterDeepSleepWithWakeup(sleepSec);
+      return;
+    }
+  }
+
+  // ─── Cold Boot / Reset ───
+  Serial.println("\n=============================================");
+  Serial.printf("  ScreenTinker v%s — Seeed Studio reTerminal Sticky\n", FIRMWARE_VERSION);
+  Serial.println("  Adaptive Deep Sleep & Ultra-Low-Power Engine");
+  Serial.println("=============================================");
+
+  rtc_unchangedCycles = 0;
+  s_inInteractiveMode = false;
+
+  if (isConfigured) {
+    showSplashScreen(FIRMWARE_VERSION, (s_currentLang == LANG_DE) ? "Verbinde mit WLAN & Server..." : "Connecting to network...");
+    if (isPaired) {
       Serial.println("[Setup] Device configured and paired. Syncing content...");
       fetchAndRender(FORCE_REFRESH_ON_BOOT);
+
+      // Enter initial deep sleep for slide interval
+      uint32_t baseSec = max((uint32_t)10, (uint32_t)(s_syncIntervalMs / 1000));
+      rtc_lastSyncIntervalS = baseSec;
+      enterDeepSleepWithWakeup(baseSec);
+      return;
     } else {
       Serial.println("\n[Setup] Wi-Fi configured, but device not paired. Starting 6-digit Pairing flow...");
       registerAndStartPairing();
@@ -1020,7 +1174,7 @@ void setup() {
   } else {
     Serial.println("\n[Setup] No Wi-Fi credentials configured.");
     Serial.println("[Setup] Displaying Onboarding instructions on E-Paper...");
-    showOnboardingScreen(LANG_EN);
+    showOnboardingScreen(s_currentLang);
     startCaptivePortal();
     Serial.println("[Setup] Options: Connect to Wi-Fi 'ScreenTinker-Setup' OR send JSON via Web-Flasher.");
   }
@@ -1045,6 +1199,8 @@ void loop() {
 
   // Check for incoming serial configuration commands
   if (Serial.available() > 0) {
+    s_inInteractiveMode = true;
+    s_interactiveUntilMillis = millis() + 30000;
     String line = Serial.readStringUntil('\n');
     line.trim();
     if (line.length() > 0) {
@@ -1054,11 +1210,10 @@ void loop() {
 
   bool isConfigured = (g_wifiSsid.length() > 0 && g_wifiSsid != "Your-WiFi-SSID");
   bool isPaired = (isConfigured && g_deviceId.length() > 0 && g_deviceToken.length() > 0 && g_deviceId != "your-device-uuid");
-  int cachedCount = cacheValidCount();
 
   // If Wi-Fi is configured but device is not paired yet, poll pairing status periodically (NOT in menu)
   static uint32_t lastPairCheckMillis = 0;
-  if (!s_inSystemMenu && isConfigured && !isPaired) {
+  if (!s_inSystemMenu && !s_inStatusScreen && isConfigured && !isPaired) {
     if (s_activePairingDeviceId.length() == 0 && (millis() - lastPairCheckMillis > 6000)) {
       lastPairCheckMillis = millis();
       registerAndStartPairing();
@@ -1066,11 +1221,15 @@ void loop() {
       lastPairCheckMillis = millis();
       if (checkPairingStatus()) {
         fetchAndRender(true);
+        if (isConfigured && isPaired) {
+          uint32_t baseSec = max((uint32_t)10, (uint32_t)(s_syncIntervalMs / 1000));
+          enterDeepSleepWithWakeup(baseSec);
+        }
       }
     }
   }
 
-  // Button Handling: Long Press (1.5s) -> System Menu; Short Press -> Refresh / Confirm
+  // ─── Button Handling (Instant Responsiveness) ─────────────────────────────────
   static uint32_t lastBtnUp = 0;
   static uint32_t lastBtnDown = 0;
   static uint32_t okPressStart = 0;
@@ -1080,13 +1239,16 @@ void loop() {
     if (okPressStart == 0) okPressStart = millis();
 
     // If held for 1.5 seconds while outside menu -> Open System Menu immediately!
-    if (!s_inSystemMenu && okPressStart > 0 && (millis() - okPressStart >= 1500)) {
+    if (!s_inSystemMenu && !s_inStatusScreen && okPressStart > 0 && (millis() - okPressStart >= 1500)) {
       Serial.println("\n>>> [Button] Long press (1.5s) on OK detected -> Opening System Menu!");
       okPressStart = 0; // Reset so it doesn't re-trigger while held
+      s_inInteractiveMode = true;
+      s_interactiveUntilMillis = millis() + 30000;
       s_inSystemMenu = true;
-      s_menuSelection = 0; // Default: Zurück / Back
+      s_inStatusScreen = false;
+      s_menuSelection = 0; // Default: 1. Status & Info
       s_menuOpenMillis = millis();
-      showSystemMenu(s_menuSelection, s_currentLang);
+      showSystemMenu(s_menuSelection, false);
     }
   } else {
     // Button released
@@ -1096,108 +1258,149 @@ void loop() {
 
       // Valid Short Press (between 40ms and 1400ms)
       if (duration > 40 && duration < 1400) {
-        if (s_inSystemMenu) {
-          // INSIDE MENU: Confirm current selection!
+        s_inInteractiveMode = true;
+        s_interactiveUntilMillis = millis() + 30000;
+
+        if (s_inStatusScreen) {
+          // Inside Status Screen: Return to Menu
+          Serial.println("\n>>> [StatusScreen] Return to System Menu");
+          s_inStatusScreen = false;
+          s_inSystemMenu = true;
+          s_menuOpenMillis = millis();
+          showSystemMenu(s_menuSelection, false);
+        } else if (s_inSystemMenu) {
+          // Inside System Menu: Execute selection!
           Serial.printf("\n>>> [SystemMenu] Selection %d confirmed!\n", s_menuSelection);
+          s_menuOpenMillis = millis();
           if (s_menuSelection == 0) {
-            // 0: Zurück / Back
+            // 0: Status & Info
             s_inSystemMenu = false;
-            redrawCurrentState();
+            s_inStatusScreen = true;
+            showStatusInfoScreen();
           } else if (s_menuSelection == 1) {
-            // 1: Toggle Layout Mode (Multi-Zone <-> Standard)
-            g_multiZone = !g_multiZone;
+            // 1: Wi-Fi TX Power Toggle (MAX -> MED -> LOW -> MAX)
+            s_wifiTxPowerLevel = (s_wifiTxPowerLevel + 1) % 3;
             s_prefs.begin("screentinker", false);
-            s_prefs.putBool("multi_zone", g_multiZone);
+            s_prefs.putUChar("wifi_tx_pwr", s_wifiTxPowerLevel);
             s_prefs.end();
-            cacheClear();
-            s_menuOpenMillis = millis();
-            Serial.printf("\n>>> [SystemMenu] Layout Mode toggled to: %s\n", g_multiZone ? "MULTI-ZONE" : "STANDARD");
-            showSystemMenu(s_menuSelection, s_currentLang);
+            wifi_power_t pwrEnum = (s_wifiTxPowerLevel == 1) ? WIFI_POWER_15dBm :
+                                   (s_wifiTxPowerLevel == 2) ? WIFI_POWER_11dBm : WIFI_POWER_19_5dBm;
+            WiFi.setTxPower(pwrEnum);
+            Serial.printf("\n>>> [SystemMenu] Wi-Fi TX Power switched to level %d (%s)!\n",
+                          s_wifiTxPowerLevel, (s_wifiTxPowerLevel == 1) ? "15 dBm" : (s_wifiTxPowerLevel == 2) ? "11 dBm" : "19.5 dBm");
+            showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
           } else if (s_menuSelection == 2) {
-            // 2: Ausschalten / Power Off
-            powerOffDevice();
+            // 2: Language Toggle (EN <-> DE)
+            s_currentLang = (s_currentLang == LANG_EN) ? LANG_DE : LANG_EN;
+            s_prefs.begin("screentinker", false);
+            s_prefs.putUChar("lang", (uint8_t)s_currentLang);
+            s_prefs.end();
+            Serial.printf("\n>>> [SystemMenu] Language changed to: %s\n", (s_currentLang == LANG_DE) ? "DE" : "EN");
+            showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
           } else if (s_menuSelection == 3) {
-            // 3: Factory Reset
+            // 3: Gerät entkoppeln (Unpair)
+            s_inSystemMenu = false;
+            Serial.println("[SystemMenu] Unpairing device and generating new pairing code...");
+            saveConfigToNVS(g_wifiSsid, g_wifiPass, g_serverUrl, "", "");
+            registerAndStartPairing();
+          } else if (s_menuSelection == 4) {
+            // 4: Ausschalten / Standby
+            powerOffDevice();
+          } else if (s_menuSelection == 5) {
+            // 5: Factory Reset
             s_inSystemMenu = false;
             factoryResetNVS();
+          } else if (s_menuSelection == 6) {
+            // 6: Zurück / Schließen -> Deep Sleep
+            s_inSystemMenu = false;
+            s_inInteractiveMode = false;
+            redrawCurrentState();
+            if (isConfigured && isPaired) {
+              uint32_t baseSec = max((uint32_t)10, (uint32_t)(s_syncIntervalMs / 1000));
+              enterDeepSleepWithWakeup(baseSec);
+            }
           }
         } else {
-          // OUTSIDE MENU: Normal Short Press
+          // Outside Menu: Normal Short Press -> Open menu or refresh
           if (!isConfigured) {
-            Serial.println("\n>>> [Button] OK pressed -> Redrawing setup instructions...");
             showOnboardingScreen(s_currentLang);
           } else if (!isPaired) {
-            Serial.println("\n>>> [Button] OK pressed -> Requesting new pairing code...");
+            Serial.println("\n>>> [Button] OK pressed -> Refreshing pairing code...");
             registerAndStartPairing();
           } else {
-            Serial.println("\n>>> [Button] OK pressed -> Forcing refresh...");
-            fetchAndRender(true, s_currentItemIndex);
-            s_lastSyncMillis = millis();
+            Serial.println("\n>>> [Button] OK pressed -> Opening System Menu!");
+            s_inSystemMenu = true;
+            s_inStatusScreen = false;
+            s_menuSelection = 0;
+            s_menuOpenMillis = millis();
+            showSystemMenu(s_menuSelection, false);
           }
         }
       }
     }
   }
 
-  // System Menu Timeout: auto-exit after 30 seconds of inactivity
-  if (s_inSystemMenu && (millis() - s_menuOpenMillis > 30000)) {
-    Serial.println("\n>>> [SystemMenu] Inactivity timeout (30s) -> Exiting menu.");
+  // Interactive / Menu Inactivity Timeout: auto-exit to Deep Sleep after 30 seconds
+  if (s_inInteractiveMode && (millis() > s_interactiveUntilMillis || ((s_inSystemMenu || s_inStatusScreen) && (millis() - s_menuOpenMillis > 30000)))) {
+    Serial.println("\n>>> [Interactive] Inactivity timeout (30s) -> Exiting interactive mode to Deep Sleep.");
+    s_inInteractiveMode = false;
     s_inSystemMenu = false;
+    s_inStatusScreen = false;
     redrawCurrentState();
+    if (isConfigured && isPaired) {
+      uint32_t baseSec = max((uint32_t)10, (uint32_t)(s_syncIntervalMs / 1000));
+      enterDeepSleepWithWakeup(baseSec);
+    }
   }
 
-  // UP Button (GPIO 5):
-  if (digitalRead(PIN_BTN_UP) == LOW && millis() - lastBtnUp > 300) {
+  // UP Button (GPIO 5)
+  if (digitalRead(PIN_BTN_UP) == LOW && millis() - lastBtnUp > 200) {
     lastBtnUp = millis();
-    if (s_inSystemMenu) {
-      s_menuSelection = (s_menuSelection - 1 + 4) % 4;
+    s_inInteractiveMode = true;
+    s_interactiveUntilMillis = millis() + 30000;
+
+    if (s_inStatusScreen) {
+      s_inStatusScreen = false;
+      s_inSystemMenu = true;
+      s_menuOpenMillis = millis();
+      showSystemMenu(s_menuSelection, false);
+    } else if (s_inSystemMenu) {
+      s_menuSelection = (s_menuSelection - 1 + 7) % 7;
       s_menuOpenMillis = millis();
       Serial.printf("\n>>> [SystemMenu] UP pressed -> Selection: %d\n", s_menuSelection);
-      showSystemMenu(s_menuSelection, s_currentLang);
-    } else if (!isConfigured) {
-      Serial.println("\n>>> [Button] UP pressed -> Language: DE (Deutsch)");
-      showOnboardingScreen(LANG_DE);
-    } else if (!isPaired) {
-      Serial.println("\n>>> [Button] UP pressed -> Language: DE (Pairing Screen)");
-      showPairingCodeScreen(s_activePairingCode.c_str(), LANG_DE);
-    } else if (cachedCount == 0 && WiFi.status() != WL_CONNECTED) {
-      Serial.println("\n>>> [Button] UP pressed -> Language: DE (No-WiFi Screen)");
-      showNoWifiScreen(LANG_DE);
-    } else {
+      showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
+    } else if (isPaired) {
       int prev = (s_totalItems > 0) ? ((s_currentItemIndex - 1 + s_totalItems) % s_totalItems) : max(0, s_currentItemIndex - 1);
-      Serial.printf("\n>>> [Button] UP pressed -> Navigating to item %d...\n", prev);
-      fetchAndRender(false, prev);
-      s_lastSyncMillis = millis();
+      Serial.printf("\n>>> [Button] UP pressed -> Switching to previous slide %d...\n", prev);
+      fetchAndRender(true, prev);
     }
   }
 
-  // DOWN Button (GPIO 6):
-  if (digitalRead(PIN_BTN_DOWN) == LOW && millis() - lastBtnDown > 300) {
+  // DOWN Button (GPIO 6)
+  if (digitalRead(PIN_BTN_DOWN) == LOW && millis() - lastBtnDown > 200) {
     lastBtnDown = millis();
-    if (s_inSystemMenu) {
-      s_menuSelection = (s_menuSelection + 1) % 4;
+    s_inInteractiveMode = true;
+    s_interactiveUntilMillis = millis() + 30000;
+
+    if (s_inStatusScreen) {
+      s_inStatusScreen = false;
+      s_inSystemMenu = true;
+      s_menuOpenMillis = millis();
+      showSystemMenu(s_menuSelection, false);
+    } else if (s_inSystemMenu) {
+      s_menuSelection = (s_menuSelection + 1) % 7;
       s_menuOpenMillis = millis();
       Serial.printf("\n>>> [SystemMenu] DOWN pressed -> Selection: %d\n", s_menuSelection);
-      showSystemMenu(s_menuSelection, s_currentLang);
-    } else if (!isConfigured) {
-      Serial.println("\n>>> [Button] DOWN pressed -> Language: EN (English)");
-      showOnboardingScreen(LANG_EN);
-    } else if (!isPaired) {
-      Serial.println("\n>>> [Button] DOWN pressed -> Language: EN (Pairing Screen)");
-      showPairingCodeScreen(s_activePairingCode.c_str(), LANG_EN);
-    } else if (cachedCount == 0 && WiFi.status() != WL_CONNECTED) {
-      Serial.println("\n>>> [Button] DOWN pressed -> Language: EN (No-WiFi Screen)");
-      showNoWifiScreen(LANG_EN);
-    } else {
+      showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
+    } else if (isPaired) {
       int next = (s_totalItems > 0) ? ((s_currentItemIndex + 1) % s_totalItems) : (s_currentItemIndex + 1);
-      Serial.printf("\n>>> [Button] DOWN pressed -> Navigating to item %d...\n", next);
-      fetchAndRender(false, next);
-      s_lastSyncMillis = millis();
+      Serial.printf("\n>>> [Button] DOWN pressed -> Switching to next slide %d...\n", next);
+      fetchAndRender(true, next);
     }
   }
 
-  // Periodic Auto-Sync (Only when device is fully configured & paired, and NOT in menu)
-  if (!s_inSystemMenu && isPaired && (millis() - s_lastSyncMillis > s_syncIntervalMs)) {
+  // Periodic Auto-Sync (Fallback if active in loop)
+  if (!s_inSystemMenu && !s_inStatusScreen && isPaired && (millis() - s_lastSyncMillis > s_syncIntervalMs)) {
     s_lastSyncMillis = millis();
     Serial.println("\n[AutoSync] Periodic sync triggered...");
     fetchAndRender(false);

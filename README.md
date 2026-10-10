@@ -19,7 +19,7 @@ Ultra-low-power, high-performance C++ firmware for the **[Seeed Studio reTermina
 - **Bilingual Onboarding & Setup Engine (English / German):**
 - **Dual Onboarding / Provisioning:**
   - **Option A (Wi-Fi Captive Portal):** Out of the box, the device broadcasts a `ScreenTinker-Setup` Wi-Fi hotspot. Connect with any smartphone or laptop to configure Wi-Fi and Server URL via an automatic pop-up web interface (`192.168.4.1`).
-  - **Option B (1-Click WebSerial Installer):** Plug into PC/Mac via USB-C and configure directly in Chrome/Edge using [tools/sticky-installer.html](tools/sticky-installer.html).
+  - **Option B (1-Click WebSerial Installer):** Plug into PC/Mac via USB-C and flash/configure directly in Chrome or Edge using the **[Live Web Installer](https://www.rene-bohne.de/screentinker_mcu/tools/sticky-installer.html)** (or local [`tools/sticky-installer.html`](tools/sticky-installer.html)).
 - **Bilingual Onboarding (German & English):**
   - Standalone, lightweight 1-bit monochrome graphics engine with embedded ASCII font (no bulky external GFX dependencies).
   - Dynamically switch between English (default) and German using the hardware buttons (`UP` = Deutsch, `DOWN` = English).
@@ -60,8 +60,9 @@ Ultra-low-power, high-performance C++ firmware for the **[Seeed Studio reTermina
 
 ### Option B: USB-C Web Installer
 1. Connect the reTerminal Sticky to your PC/Mac using a USB-C data cable.
-2. Open `tools/sticky-installer.html` in Chrome or Edge.
-3. Click **"Connect Device"**, enter your Wi-Fi SSID and Password, and click **"Save & Connect"**.
+2. Open the **[ScreenTinker Web Installer](https://www.rene-bohne.de/screentinker_mcu/tools/sticky-installer.html)** (or [`tools/sticky-installer.html`](tools/sticky-installer.html)) in Google Chrome or Microsoft Edge.
+3. Click **"🚀 Firmware direkt im Browser installieren"** to flash the latest v1.2.0 firmware.
+4. Click **"🔌 USB-Verbindung herstellen"**, enter your Wi-Fi SSID and Password, and click **"Save & Connect"**.
 
 ### Step 2: Claim Display in ScreenTinker
 1. The Sticky connects to Wi-Fi and renders a large **6-digit Pairing Code** (e.g. `545 658`) on its E-Paper screen.

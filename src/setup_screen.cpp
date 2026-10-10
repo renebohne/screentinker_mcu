@@ -614,12 +614,6 @@ void renderEmptyPlaylistScreen(uint8_t* buffer, const char* deviceName, const ch
   int urlY = (urlScale == 2) ? 328 : 332;
   gfx_draw_string(buffer, max(45, urlX), urlY, dashboardUrl, 0, urlScale);
 
-  // Status indicator under Card B
-  if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 36, 382, "Status: Online  (Warte auf Playlist)", 0, 2);
-  } else {
-    gfx_draw_string(buffer, 36, 382, "Status: Online  (Waiting for content)", 0, 2);
-  }
 
   // 3. Right Side: Clean QR Code Card (x: 540, y: 124, width: 230, height: 274)
   gfx_draw_rect(buffer, 540, 124, 230, 274, 0);

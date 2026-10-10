@@ -929,11 +929,22 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     Serial.printf("[Sync] Sent conditional ETag: %s\n", cachedEtag.c_str());
   }
 
-  const char* headerKeys[] = {"ETag", "X-ST-Expires-In", "X-ST-Item-Index", "X-ST-Total-Items", "X-ST-Total-Zones", "X-ST-Layout-Fallback", "X-ST-Device-Name"};
-  http.collectHeaders(headerKeys, 7);
+  const char* headerKeys[] = {"ETag", "X-ST-Expires-In", "X-ST-Item-Index", "X-ST-Total-Items", "X-ST-Total-Zones", "X-ST-Layout-Fallback", "X-ST-Device-Name", "X-ST-Command"};
+  http.collectHeaders(headerKeys, 8);
 
   int httpCode = http.GET();
   Serial.printf("[Sync] HTTP Response: %d\n", httpCode);
+
+  if (http.hasHeader("X-ST-Command")) {
+    String cmd = http.header("X-ST-Command");
+    cmd.trim();
+    if (cmd.equalsIgnoreCase("reboot")) {
+      Serial.println("[Sync] Remote reboot command received from server! Restarting ESP32...");
+      http.end();
+      delay(500);
+      ESP.restart();
+    }
+  }
 
   if (http.hasHeader("X-ST-Expires-In")) {
     int exp = http.header("X-ST-Expires-In").toInt();

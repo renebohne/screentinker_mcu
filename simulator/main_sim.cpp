@@ -64,6 +64,15 @@ int main(int argc, char** argv) {
       std::cout << "[Sync] Power State: " << res.getHeader("x-st-power-state") << "\n";
     }
 
+    std::string cmd = res.getHeader("x-st-command");
+    if (!cmd.empty()) {
+      std::cout << "[Sync] Remote command received from server: " << cmd << "\n";
+      if (cmd == "reboot") {
+        std::cout << "[Simulator] Remote reboot executed! Resetting simulated device state...\n";
+        lastEtag = "";
+      }
+    }
+
     if (res.statusCode == 200) {
       std::string etag = res.getHeader("etag");
       if (!etag.empty()) lastEtag = etag;

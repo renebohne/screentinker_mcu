@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Build & Platform Support**:
   - Custom board definition `boards/esp32-s3-devkitc1-n8r8.json` for PlatformIO ESP32-S3-WROOM-1-N8R8 build targets ([#7](https://github.com/renebohne/screentinker_mcu/pull/7)).
   - WebSerial Flasher manifest updated for version 1.2.0 ([#6](https://github.com/renebohne/screentinker_mcu/pull/6)).
+  - 1-Click Browser Web Flasher hosted live at [https://www.rene-bohne.de/screentinker_mcu/tools/sticky-installer.html](https://www.rene-bohne.de/screentinker_mcu/tools/sticky-installer.html) (mirror: [GitHub Pages](https://renebohne.github.io/screentinker_mcu/tools/sticky-installer.html)).
 
 ### Changed
 - **Guarded Adaptive Sleep Backoff**: When the server requests long sleep intervals ($\ge 1800\,\text{s}$, such as night-time or inactive power schedules), consecutive HTTP 304 responses will no longer clamp the sleep down to 300 s (5 min) or 1800 s (30 min) ([#2](https://github.com/renebohne/screentinker_mcu/pull/2)).

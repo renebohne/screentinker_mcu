@@ -1,0 +1,19 @@
+{
+  "server": {
+    "url": "http://192.168.100.222:3001",
+    "device_id": "06813352-374a-476b-bca9-986ebdb1ff2c",
+    "device_token": "your-device-token-here",
+    "timeout_ms": 10000
+  },
+  "hardware": {
+    "battery_percent": 100,
+    "wifi_rssi_dbm": -68,
+    "firmware_version": "1.2.0"
+  },
+  "simulator": {
+    "headless": false,
+    "snapshot_path": "sim_output.bmp",
+    "fast_forward_sleep": true,
+    "sync_interval_sec": 30
+  }
+}

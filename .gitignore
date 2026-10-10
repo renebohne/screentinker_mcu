@@ -2,3 +2,10 @@
 .vscode
 .idea
 *.pyc
+
+# Simulator build artifacts and local config
+screentinker_sim
+*.bmp
+*.png
+simulator/build/
+simulator/sim_config.json

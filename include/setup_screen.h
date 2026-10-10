@@ -1,5 +1,14 @@
 #pragma once
+#ifdef ARDUINO
 #include <Arduino.h>
+#else
+#include <stdint.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <algorithm>
+using std::max;
+using std::min;
+#endif
 #include "config.h"
 
 enum Language {

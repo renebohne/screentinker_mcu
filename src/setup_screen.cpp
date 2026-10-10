@@ -549,66 +549,91 @@ void renderNoWifiScreen(uint8_t* buffer, const char* ssid, Language lang) {
 void renderEmptyPlaylistScreen(uint8_t* buffer, const char* deviceName, const char* serverUrl, Language lang) {
   gfx_fill(buffer, 1);
 
-  // Header Banner
+  // Top header banner (54px high)
   gfx_fill_rect(buffer, 0, 0, EPD_WIDTH, 54, 0);
   gfx_draw_screentinker_logo(buffer, 20, 12, 1);
-  if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 56, 16, "ScreenTinker — Verbunden", 1, 3);
-  } else {
-    gfx_draw_string(buffer, 56, 16, "ScreenTinker — Connected", 1, 3);
-  }
+  gfx_draw_string(buffer, 56, 16, "ScreenTinker", 1, 3);
 
-  // Display Name Badge (Top Right of Header)
+  // Device Name in Header (Right-aligned, inverted)
   if (deviceName && strlen(deviceName) > 0) {
     char nameBadge[48];
     snprintf(nameBadge, sizeof(nameBadge), "[ %s ]", deviceName);
-    // 8x8 font at scale 2 is 16px wide per char
-    int badgeWidth = strlen(nameBadge) * 16;
-    gfx_draw_string(buffer, max(450, EPD_WIDTH - badgeWidth - 20), 18, nameBadge, 1, 2);
-  }
-
-  // Info Banner Box
-  gfx_fill_rect(buffer, 40, 75, EPD_WIDTH - 80, 56, 0);
-  if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 110, 92, "KEINE PLAYLIST ZUGEWIESEN", 1, 3);
+    int badgeLen = strlen(nameBadge);
+    int badgeX = EPD_WIDTH - (badgeLen * 16) - 20;
+    gfx_draw_string(buffer, max(460, badgeX), 18, nameBadge, 1, 2);
   } else {
-    gfx_draw_string(buffer, 130, 92, "NO PLAYLIST ASSIGNED", 1, 3);
+    const char* subTitle = (lang == LANG_DE) ? "Verbunden" : "Connected";
+    gfx_draw_string(buffer, 560, 16, subTitle, 1, 3);
   }
 
-  // Main Explanatory Box (width = 500px, leaving room for QR on the right)
-  gfx_draw_rect(buffer, 40, 150, 520, 150, 0);
-  if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 60, 170, "Geraet ist erfolgreich verbunden!", 0, 2);
-    gfx_draw_string(buffer, 60, 205, "Es ist noch keine Playlist zugewiesen.", 0, 2);
-    gfx_draw_string(buffer, 60, 240, "Bitte im Dashboard zuweisen und", 0, 2);
-    gfx_draw_string(buffer, 60, 265, "anschliessend veroeffentlichen.", 0, 2);
-  } else {
-    gfx_draw_string(buffer, 60, 170, "Device is successfully connected!", 0, 2);
-    gfx_draw_string(buffer, 60, 205, "No active playlist is assigned yet.", 0, 2);
-    gfx_draw_string(buffer, 60, 240, "Please assign a playlist in the", 0, 2);
-    gfx_draw_string(buffer, 60, 265, "web dashboard and click Publish.", 0, 2);
-  }
+  // Vertical Divider line separating left and right columns
+  gfx_draw_vline(buffer, 360, 68, 340, 0);
 
-  // Server Info Section
-  gfx_draw_rect(buffer, 40, 315, 520, 85, 0);
-  gfx_draw_string(buffer, 60, 330, "SERVER DASHBOARD:", 0, 2);
-  gfx_draw_string(buffer, 60, 360, (serverUrl && strlen(serverUrl) > 0) ? serverUrl : "http://...", 0, 2);
-
-  // QR Code to Server URL (placed cleanly on the right)
+  // ─── Left Column (QR Code & Server Access) ───
+  char dashboardUrl[128];
   if (serverUrl && strlen(serverUrl) > 0) {
-    gfx_draw_rect(buffer, 580, 150, 180, 250, 0);
-    gfx_draw_qr(buffer, 595, 170, serverUrl, 3);
-    gfx_draw_string(buffer, 625, 360, "OPEN UI", 0, 2);
+    snprintf(dashboardUrl, sizeof(dashboardUrl), "%s", serverUrl);
+  } else {
+    snprintf(dashboardUrl, sizeof(dashboardUrl), "http://localhost:3001");
+  }
+
+  // QR Code centered in left column (scale 5 = 145x145px)
+  gfx_draw_qr(buffer, 105, 78, dashboardUrl, 5);
+
+  gfx_draw_string(buffer, 30, 255, (lang == LANG_DE) ? "Dashboard oeffnen:" : "Open Dashboard:", 0, 2);
+
+  // URL Box with clean 1-pixel font scale
+  gfx_draw_rect(buffer, 24, 285, 312, 34, 0);
+  int urlLen = strlen(dashboardUrl);
+  int urlX = (urlLen <= 36) ? (24 + (312 - urlLen * 8) / 2) : 30;
+  gfx_draw_string(buffer, max(30, urlX), 298, dashboardUrl, 0, 1);
+
+  gfx_draw_string(buffer, 30, 345, (lang == LANG_DE) ? "Status: Online & Bereit" : "Status: Online & Ready", 0, 2);
+  gfx_draw_string(buffer, 30, 375, (lang == LANG_DE) ? "Warte auf Playlist..." : "Waiting for playlist...", 0, 2);
+
+  // ─── Right Column (Instructions & Diagnostic Info) ───
+  // Notice Banner
+  gfx_fill_rect(buffer, 385, 78, EPD_WIDTH - 410, 48, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 400, 92, "KEINE PLAYLIST AKTIV", 1, 2);
+  } else {
+    gfx_draw_string(buffer, 400, 92, "NO PLAYLIST ASSIGNED", 1, 2);
+  }
+
+  // Step 1
+  gfx_draw_string(buffer, 385, 145, (lang == LANG_DE) ? "1. Geraet ist verbunden:" : "1. Display is paired:", 0, 2);
+  char devLine[64];
+  snprintf(devLine, sizeof(devLine), "   Name: %s", (deviceName && strlen(deviceName) > 0) ? deviceName : "ScreenTinker");
+  gfx_draw_string(buffer, 385, 172, devLine, 0, 2);
+
+  // Step 2
+  gfx_draw_string(buffer, 385, 218, (lang == LANG_DE) ? "2. Playlist zuweisen:" : "2. Assign playlist:", 0, 2);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 385, 245, "   Im Web-Dashboard", 0, 2);
+    gfx_draw_string(buffer, 385, 270, "   unter 'Displays'.", 0, 2);
+  } else {
+    gfx_draw_string(buffer, 385, 245, "   In web dashboard", 0, 2);
+    gfx_draw_string(buffer, 385, 270, "   under 'Displays'.", 0, 2);
+  }
+
+  // Step 3
+  gfx_draw_string(buffer, 385, 318, (lang == LANG_DE) ? "3. Veroeffentlichen:" : "3. Publish playlist:", 0, 2);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 385, 345, "   Auf 'Publish' klicken.", 0, 2);
+    gfx_draw_string(buffer, 385, 370, "   -> Bild erscheint!", 0, 2);
+  } else {
+    gfx_draw_string(buffer, 385, 345, "   Click 'Publish'.", 0, 2);
+    gfx_draw_string(buffer, 385, 370, "   -> Image appears!", 0, 2);
   }
 
   // Footer Navigation Bar
   gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 30, 442, "[ OK ]: Jetzt pruefen", 1, 2);
-    gfx_draw_string(buffer, 460, 442, "[ OK 1.5s ]: Einstellungen", 1, 2);
+    gfx_draw_string(buffer, 30, 442, "[ OK ]: Neu pruefen", 1, 2);
+    gfx_draw_string(buffer, 500, 442, "[ OK 1.5s ]: Menue", 1, 2);
   } else {
     gfx_draw_string(buffer, 30, 442, "[ OK ]: Check now", 1, 2);
-    gfx_draw_string(buffer, 480, 442, "[ OK 1.5s ]: Settings", 1, 2);
+    gfx_draw_string(buffer, 500, 442, "[ OK 1.5s ]: Menu", 1, 2);
   }
 }
 

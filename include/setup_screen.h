@@ -38,6 +38,7 @@ void renderPairingCodeScreen(uint8_t* buffer, const char* code, const char* serv
 void renderStatusInfoScreen(uint8_t* buffer, const char* ip, const char* ssid, int rssi, const char* serverUrl, const char* devId, const char* version, Language lang = LANG_EN);
 void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang = LANG_EN, uint8_t wifiTxLevel = 0);
 void renderPowerOffScreen(uint8_t* buffer, Language lang = LANG_EN);
+void renderUnsupportedContentScreen(uint8_t* buffer, const char* reason = nullptr, Language lang = LANG_EN);
 void gfx_draw_offline_badge(uint8_t* buffer);
 
 

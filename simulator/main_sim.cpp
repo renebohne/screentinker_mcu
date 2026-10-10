@@ -94,6 +94,23 @@ int main(int argc, char** argv) {
       display.renderBuffer(monoBuffer);
       display.saveBmp(monoBuffer, cfg.snapshotPath);
       lastEtag = ""; // Reset ETag on empty playlist
+    } else if (res.statusCode == 501) {
+      std::string detail = "Widget rendering requires a browser (set CHROME_PATH).";
+      std::string bodyStr = res.bodyAsString();
+      if (!bodyStr.empty()) {
+        JsonDocument doc;
+        DeserializationError err = deserializeJson(doc, bodyStr);
+        if (!err && doc["detail"].is<const char*>()) {
+          detail = doc["detail"].as<std::string>();
+        } else if (!err && doc["error"].is<const char*>()) {
+          detail = doc["error"].as<std::string>();
+        }
+      }
+      std::cout << "[Sync] 501 Unsupported Content — " << detail << "\n";
+      renderUnsupportedContentScreen(monoBuffer, detail.c_str(), LANG_EN);
+      display.renderBuffer(monoBuffer);
+      display.saveBmp(monoBuffer, cfg.snapshotPath);
+      lastEtag = "";
     } else {
       std::cerr << "[Sync] Connection failed (code " << res.statusCode << "). Rendering No Wi-Fi / Offline warning...\n";
       renderNoWifiScreen(monoBuffer, "ScreenTinker Server", LANG_EN);

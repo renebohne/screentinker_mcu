@@ -752,6 +752,73 @@ void gfx_draw_offline_badge(uint8_t* buffer) {
   gfx_draw_string(buffer, 660, 22, "OFFLINE", 1, 2);
 }
 
+// ─── Unsupported Content (501 / Missing Browser) Screen ─────────────────────
+void renderUnsupportedContentScreen(uint8_t* buffer, const char* reason, Language lang) {
+  gfx_fill(buffer, 1); // White background
+
+  // Header Bar
+  gfx_draw_screentinker_logo(buffer, 30, 20, 2);
+  gfx_draw_string(buffer, 85, 26, "ScreenTinker", 0, 2);
+  gfx_draw_string(buffer, 600, 26, (lang == LANG_DE) ? "HINWEIS" : "NOTICE", 0, 2);
+  gfx_draw_hline(buffer, 30, 56, EPD_WIDTH - 60, 0);
+
+  // Black Banner
+  gfx_fill_rect(buffer, 30, 68, EPD_WIDTH - 60, 46, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 48, 81, "INHALT NICHT UNTERSTUETZT (501)", 1, 2);
+  } else {
+    gfx_draw_string(buffer, 48, 81, "UNSUPPORTED CONTENT TYPE (501)", 1, 2);
+  }
+
+  // Main Card
+  gfx_draw_rect(buffer, 30, 122, EPD_WIDTH - 60, 276, 0);
+
+  // Guidance text
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 50, 140, "Dieses E-Paper Display benoetigt vorbereitete Bilddaten.", 0, 2);
+    gfx_draw_string(buffer, 50, 165, "Web-Widgets (HTML/Kalender/Uhr) erfordern einen Server-Browser.", 0, 2);
+  } else {
+    gfx_draw_string(buffer, 50, 140, "This e-paper display requires rendered image bitmaps.", 0, 2);
+    gfx_draw_string(buffer, 50, 165, "Web widgets or HTML require a headless browser on server.", 0, 2);
+  }
+
+  // Server message box
+  gfx_draw_rect(buffer, 50, 195, EPD_WIDTH - 100, 75, 0);
+  gfx_draw_string(buffer, 65, 205, (lang == LANG_DE) ? "Server-Rueckmeldung:" : "Server Message:", 0, 1);
+  const char* msg = (reason && strlen(reason) > 0) ? reason : "Widget rendering requires a browser (set CHROME_PATH).";
+  
+  char line1[64] = {0};
+  char line2[64] = {0};
+  int msgLen = strlen(msg);
+  if (msgLen <= 40) {
+    snprintf(line1, sizeof(line1), "%s", msg);
+  } else {
+    int split = 38;
+    while (split > 20 && msg[split] != ' ') split--;
+    snprintf(line1, sizeof(line1), "%.*s", split, msg);
+    snprintf(line2, sizeof(line2), "%s", msg + split + (msg[split] == ' ' ? 1 : 0));
+  }
+  gfx_draw_string(buffer, 65, 225, line1, 0, 2);
+  if (line2[0]) {
+    gfx_draw_string(buffer, 65, 245, line2, 0, 2);
+  }
+
+  // Action steps
+  gfx_draw_string(buffer, 50, 285, (lang == LANG_DE) ? "Loesungsschritte:" : "How to resolve:", 0, 2);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 50, 310, "1. Playlist im Dashboard auf Bilddateien (PNG/JPG) umstellen, ODER", 0, 2);
+    gfx_draw_string(buffer, 50, 335, "2. Chromium auf dem ScreenTinker Server installieren (CHROME_PATH).", 0, 2);
+  } else {
+    gfx_draw_string(buffer, 50, 310, "1. In Dashboard: Use image slides (PNG/JPG) in this playlist, OR", 0, 2);
+    gfx_draw_string(buffer, 50, 335, "2. On Server: Install Chromium and configure CHROME_PATH.", 0, 2);
+  }
+
+  // Footer bar
+  gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
+  gfx_draw_string(buffer, 120, 442, (lang == LANG_DE) ? "Automatische Neupruefung beim naechsten Abrufzyklus" : "Display will automatically re-check on next sync interval", 1, 2);
+}
+
+
 
 
 

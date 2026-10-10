@@ -1019,6 +1019,28 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     return;
   }
 
+  if (httpCode == 501) {
+    String errBody = http.getString();
+    String reason = "Widget rendering requires a browser (set CHROME_PATH).";
+    if (errBody.length() > 0) {
+      JsonDocument doc;
+      if (!deserializeJson(doc, errBody)) {
+        if (doc["detail"].is<String>()) reason = doc["detail"].as<String>();
+        else if (doc["error"].is<String>()) reason = doc["error"].as<String>();
+      }
+    }
+    Serial.printf("[Sync] HTTP 501 Unsupported Content: %s\n", reason.c_str());
+    http.end();
+    disconnectWiFiIfPowerSave();
+
+    if (s_rawBuffer && s_rotatedBuffer) {
+      renderUnsupportedContentScreen(s_rawBuffer, reason.c_str(), s_currentLang);
+      rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
+      renderRotatedBuffer(s_rotatedBuffer);
+    }
+    return;
+  }
+
   String errBody = http.getString();
   Serial.printf("[Sync] HTTP Error %d: %s\n", httpCode, errBody.c_str());
   http.end();

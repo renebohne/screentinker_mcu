@@ -854,8 +854,8 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     Serial.printf("[Sync] Sent conditional ETag: %s\n", cachedEtag.c_str());
   }
 
-  const char* headerKeys[] = {"ETag", "X-ST-Expires-In", "X-ST-Item-Index", "X-ST-Total-Items", "X-ST-Total-Zones", "X-ST-Layout-Fallback"};
-  http.collectHeaders(headerKeys, 6);
+  const char* headerKeys[] = {"ETag", "X-ST-Expires-In", "X-ST-Item-Index", "X-ST-Total-Items", "X-ST-Total-Zones", "X-ST-Layout-Fallback", "X-ST-Power-State"};
+  http.collectHeaders(headerKeys, 7);
 
   int httpCode = http.GET();
   Serial.printf("[Sync] HTTP Response: %d\n", httpCode);
@@ -871,6 +871,12 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   }
   if (http.hasHeader("X-ST-Total-Items")) {
     s_totalItems = http.header("X-ST-Total-Items").toInt();
+  }
+  if (http.hasHeader("X-ST-Power-State")) {
+    String pState = http.header("X-ST-Power-State");
+    if (pState.length() > 0) {
+      Serial.printf("[Power] Server power state: %s\n", pState.c_str());
+    }
   }
 
   if (httpCode == HTTP_CODE_NOT_MODIFIED) {
@@ -1134,12 +1140,18 @@ void setup() {
       // Adaptive Sleep Calculation
       uint32_t baseSec = max((uint32_t)10, (uint32_t)(s_syncIntervalMs / 1000));
       uint32_t sleepSec = baseSec;
-      if (rtc_unchangedCycles >= 10) {
-        sleepSec = min((uint32_t)1800, baseSec * 10); // up to 30 min
-      } else if (rtc_unchangedCycles >= 6) {
-        sleepSec = min((uint32_t)600, baseSec * 4);  // up to 10 min
-      } else if (rtc_unchangedCycles >= 3) {
-        sleepSec = min((uint32_t)300, baseSec * 2);  // up to 5 min
+
+      // Only apply the 5m-30m adaptive multiplier when the server's base interval is short (< 30 min).
+      // When the server explicitly instructed a long sleep (e.g. overnight power schedule or long dwell),
+      // obey the server's instructed sleep interval directly instead of clamping it down.
+      if (baseSec < 1800) {
+        if (rtc_unchangedCycles >= 10) {
+          sleepSec = min((uint32_t)1800, baseSec * 10); // up to 30 min
+        } else if (rtc_unchangedCycles >= 6) {
+          sleepSec = min((uint32_t)600, baseSec * 4);  // up to 10 min
+        } else if (rtc_unchangedCycles >= 3) {
+          sleepSec = min((uint32_t)300, baseSec * 2);  // up to 5 min
+        }
       }
       rtc_lastSyncIntervalS = sleepSec;
       enterDeepSleepWithWakeup(sleepSec);

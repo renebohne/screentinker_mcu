@@ -8,7 +8,6 @@
 #define EPD_WIDTH 800
 #define EPD_HEIGHT 480
 #define EPD_BUFFER_SIZE (EPD_WIDTH * EPD_HEIGHT / 8)
-#define FIRMWARE_VERSION "1.2.0"
 #define max(a,b) ((a) > (b) ? (a) : (b))
 #define min(a,b) ((a) < (b) ? (a) : (b))
 

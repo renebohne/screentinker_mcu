@@ -28,6 +28,7 @@
 // ─── Peripherals ──────────────────────────────────────────────────────────────
 #define PIN_BUZZER       48  // PWM Buzzer
 #define PIN_I2C_SDA      1   // I2C Sensors (SHT40, PCF8563, BQ27220, BQ25616)
+#define PIN_I2C_SCL      0
 #define PIN_SD_CS        8   // MicroSD Card Chip Select
 #define PIN_SD_EN        10  // MicroSD Power Enable
 #define PIN_SD_DETECT    11  // MicroSD Card Detect

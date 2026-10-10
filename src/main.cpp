@@ -17,6 +17,33 @@ extern "C" {
 
 #include <WebServer.h>
 #include <DNSServer.h>
+#include <Wire.h>
+
+// ─── Hardware Fuel Gauge (TI BQ27220) ────────────────────────────────────────
+static int readBatteryPercent() {
+  static bool wireStarted = false;
+  if (!wireStarted) {
+    Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL, 100000);
+    wireStarted = true;
+  }
+
+  // BQ27220 standard command StateOfCharge() is at 0x2C (16-bit little-endian)
+  Wire.beginTransmission(0x55);
+  Wire.write(0x2C);
+  if (Wire.endTransmission(false) != 0) {
+    return -1;
+  }
+
+  if (Wire.requestFrom((uint8_t)0x55, (uint8_t)2) == 2) {
+    uint8_t lsb = Wire.read();
+    uint8_t msb = Wire.read();
+    int soc = (msb << 8) | lsb;
+    if (soc >= 0 && soc <= 100) {
+      return soc;
+    }
+  }
+  return -1;
+}
 
 // ─── Persistent Storage (NVS) ────────────────────────────────────────────────
 static Preferences s_prefs;
@@ -858,6 +885,12 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   int curRssi = WiFi.RSSI();
   if (curRssi != 0) {
     http.addHeader("X-ST-Device-RSSI", String(curRssi));
+  }
+
+  int batt = readBatteryPercent();
+  if (batt >= 0) {
+    http.addHeader("X-ST-Device-Battery", String(batt));
+    Serial.printf("[Sync] Battery: %d%%\n", batt);
   }
 
   String cachedEtag = cacheGetEtag(targetIndex);

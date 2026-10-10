@@ -96,6 +96,9 @@ SimConfig SimConfig::load(int argc, char** argv) {
       cfg.headless = true;
     } else if (arg == "--oneshot") {
       cfg.oneShot = true;
+      cfg.maxCycles = 1;
+    } else if (arg == "--cycles" && i + 1 < argc) {
+      cfg.maxCycles = std::atoi(argv[++i]);
     } else if (arg == "--help" || arg == "-h") {
       std::cout << "ScreenTinker MCU Host Simulator (" << PLATFORM_OS << ")\n"
                 << "Usage: ./screentinker_sim [options]\n\n"
@@ -111,11 +114,16 @@ SimConfig SimConfig::load(int argc, char** argv) {
                 << "  --scale <1-4>            Window scaling factor (default: 1)\n"
                 << "  --headless               Run without SDL2 window (console + snapshot only)\n"
                 << "  --oneshot                Perform single poll cycle and exit\n"
+                << "  --cycles <count>         Execute N poll cycles and exit\n"
                 << "  --snapshot <path>        Output image path (default: " << cfg.snapshotPath << ")\n"
                 << "  -c, --config <path>      Path to JSON configuration\n"
                 << "  -h, --help               Show this help message\n";
       std::exit(0);
     }
+  }
+
+  if (cfg.powerSource == "usb") {
+    cfg.isCharging = (cfg.batteryPercent < 100);
   }
 
   return cfg;

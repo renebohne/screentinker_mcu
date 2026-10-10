@@ -124,3 +124,24 @@ pio run -e simulator
 ```
 
 See [simulator/README.md](simulator/README.md) for full documentation, interactive hotkeys, and headless CI modes.
+
+---
+
+## Automated Testing & CI
+
+An end-to-end integration test suite runs the simulator in headless mode against a lightweight embedded mock ScreenTinker server:
+
+```bash
+# Run all tests locally
+./tests/run_tests.sh
+
+# Or invoke with Python directly
+python3 -m unittest discover -s tests -p "test_*.py" -v
+
+# Run the mock server standalone for manual testing
+python3 tests/mock_server.py --port 3001
+```
+
+All Pull Requests and commits to `main` are continuously validated via [GitHub Actions](.github/workflows/ci.yml) for:
+1. **Embedded Firmware Compilation:** `pio run -e seeed_reterminal_sticky`
+2. **Simulator E2E Integration Suite:** 200 frame sync, 304 ETag caching, 404 empty playlist diagnostics, 501 fallback, 6-digit PIN pairing, and hardware telemetry headers.

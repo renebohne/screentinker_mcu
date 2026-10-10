@@ -1,0 +1,96 @@
+name: CI - Build & Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  firmware:
+    name: Build Embedded Firmware (ESP32-S3)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            .pio
+          key: pio-firmware-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio-firmware-${{ runner.os }}-
+
+      - name: Install PlatformIO Core
+        run: |
+          pip install --upgrade platformio
+
+      - name: Build Seeed reTerminal Sticky Firmware
+        run: |
+          pio run -e seeed_reterminal_sticky
+
+  simulator-e2e:
+    name: Simulator Build & E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Native Dependencies (SDL2 & libcurl)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev libcurl4-openssl-dev build-essential
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            .pio
+          key: pio-simulator-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio-simulator-${{ runner.os }}-
+
+      - name: Install PlatformIO Core
+        run: |
+          pip install --upgrade platformio
+
+      - name: Build Native Host Simulator
+        run: |
+          pio run -e simulator
+          cp .pio/build/simulator/program screentinker_sim
+
+      - name: Run E2E Test Suite against Mock Server
+        run: |
+          ./tests/run_tests.sh
+
+      - name: Upload Test Snapshots on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-snapshots
+          path: |
+            sim_output.bmp
+            /tmp/snap_*.bmp
+          if-no-files-found: ignore

@@ -2,6 +2,7 @@
 .vscode
 .idea
 *.pyc
+__pycache__/
 
 # Simulator build artifacts and local config
 screentinker_sim

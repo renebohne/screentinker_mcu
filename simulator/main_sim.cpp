@@ -130,6 +130,7 @@ int main(int argc, char** argv) {
   std::string lastEtag = "";
   int sleepDurationSec = cfg.syncIntervalSec;
   bool running = true;
+  int cycleCount = 0;
 
   while (running) {
     std::string url = cfg.serverUrl + "/api/embedded/render?device_id=" + cfg.deviceId;
@@ -228,7 +229,13 @@ int main(int argc, char** argv) {
 
     if (cfg.oneShot) {
       std::cout << "[Simulator] One-shot run complete. Exiting.\n";
-      break;
+      return (res.statusCode == 0) ? 1 : 0;
+    }
+
+    cycleCount++;
+    if (cfg.maxCycles > 0 && cycleCount >= cfg.maxCycles) {
+      std::cout << "[Simulator] Completed " << cycleCount << " poll cycle(s). Exiting.\n";
+      return (res.statusCode == 0) ? 1 : 0;
     }
 
     std::cout << "[Sleep] Next poll scheduled in " << sleepDurationSec << "s (Press [Space] to wake, [P] to toggle USB/Battery, [B] to toggle battery level, [Q] to quit)\n";

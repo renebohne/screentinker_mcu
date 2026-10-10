@@ -15,6 +15,7 @@ struct SimConfig {
   int syncIntervalSec = 30;
   bool headless = false;
   bool oneShot = false;
+  int maxCycles = 0;
   bool fastForwardSleep = true;
   int scale = 1;
   bool pairMode = false;

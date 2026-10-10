@@ -104,3 +104,22 @@ Ready-to-flash binaries for ESP Web Tools / WebSerial are maintained in [tools/]
 - `tools/bootloader.bin` (Bootloader offset `0x0000`)
 - `tools/partitions.bin` (Partition table offset `0x8000`)
 - `tools/manifest.json` (ESP Web Tools manifest)
+
+---
+
+## Device Simulator (Linux, NixOS & macOS)
+
+Test displays, 6-digit pairing, power schedules, and telemetry natively on your desktop without physical hardware:
+
+```bash
+# Enter Nix development shell (on NixOS)
+nix-shell   # or: nix develop
+
+# Build simulator with PlatformIO
+pio run -e simulator
+
+# Run interactive pairing test
+./screentinker_sim --pair --server http://<your-server>:3001
+```
+
+See [simulator/README.md](simulator/README.md) for full documentation, interactive hotkeys, and headless CI modes.

@@ -4,6 +4,17 @@
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
+
+#ifndef PLATFORM_OS
+#if defined(__APPLE__)
+#define PLATFORM_OS "macOS"
+#elif defined(__linux__)
+#define PLATFORM_OS "Linux"
+#else
+#define PLATFORM_OS "Generic"
+#endif
+#endif
 
 SimConfig SimConfig::load(int argc, char** argv) {
   SimConfig cfg;
@@ -41,6 +52,7 @@ SimConfig SimConfig::load(int argc, char** argv) {
       if (doc["simulator"]["snapshot_path"].is<const char*>()) cfg.snapshotPath = doc["simulator"]["snapshot_path"].as<std::string>();
       if (doc["simulator"]["fast_forward_sleep"].is<bool>()) cfg.fastForwardSleep = doc["simulator"]["fast_forward_sleep"].as<bool>();
       if (doc["simulator"]["sync_interval_sec"].is<int>()) cfg.syncIntervalSec = doc["simulator"]["sync_interval_sec"].as<int>();
+      if (doc["simulator"]["scale"].is<int>()) cfg.scale = doc["simulator"]["scale"].as<int>();
     } else {
       std::cerr << "[Config] Warning: Failed to parse " << cfg.configFilePath << " (" << err.c_str() << ")\n";
     }
@@ -72,6 +84,10 @@ SimConfig SimConfig::load(int argc, char** argv) {
       cfg.isCharging = (cfg.batteryPercent < 100);
     } else if (arg == "--rssi" && i + 1 < argc) {
       cfg.wifiRssi = std::atoi(argv[++i]);
+    } else if (arg == "--scale" && i + 1 < argc) {
+      cfg.scale = std::max(1, std::min(4, std::atoi(argv[++i])));
+    } else if (arg == "--pair") {
+      cfg.pairMode = true;
     } else if (arg == "--snapshot" && i + 1 < argc) {
       cfg.snapshotPath = argv[++i];
     } else if (arg == "--interval" && i + 1 < argc) {
@@ -81,16 +97,18 @@ SimConfig SimConfig::load(int argc, char** argv) {
     } else if (arg == "--oneshot") {
       cfg.oneShot = true;
     } else if (arg == "--help" || arg == "-h") {
-      std::cout << "ScreenTinker MCU Host Simulator\n"
+      std::cout << "ScreenTinker MCU Host Simulator (" << PLATFORM_OS << ")\n"
                 << "Usage: ./screentinker_sim [options]\n\n"
                 << "Options:\n"
                 << "  -s, --server <url>       Server URL (default: " << cfg.serverUrl << ")\n"
                 << "  -d, --device <uuid>      Device ID\n"
                 << "  -t, --token <token>      Device Token\n"
+                << "  --pair                   Start in pairing mode (request 6-digit PIN from server)\n"
                 << "  --battery <percent>      Simulated battery (0-100)\n"
                 << "  --power <usb|battery>    Power source mode (default: battery)\n"
                 << "  --usb                    Shortcut for --power usb\n"
                 << "  --rssi <dbm>             Simulated Wi-Fi RSSI\n"
+                << "  --scale <1-4>            Window scaling factor (default: 1)\n"
                 << "  --headless               Run without SDL2 window (console + snapshot only)\n"
                 << "  --oneshot                Perform single poll cycle and exit\n"
                 << "  --snapshot <path>        Output image path (default: " << cfg.snapshotPath << ")\n"
@@ -105,7 +123,7 @@ SimConfig SimConfig::load(int argc, char** argv) {
 
 void SimConfig::print() const {
   std::cout << "───────────────────────────────────────────────────────\n"
-            << " ScreenTinker MCU Simulator (macOS Host)\n"
+            << " ScreenTinker MCU Simulator (" << PLATFORM_OS << " Host)\n"
             << "───────────────────────────────────────────────────────\n"
             << " • Server URL:        " << serverUrl << "\n"
             << " • Device ID:         " << deviceId << "\n"
@@ -113,7 +131,34 @@ void SimConfig::print() const {
             << " • Power Source:      " << (powerSource == "usb" ? (isCharging ? "USB (Charging)" : "USB (Mains Connected)") : "Battery") << "\n"
             << " • Battery Level:     " << batteryPercent << "%\n"
             << " • Wi-Fi RSSI:        " << wifiRssi << " dBm\n"
-            << " • Mode:              " << (headless ? "Headless (Snapshot only)" : "Interactive Window (SDL2)") << "\n"
+            << " • Mode:              " << (headless ? "Headless (Snapshot only)" : ("Interactive Window (SDL2, " + std::to_string(scale) + "x)")) << "\n"
             << " • Snapshot Output:   " << snapshotPath << "\n"
+            << " • Pairing Mode:      " << (pairMode ? "Enabled (--pair)" : (deviceToken.empty() ? "Auto (No Token)" : "Disabled (Token Configured)")) << "\n"
             << "───────────────────────────────────────────────────────\n";
+}
+
+bool SimConfig::save(const std::string& path) const {
+  std::string target = path.empty() ? configFilePath : path;
+  JsonDocument doc;
+  doc["server"]["url"] = serverUrl;
+  doc["server"]["device_id"] = deviceId;
+  doc["server"]["device_token"] = deviceToken;
+  doc["server"]["timeout_ms"] = timeoutMs;
+
+  doc["hardware"]["battery_percent"] = batteryPercent;
+  doc["hardware"]["wifi_rssi_dbm"] = wifiRssi;
+  doc["hardware"]["firmware_version"] = firmwareVersion;
+
+  doc["simulator"]["headless"] = headless;
+  doc["simulator"]["snapshot_path"] = snapshotPath;
+  doc["simulator"]["fast_forward_sleep"] = fastForwardSleep;
+  doc["simulator"]["sync_interval_sec"] = syncIntervalSec;
+  doc["simulator"]["scale"] = scale;
+
+  std::ofstream f(target);
+  if (!f.is_open()) return false;
+  serializeJsonPretty(doc, f);
+  f << "\n";
+  std::cout << "[Config] Saved active configuration to " << target << "\n";
+  return true;
 }

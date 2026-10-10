@@ -4,8 +4,8 @@
 #include <fstream>
 #include <vector>
 
-SimDisplay::SimDisplay(bool headless, int width, int height)
-  : m_headless(headless), m_width(width), m_height(height) {
+SimDisplay::SimDisplay(bool headless, int width, int height, int scale)
+  : m_headless(headless), m_width(width), m_height(height), m_scale(scale > 0 ? scale : 1) {
   m_pixelBuffer = new uint32_t[m_width * m_height];
 }
 
@@ -29,9 +29,11 @@ bool SimDisplay::init() {
     return true;
   }
 
+  int winWidth = m_width * m_scale;
+  int winHeight = m_height * m_scale;
   m_window = SDL_CreateWindow("ScreenTinker E-Paper Simulator (800x480)",
                               SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                              m_width, m_height, SDL_WINDOW_SHOWN);
+                              winWidth, winHeight, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
   if (!m_window) {
     std::cerr << "[Display] SDL_CreateWindow Error: " << SDL_GetError() << "\n";
     m_headless = true;
@@ -43,10 +45,15 @@ bool SimDisplay::init() {
     m_renderer = SDL_CreateRenderer(m_window, -1, SDL_RENDERER_SOFTWARE);
   }
 
+  if (m_renderer) {
+    SDL_RenderSetLogicalSize(m_renderer, m_width, m_height);
+  }
+
   m_texture = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_ARGB8888,
                                 SDL_TEXTUREACCESS_STREAMING, m_width, m_height);
 
-  std::cout << "[Display] SDL2 Window created: 800x480 E-Paper Viewport.\n";
+  std::cout << "[Display] SDL2 Window created: " << winWidth << "x" << winHeight
+            << " E-Paper Viewport (logical " << m_width << "x" << m_height << ").\n";
   return true;
 }
 

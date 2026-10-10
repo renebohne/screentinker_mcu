@@ -21,13 +21,19 @@ public:
 
   SimHttpResponse get(
     const std::string& url,
-    const std::string& token,
-    const std::string& firmwareVersion,
-    int batteryPercent,
-    int wifiRssi,
+    const std::string& token = "",
+    const std::string& firmwareVersion = "",
+    int batteryPercent = -1,
+    int wifiRssi = 0,
     const std::string& ifNoneMatchEtag = "",
     const std::string& powerSource = "battery",
     bool isCharging = false
+  );
+
+  SimHttpResponse postJson(
+    const std::string& url,
+    const std::string& jsonBody,
+    const std::string& bearerToken = ""
   );
 
 private:

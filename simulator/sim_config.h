@@ -16,9 +16,12 @@ struct SimConfig {
   bool headless = false;
   bool oneShot = false;
   bool fastForwardSleep = true;
+  int scale = 1;
+  bool pairMode = false;
   std::string snapshotPath = "sim_output.bmp";
   std::string configFilePath = "simulator/sim_config.json";
 
   static SimConfig load(int argc, char** argv);
   void print() const;
+  bool save(const std::string& path = "") const;
 };

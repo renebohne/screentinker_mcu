@@ -81,7 +81,19 @@ SimHttpResponse SimHttp::get(
     std::string auth = "Authorization: Bearer " + token;
     headers = curl_slist_append(headers, auth.c_str());
   }
-  headers = curl_slist_append(headers, "User-Agent: ScreenTinker-Sticky/1.2 (Simulator-macOS)");
+
+#ifndef PLATFORM_OS
+#if defined(__APPLE__)
+#define PLATFORM_OS "macOS"
+#elif defined(__linux__)
+#define PLATFORM_OS "Linux"
+#else
+#define PLATFORM_OS "Generic"
+#endif
+#endif
+
+  std::string ua = "User-Agent: ScreenTinker-Sticky/1.2 (Simulator-" + std::string(PLATFORM_OS) + ")";
+  headers = curl_slist_append(headers, ua.c_str());
 
   if (!firmwareVersion.empty()) {
     std::string fwv = "X-ST-Firmware-Version: " + firmwareVersion;
@@ -122,6 +134,63 @@ SimHttpResponse SimHttp::get(
   CURLcode code = curl_easy_perform(curl);
   if (code != CURLE_OK) {
     std::cerr << "[HTTP] Request failed: " << curl_easy_strerror(code) << "\n";
+    res.statusCode = 0;
+  } else {
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    res.statusCode = (int)status;
+  }
+
+  curl_slist_free_all(headers);
+  curl_easy_cleanup(curl);
+  return res;
+}
+
+SimHttpResponse SimHttp::postJson(
+  const std::string& url,
+  const std::string& jsonBody,
+  const std::string& bearerToken
+) {
+  SimHttpResponse res;
+  CURL* curl = curl_easy_init();
+  if (!curl) {
+    std::cerr << "[HTTP] Error: Failed to initialize curl\n";
+    return res;
+  }
+
+  struct curl_slist* headers = nullptr;
+  headers = curl_slist_append(headers, "Content-Type: application/json");
+  if (!bearerToken.empty()) {
+    std::string auth = "Authorization: Bearer " + bearerToken;
+    headers = curl_slist_append(headers, auth.c_str());
+  }
+
+#ifndef PLATFORM_OS
+#if defined(__APPLE__)
+#define PLATFORM_OS "macOS"
+#elif defined(__linux__)
+#define PLATFORM_OS "Linux"
+#else
+#define PLATFORM_OS "Generic"
+#endif
+#endif
+
+  std::string ua = "User-Agent: ScreenTinker-Sticky/1.2 (Simulator-" + std::string(PLATFORM_OS) + ")";
+  headers = curl_slist_append(headers, ua.c_str());
+
+  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonBody.c_str());
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &res.body);
+  curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, headerCallback);
+  curl_easy_setopt(curl, CURLOPT_HEADERDATA, &res.headers);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, (long)m_timeoutMs);
+  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+
+  CURLcode code = curl_easy_perform(curl);
+  if (code != CURLE_OK) {
+    std::cerr << "[HTTP] POST failed: " << curl_easy_strerror(code) << "\n";
     res.statusCode = 0;
   } else {
     long status = 0;

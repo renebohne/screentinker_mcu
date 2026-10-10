@@ -3,16 +3,101 @@
 #include "sim_http.h"
 #include "setup_screen.h"
 #include <ArduinoJson.h>
+#include <qrcode.h>
 #include <iostream>
 #include <chrono>
 #include <thread>
 #include <cstring>
 
+static bool runPairingFlow(SimConfig& cfg, SimHttp& http, SimDisplay& display, uint8_t* monoBuffer) {
+  std::cout << "\n=======================================================\n"
+            << "  STARTING AUTOMATIC 6-DIGIT DEVICE PAIRING FLOW\n"
+            << "=======================================================\n"
+            << " • Server:         " << cfg.serverUrl << "\n"
+            << " • Screen Profile: 800x480 (Seeed reTerminal Sticky)\n";
+
+  std::string registerUrl = cfg.serverUrl + "/api/embedded/pair/register";
+  std::string regBody = "{\"screen_profile\":\"seeed-reterminal-sticky\",\"screen_width\":800,\"screen_height\":480}";
+
+  SimHttpResponse regRes = http.postJson(registerUrl, regBody);
+  if (regRes.statusCode != 200) {
+    std::cerr << "[Pairing] Error: Server returned status " << regRes.statusCode
+              << " during pair/register: " << regRes.bodyAsString() << "\n";
+    return false;
+  }
+
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, regRes.bodyAsString());
+  if (err || !doc["device_id"].is<const char*>() || !doc["pairing_code"].is<const char*>() || !doc["claim_secret"].is<const char*>()) {
+    std::cerr << "[Pairing] Error: Failed to parse registration JSON: " << regRes.bodyAsString() << "\n";
+    return false;
+  }
+
+  std::string deviceId = doc["device_id"].as<std::string>();
+  std::string pairingCode = doc["pairing_code"].as<std::string>();
+  std::string claimSecret = doc["claim_secret"].as<std::string>();
+
+  std::cout << " • Device ID:    " << deviceId << "\n"
+            << " • Pairing PIN:  " << pairingCode << "\n"
+            << "-------------------------------------------------------\n"
+            << " >>> Please enter the 6-digit PIN [" << pairingCode << "] in your ScreenTinker web dashboard <<<\n"
+            << "=======================================================\n";
+
+  // Render Pairing PIN + QR code on E-Paper display
+  renderPairingCodeScreen(monoBuffer, pairingCode.c_str(), cfg.serverUrl.c_str(), LANG_EN);
+  display.renderBuffer(monoBuffer);
+  display.saveBmp(monoBuffer, cfg.snapshotPath);
+
+  // Poll pairing status every 2.5 seconds until claimed
+  std::string statusUrl = cfg.serverUrl + "/api/embedded/pair/status?device_id=" + deviceId;
+  bool paired = false;
+
+  while (!paired) {
+    bool wakeRequested = false;
+    int batteryDelta = 0;
+    bool powerToggled = false;
+    if (!display.pollEvents(wakeRequested, batteryDelta, powerToggled)) {
+      std::cout << "[Pairing] Aborted by user.\n";
+      return false;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+
+    SimHttpResponse statusRes = http.get(statusUrl, claimSecret);
+    if (statusRes.statusCode == 200) {
+      JsonDocument statusDoc;
+      if (!deserializeJson(statusDoc, statusRes.bodyAsString())) {
+        if (statusDoc["paired"].as<bool>() == true) {
+          std::string token = statusDoc["device_token"].as<std::string>();
+          std::string devId = statusDoc["device_id"].is<const char*>() ? statusDoc["device_id"].as<std::string>() : deviceId;
+
+          std::cout << "\n🎉 [Pairing] SUCCESS! Device claimed by user in ScreenTinker UI!\n"
+                    << " • Device ID:    " << devId << "\n"
+                    << " • Device Token: " << token << "\n";
+
+          cfg.deviceId = devId;
+          cfg.deviceToken = token;
+          cfg.pairMode = false;
+          cfg.save(); // Save to sim_config.json
+          paired = true;
+          break;
+        } else {
+          std::cout << "[Pairing] Waiting for PIN confirmation (" << pairingCode << ") on web UI...\n";
+        }
+      }
+    } else {
+      std::cerr << "[Pairing] Status check failed (HTTP " << statusRes.statusCode << "). Retrying...\n";
+    }
+  }
+
+  return true;
+}
+
 int main(int argc, char** argv) {
   SimConfig cfg = SimConfig::load(argc, argv);
   cfg.print();
 
-  SimDisplay display(cfg.headless, 800, 480);
+  SimDisplay display(cfg.headless, 800, 480, cfg.scale);
   if (!display.init()) {
     std::cerr << "[Simulator] Failed to initialize display.\n";
     return 1;
@@ -21,15 +106,25 @@ int main(int argc, char** argv) {
   SimHttp http(cfg.timeoutMs);
   uint8_t monoBuffer[EPD_BUFFER_SIZE];
 
-  // 1. Show Splash Screen at boot
-  std::cout << "[Simulator] Booting: Displaying Firmware v" << cfg.firmwareVersion << " Splash Screen...\n";
-  renderSplashScreen(monoBuffer, cfg.firmwareVersion.c_str(), "Connecting to ScreenTinker...", LANG_EN);
-  display.renderBuffer(monoBuffer);
-  display.saveBmp(monoBuffer, cfg.snapshotPath);
+  // Check if Pairing flow is required
+  if (cfg.pairMode || cfg.deviceToken.empty()) {
+    if (!runPairingFlow(cfg, http, display, monoBuffer)) {
+      std::cerr << "[Simulator] Pairing failed or was aborted.\n";
+      return 1;
+    }
+    // Small delay after pairing success before syncing first frame
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  } else {
+    // 1. Show Splash Screen at boot
+    std::cout << "[Simulator] Booting: Displaying Firmware v" << cfg.firmwareVersion << " Splash Screen...\n";
+    renderSplashScreen(monoBuffer, cfg.firmwareVersion.c_str(), "Connecting to ScreenTinker...", LANG_EN);
+    display.renderBuffer(monoBuffer);
+    display.saveBmp(monoBuffer, cfg.snapshotPath);
 
-  // Small delay so user can see splash screen in window
-  if (!cfg.headless && !cfg.oneShot) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    // Small delay so user can see splash screen in window
+    if (!cfg.headless && !cfg.oneShot) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    }
   }
 
   std::string lastEtag = "";

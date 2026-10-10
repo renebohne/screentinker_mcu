@@ -965,6 +965,12 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   if (http.hasHeader("X-ST-Total-Items")) {
     s_totalItems = http.header("X-ST-Total-Items").toInt();
   }
+  if (http.hasHeader("X-ST-Power-State")) {
+    String pState = http.header("X-ST-Power-State");
+    if (pState.length() > 0) {
+      Serial.printf("[Power] Server power state: %s\n", pState.c_str());
+    }
+  }
 
   if (httpCode == HTTP_CODE_NOT_MODIFIED) {
     rtc_unchangedCycles++;

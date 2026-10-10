@@ -545,6 +545,59 @@ void renderNoWifiScreen(uint8_t* buffer, const char* ssid, Language lang) {
   }
 }
 
+// ─── 5b. Empty Playlist Diagnostic Screen ──────────────────────────────────
+void renderEmptyPlaylistScreen(uint8_t* buffer, const char* serverUrl, Language lang) {
+  gfx_fill(buffer, 1);
+
+  // Header Banner
+  gfx_fill_rect(buffer, 0, 0, EPD_WIDTH, 54, 0);
+  gfx_draw_screentinker_logo(buffer, 20, 12, 1);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 56, 16, "ScreenTinker — Verbunden", 1, 3);
+  } else {
+    gfx_draw_string(buffer, 56, 16, "ScreenTinker — Connected", 1, 3);
+  }
+
+  // Info Box
+  gfx_fill_rect(buffer, 40, 80, EPD_WIDTH - 80, 70, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 70, 100, "[i] KEINE PLAYLIST ZUGEWIESEN", 1, 3);
+  } else {
+    gfx_draw_string(buffer, 80, 100, "[i] NO PLAYLIST ASSIGNED", 1, 3);
+  }
+
+  // Explanatory Details Box
+  gfx_draw_rect(buffer, 40, 170, EPD_WIDTH - 80, 100, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 60, 188, "Dieses Geraet ist erfolgreich mit dem Server verbunden.", 0, 2);
+    gfx_draw_string(buffer, 60, 218, "Es ist jedoch noch keine aktive Playlist zugewiesen.", 0, 2);
+    gfx_draw_string(buffer, 60, 248, "Bitte im Web-Dashboard eine Playlist zuweisen & veroeffentlichen.", 0, 2);
+  } else {
+    gfx_draw_string(buffer, 60, 188, "Display is successfully connected to the server.", 0, 2);
+    gfx_draw_string(buffer, 60, 218, "However, no active playlist has been assigned yet.", 0, 2);
+    gfx_draw_string(buffer, 60, 248, "Please assign & publish a playlist in the dashboard.", 0, 2);
+  }
+
+  // Server Info
+  gfx_draw_string(buffer, 40, 290, "DASHBOARD:", 0, 2);
+  gfx_draw_string(buffer, 60, 320, (serverUrl && strlen(serverUrl) > 0) ? serverUrl : "http://...", 0, 2);
+
+  // QR Code to server URL
+  if (serverUrl && strlen(serverUrl) > 0) {
+    gfx_draw_qr(buffer, EPD_WIDTH - 170, 275, serverUrl, 3);
+  }
+
+  // Footer Navigation Hint
+  gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 30, 442, "[ OK ]: Jetzt pruefen", 1, 2);
+    gfx_draw_string(buffer, 460, 442, "[ OK 1.5s ]: Einstellungen", 1, 2);
+  } else {
+    gfx_draw_string(buffer, 30, 442, "[ OK ]: Check now", 1, 2);
+    gfx_draw_string(buffer, 480, 442, "[ OK 1.5s ]: Settings", 1, 2);
+  }
+}
+
 // ─── 6. Onboarding / Setup Screen ────────────────────────────────────────────
 void renderOnboardingScreen(uint8_t* buffer, Language lang) {
   gfx_fill(buffer, 1);

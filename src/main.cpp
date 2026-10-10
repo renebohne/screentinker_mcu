@@ -351,6 +351,15 @@ void showNoWifiScreen(Language lang = LANG_EN) {
   renderRotatedBuffer(s_rotatedBuffer, false);
 }
 
+void showEmptyPlaylistScreen(Language lang = LANG_EN) {
+  s_currentLang = lang;
+  if (!s_rawBuffer || !s_rotatedBuffer) return;
+  Serial.println("[Display] Rendering Empty Playlist Screen on E-Paper...");
+  renderEmptyPlaylistScreen(s_rawBuffer, g_serverUrl.c_str(), lang);
+  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
+  renderRotatedBuffer(s_rotatedBuffer, false);
+}
+
 static String s_activePairingCode = "";
 static String s_activePairingDeviceId = "";
 static String s_activeClaimSecret = "";
@@ -944,6 +953,19 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     http.end();
     saveConfigToNVS(g_wifiSsid, g_wifiPass, g_serverUrl, "", "", g_multiZone);
     registerAndStartPairing();
+    return;
+  }
+
+  if (httpCode == 404) {
+    String errBody = http.getString();
+    Serial.printf("[Sync] HTTP 404 (%s). No playlist assigned to this device.\n", errBody.c_str());
+    http.end();
+    disconnectWiFiIfPowerSave();
+
+    // If cache is empty, display clear diagnostic message so screen is not stuck on pairing QR
+    if (cacheValidCount() == 0) {
+      showEmptyPlaylistScreen(s_currentLang);
+    }
     return;
   }
 

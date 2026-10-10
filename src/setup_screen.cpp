@@ -546,7 +546,7 @@ void renderNoWifiScreen(uint8_t* buffer, const char* ssid, Language lang) {
 }
 
 // ─── 5b. Empty Playlist Diagnostic Screen ──────────────────────────────────
-void renderEmptyPlaylistScreen(uint8_t* buffer, const char* serverUrl, Language lang) {
+void renderEmptyPlaylistScreen(uint8_t* buffer, const char* deviceName, const char* serverUrl, Language lang) {
   gfx_fill(buffer, 1);
 
   // Header Banner
@@ -558,36 +558,50 @@ void renderEmptyPlaylistScreen(uint8_t* buffer, const char* serverUrl, Language 
     gfx_draw_string(buffer, 56, 16, "ScreenTinker — Connected", 1, 3);
   }
 
-  // Info Box
-  gfx_fill_rect(buffer, 40, 80, EPD_WIDTH - 80, 70, 0);
-  if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 70, 100, "[i] KEINE PLAYLIST ZUGEWIESEN", 1, 3);
-  } else {
-    gfx_draw_string(buffer, 80, 100, "[i] NO PLAYLIST ASSIGNED", 1, 3);
+  // Display Name Badge (Top Right of Header)
+  if (deviceName && strlen(deviceName) > 0) {
+    char nameBadge[48];
+    snprintf(nameBadge, sizeof(nameBadge), "[ %s ]", deviceName);
+    // 8x8 font at scale 2 is 16px wide per char
+    int badgeWidth = strlen(nameBadge) * 16;
+    gfx_draw_string(buffer, max(450, EPD_WIDTH - badgeWidth - 20), 18, nameBadge, 1, 2);
   }
 
-  // Explanatory Details Box
-  gfx_draw_rect(buffer, 40, 170, EPD_WIDTH - 80, 100, 0);
+  // Info Banner Box
+  gfx_fill_rect(buffer, 40, 75, EPD_WIDTH - 80, 56, 0);
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 60, 188, "Dieses Geraet ist erfolgreich mit dem Server verbunden.", 0, 2);
-    gfx_draw_string(buffer, 60, 218, "Es ist jedoch noch keine aktive Playlist zugewiesen.", 0, 2);
-    gfx_draw_string(buffer, 60, 248, "Bitte im Web-Dashboard eine Playlist zuweisen & veroeffentlichen.", 0, 2);
+    gfx_draw_string(buffer, 110, 92, "KEINE PLAYLIST ZUGEWIESEN", 1, 3);
   } else {
-    gfx_draw_string(buffer, 60, 188, "Display is successfully connected to the server.", 0, 2);
-    gfx_draw_string(buffer, 60, 218, "However, no active playlist has been assigned yet.", 0, 2);
-    gfx_draw_string(buffer, 60, 248, "Please assign & publish a playlist in the dashboard.", 0, 2);
+    gfx_draw_string(buffer, 130, 92, "NO PLAYLIST ASSIGNED", 1, 3);
   }
 
-  // Server Info
-  gfx_draw_string(buffer, 40, 290, "DASHBOARD:", 0, 2);
-  gfx_draw_string(buffer, 60, 320, (serverUrl && strlen(serverUrl) > 0) ? serverUrl : "http://...", 0, 2);
+  // Main Explanatory Box (width = 500px, leaving room for QR on the right)
+  gfx_draw_rect(buffer, 40, 150, 520, 150, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 60, 170, "Geraet ist erfolgreich verbunden!", 0, 2);
+    gfx_draw_string(buffer, 60, 205, "Es ist noch keine Playlist zugewiesen.", 0, 2);
+    gfx_draw_string(buffer, 60, 240, "Bitte im Dashboard zuweisen und", 0, 2);
+    gfx_draw_string(buffer, 60, 265, "anschliessend veroeffentlichen.", 0, 2);
+  } else {
+    gfx_draw_string(buffer, 60, 170, "Device is successfully connected!", 0, 2);
+    gfx_draw_string(buffer, 60, 205, "No active playlist is assigned yet.", 0, 2);
+    gfx_draw_string(buffer, 60, 240, "Please assign a playlist in the", 0, 2);
+    gfx_draw_string(buffer, 60, 265, "web dashboard and click Publish.", 0, 2);
+  }
 
-  // QR Code to server URL
+  // Server Info Section
+  gfx_draw_rect(buffer, 40, 315, 520, 85, 0);
+  gfx_draw_string(buffer, 60, 330, "SERVER DASHBOARD:", 0, 2);
+  gfx_draw_string(buffer, 60, 360, (serverUrl && strlen(serverUrl) > 0) ? serverUrl : "http://...", 0, 2);
+
+  // QR Code to Server URL (placed cleanly on the right)
   if (serverUrl && strlen(serverUrl) > 0) {
-    gfx_draw_qr(buffer, EPD_WIDTH - 170, 275, serverUrl, 3);
+    gfx_draw_rect(buffer, 580, 150, 180, 250, 0);
+    gfx_draw_qr(buffer, 595, 170, serverUrl, 3);
+    gfx_draw_string(buffer, 625, 360, "OPEN UI", 0, 2);
   }
 
-  // Footer Navigation Hint
+  // Footer Navigation Bar
   gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
   if (lang == LANG_DE) {
     gfx_draw_string(buffer, 30, 442, "[ OK ]: Jetzt pruefen", 1, 2);

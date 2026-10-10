@@ -351,11 +351,11 @@ void showNoWifiScreen(Language lang = LANG_EN) {
   renderRotatedBuffer(s_rotatedBuffer, false);
 }
 
-void showEmptyPlaylistScreen(Language lang = LANG_EN) {
+void showEmptyPlaylistScreen(const char* deviceName = "", Language lang = LANG_EN) {
   s_currentLang = lang;
   if (!s_rawBuffer || !s_rotatedBuffer) return;
-  Serial.println("[Display] Rendering Empty Playlist Screen on E-Paper...");
-  renderEmptyPlaylistScreen(s_rawBuffer, g_serverUrl.c_str(), lang);
+  Serial.printf("[Display] Rendering Empty Playlist Screen for '%s' on E-Paper...\n", deviceName ? deviceName : "");
+  renderEmptyPlaylistScreen(s_rawBuffer, deviceName, g_serverUrl.c_str(), lang);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
   renderRotatedBuffer(s_rotatedBuffer, false);
 }
@@ -863,8 +863,8 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     Serial.printf("[Sync] Sent conditional ETag: %s\n", cachedEtag.c_str());
   }
 
-  const char* headerKeys[] = {"ETag", "X-ST-Expires-In", "X-ST-Item-Index", "X-ST-Total-Items", "X-ST-Total-Zones", "X-ST-Layout-Fallback"};
-  http.collectHeaders(headerKeys, 6);
+  const char* headerKeys[] = {"ETag", "X-ST-Expires-In", "X-ST-Item-Index", "X-ST-Total-Items", "X-ST-Total-Zones", "X-ST-Layout-Fallback", "X-ST-Device-Name"};
+  http.collectHeaders(headerKeys, 7);
 
   int httpCode = http.GET();
   Serial.printf("[Sync] HTTP Response: %d\n", httpCode);
@@ -957,14 +957,25 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   }
 
   if (httpCode == 404) {
+    String devName = "";
+    if (http.hasHeader("X-ST-Device-Name")) {
+      devName = http.header("X-ST-Device-Name");
+    }
     String errBody = http.getString();
-    Serial.printf("[Sync] HTTP 404 (%s). No playlist assigned to this device.\n", errBody.c_str());
+    if (devName.length() == 0 && errBody.length() > 0) {
+      JsonDocument errDoc;
+      if (!deserializeJson(errDoc, errBody) && errDoc["device_name"].is<String>()) {
+        devName = errDoc["device_name"].as<String>();
+      }
+    }
+
+    Serial.printf("[Sync] HTTP 404 (%s). No playlist assigned to '%s'.\n", errBody.c_str(), devName.c_str());
     http.end();
     disconnectWiFiIfPowerSave();
 
     // If cache is empty, display clear diagnostic message so screen is not stuck on pairing QR
     if (cacheValidCount() == 0) {
-      showEmptyPlaylistScreen(s_currentLang);
+      showEmptyPlaylistScreen(devName.c_str(), s_currentLang);
     }
     return;
   }

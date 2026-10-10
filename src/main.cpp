@@ -844,6 +844,8 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   http.setTimeout(HTTP_TIMEOUT_MS);
   http.addHeader("Authorization", String("Bearer ") + g_deviceToken);
   http.addHeader("User-Agent", "ScreenTinker-Sticky/1.2 (ESP32-S3-PSRAM)");
+  http.addHeader("X-ST-Firmware-Version", FIRMWARE_VERSION);
+  http.addHeader("X-ST-Device-RSSI", String(WiFi.RSSI()));
 
   String cachedEtag = cacheGetEtag(targetIndex);
   if (cachedEtag.length() == 0 && strlen(rtc_lastEtag) > 0) {

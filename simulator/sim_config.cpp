@@ -64,6 +64,12 @@ SimConfig SimConfig::load(int argc, char** argv) {
       cfg.deviceToken = argv[++i];
     } else if (arg == "--battery" && i + 1 < argc) {
       cfg.batteryPercent = std::atoi(argv[++i]);
+    } else if (arg == "--power" && i + 1 < argc) {
+      cfg.powerSource = argv[++i];
+      if (cfg.powerSource == "usb") cfg.isCharging = (cfg.batteryPercent < 100);
+    } else if (arg == "--usb") {
+      cfg.powerSource = "usb";
+      cfg.isCharging = (cfg.batteryPercent < 100);
     } else if (arg == "--rssi" && i + 1 < argc) {
       cfg.wifiRssi = std::atoi(argv[++i]);
     } else if (arg == "--snapshot" && i + 1 < argc) {
@@ -82,6 +88,8 @@ SimConfig SimConfig::load(int argc, char** argv) {
                 << "  -d, --device <uuid>      Device ID\n"
                 << "  -t, --token <token>      Device Token\n"
                 << "  --battery <percent>      Simulated battery (0-100)\n"
+                << "  --power <usb|battery>    Power source mode (default: battery)\n"
+                << "  --usb                    Shortcut for --power usb\n"
                 << "  --rssi <dbm>             Simulated Wi-Fi RSSI\n"
                 << "  --headless               Run without SDL2 window (console + snapshot only)\n"
                 << "  --oneshot                Perform single poll cycle and exit\n"
@@ -102,6 +110,7 @@ void SimConfig::print() const {
             << " • Server URL:        " << serverUrl << "\n"
             << " • Device ID:         " << deviceId << "\n"
             << " • Firmware Version:  " << firmwareVersion << "\n"
+            << " • Power Source:      " << (powerSource == "usb" ? (isCharging ? "USB (Charging)" : "USB (Mains Connected)") : "Battery") << "\n"
             << " • Battery Level:     " << batteryPercent << "%\n"
             << " • Wi-Fi RSSI:        " << wifiRssi << " dBm\n"
             << " • Mode:              " << (headless ? "Headless (Snapshot only)" : "Interactive Window (SDL2)") << "\n"

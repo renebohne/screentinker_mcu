@@ -8,6 +8,8 @@ struct SimConfig {
   std::string deviceToken = "";
   std::string firmwareVersion = "1.2.0";
   int batteryPercent = 100;
+  std::string powerSource = "battery"; // "battery" or "usb"
+  bool isCharging = false;
   int wifiRssi = -68;
   int timeoutMs = 10000;
   int syncIntervalSec = 30;

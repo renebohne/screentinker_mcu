@@ -14,7 +14,7 @@ public:
   bool init();
   void renderBuffer(const uint8_t* monoBuffer);
   bool saveBmp(const uint8_t* monoBuffer, const std::string& path);
-  bool pollEvents(bool& wakeRequested, int& batteryDelta);
+  bool pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerToggled);
 
   int width() const { return m_width; }
   int height() const { return m_height; }

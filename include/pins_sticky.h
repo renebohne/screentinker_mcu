@@ -9,6 +9,9 @@
 // ─── Power & System Latches ───────────────────────────────────────────────────
 #define PIN_PWR_HOLD     45  // Must drive HIGH immediately in setup() to latch main power
 #define PIN_PWR_LOCK     46  // Must drive HIGH to maintain system power
+#define PIN_EXT_POWER    9   // External USB-C VBUS power presence (HIGH = connected)
+#define PIN_CHG_STAT     40  // BQ25616 charge status (LOW = actively charging)
+#define PIN_CHG_EN       39  // BQ25616 charge enable (LOW = charging enabled)
 
 // ─── 3.97" B/W E-Paper (800x480, SSD1677) ────────────────────────────────────
 #define PIN_EPD_SCK      13  // SPI Clock (Shared with SD Card)

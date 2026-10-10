@@ -65,7 +65,9 @@ SimHttpResponse SimHttp::get(
   const std::string& firmwareVersion,
   int batteryPercent,
   int wifiRssi,
-  const std::string& ifNoneMatchEtag
+  const std::string& ifNoneMatchEtag,
+  const std::string& powerSource,
+  bool isCharging
 ) {
   SimHttpResponse res;
   CURL* curl = curl_easy_init();
@@ -90,6 +92,13 @@ SimHttpResponse SimHttp::get(
     std::string bat = "X-ST-Device-Battery: " + std::to_string(batteryPercent);
     headers = curl_slist_append(headers, bat.c_str());
   }
+
+  if (!powerSource.empty()) {
+    std::string pwr = "X-ST-Power-Source: " + powerSource;
+    headers = curl_slist_append(headers, pwr.c_str());
+  }
+  std::string chg = "X-ST-Charging: " + std::string(isCharging ? "1" : "0");
+  headers = curl_slist_append(headers, chg.c_str());
 
   if (wifiRssi != 0) {
     std::string rssi = "X-ST-Device-RSSI: " + std::to_string(wifiRssi);

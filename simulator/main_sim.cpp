@@ -39,7 +39,9 @@ int main(int argc, char** argv) {
   while (running) {
     std::string url = cfg.serverUrl + "/api/embedded/render?device_id=" + cfg.deviceId;
     std::cout << "\n[Sync] Polling server: " << url << "\n";
-    std::cout << "[Sync] Telemetry: Battery=" << cfg.batteryPercent << "%, RSSI=" << cfg.wifiRssi << " dBm, ETag=" << (lastEtag.empty() ? "(none)" : lastEtag) << "\n";
+    std::cout << "[Sync] Telemetry: Power=" << cfg.powerSource << (cfg.isCharging ? " (Charging)" : "")
+              << ", Battery=" << cfg.batteryPercent << "%, RSSI=" << cfg.wifiRssi
+              << " dBm, ETag=" << (lastEtag.empty() ? "(none)" : lastEtag) << "\n";
 
     SimHttpResponse res = http.get(
       url,
@@ -47,7 +49,9 @@ int main(int argc, char** argv) {
       cfg.firmwareVersion,
       cfg.batteryPercent,
       cfg.wifiRssi,
-      lastEtag
+      lastEtag,
+      cfg.powerSource,
+      cfg.isCharging
     );
 
     std::cout << "[Sync] Server response status: " << res.statusCode << "\n";
@@ -123,7 +127,7 @@ int main(int argc, char** argv) {
       break;
     }
 
-    std::cout << "[Sleep] Next poll scheduled in " << sleepDurationSec << "s (Press [Space] to wake immediately, [B] to toggle battery, [Q] to quit)\n";
+    std::cout << "[Sleep] Next poll scheduled in " << sleepDurationSec << "s (Press [Space] to wake, [P] to toggle USB/Battery, [B] to toggle battery level, [Q] to quit)\n";
 
     // Simulate sleep interval while polling interactive SDL2 events
     auto sleepStart = std::chrono::steady_clock::now();
@@ -131,9 +135,18 @@ int main(int argc, char** argv) {
 
     while (running && !wakeRequested) {
       int batteryDelta = 0;
-      if (!display.pollEvents(wakeRequested, batteryDelta)) {
+      bool powerToggled = false;
+      if (!display.pollEvents(wakeRequested, batteryDelta, powerToggled)) {
         running = false;
         break;
+      }
+
+      if (powerToggled) {
+        cfg.powerSource = (cfg.powerSource == "usb") ? "battery" : "usb";
+        cfg.isCharging = (cfg.powerSource == "usb" && cfg.batteryPercent < 100);
+        std::cout << "[Simulator] Power source toggled to: " << cfg.powerSource
+                  << (cfg.isCharging ? " (Charging)" : "") << "!\n";
+        wakeRequested = true;
       }
 
       if (batteryDelta == 999) {

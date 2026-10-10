@@ -45,6 +45,16 @@ static int readBatteryPercent() {
   return -1;
 }
 
+static bool isUsbPowerConnected() {
+  pinMode(PIN_EXT_POWER, INPUT);
+  return digitalRead(PIN_EXT_POWER) == HIGH;
+}
+
+static bool isBatteryCharging() {
+  pinMode(PIN_CHG_STAT, INPUT);
+  return isUsbPowerConnected() && (digitalRead(PIN_CHG_STAT) == LOW);
+}
+
 // ─── Persistent Storage (NVS) ────────────────────────────────────────────────
 static Preferences s_prefs;
 
@@ -476,6 +486,17 @@ void enterDeepSleepWithWakeup(uint32_t sleepSeconds) {
   esp_deep_sleep_start();
 }
 
+static uint32_t s_nextSyncMillis = 0;
+
+void scheduleNextSync(uint32_t sleepSeconds) {
+  if (isUsbPowerConnected()) {
+    Serial.printf("\n[Power] USB Power Supply Detected (Mains Mode). Staying awake with active Wi-Fi. Next sync in %u s.\n", sleepSeconds);
+    s_nextSyncMillis = millis() + (sleepSeconds * 1000UL);
+    return;
+  }
+  enterDeepSleepWithWakeup(sleepSeconds);
+}
+
 void powerOffDevice() {
   Serial.println("\n=============================================");
   Serial.println("  [Power] RENDERING SHUTDOWN SCREEN & POWERING OFF");
@@ -893,6 +914,12 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     Serial.printf("[Sync] Battery: %d%%\n", batt);
   }
 
+  bool usbPower = isUsbPowerConnected();
+  bool charging = isBatteryCharging();
+  http.addHeader("X-ST-Power-Source", usbPower ? "usb" : "battery");
+  http.addHeader("X-ST-Charging", charging ? "1" : "0");
+  Serial.printf("[Sync] Power Source: %s (charging=%s)\n", usbPower ? "USB/Mains" : "Battery", charging ? "yes" : "no");
+
   String cachedEtag = cacheGetEtag(targetIndex);
   if (cachedEtag.length() == 0 && strlen(rtc_lastEtag) > 0) {
     cachedEtag = String(rtc_lastEtag);
@@ -1236,8 +1263,8 @@ void setup() {
         sleepSec = min((uint32_t)300, baseSec * 2);  // up to 5 min
       }
       rtc_lastSyncIntervalS = sleepSec;
-      enterDeepSleepWithWakeup(sleepSec);
-      return;
+      scheduleNextSync(sleepSec);
+      if (!isUsbPowerConnected()) return;
     }
   }
 
@@ -1259,8 +1286,8 @@ void setup() {
       // Enter initial deep sleep for slide interval
       uint32_t baseSec = max((uint32_t)10, (uint32_t)(s_syncIntervalMs / 1000));
       rtc_lastSyncIntervalS = baseSec;
-      enterDeepSleepWithWakeup(baseSec);
-      return;
+      scheduleNextSync(baseSec);
+      if (!isUsbPowerConnected()) return;
     } else {
       Serial.println("\n[Setup] Wi-Fi configured, but device not paired. Starting 6-digit Pairing flow...");
       registerAndStartPairing();
@@ -1317,9 +1344,20 @@ void loop() {
         fetchAndRender(true);
         if (isConfigured && isPaired) {
           uint32_t baseSec = max((uint32_t)10, (uint32_t)(s_syncIntervalMs / 1000));
-          enterDeepSleepWithWakeup(baseSec);
+          scheduleNextSync(baseSec);
         }
       }
+    }
+  }
+
+  // ─── USB Active Mains Mode: Background sync without deep sleep ───────────────
+  if (isUsbPowerConnected() && isConfigured && isPaired && !s_inSystemMenu && !s_inStatusScreen && !s_inInteractiveMode) {
+    if (s_nextSyncMillis > 0 && millis() >= s_nextSyncMillis) {
+      Serial.println("\n>>> [Power] USB Connected: Triggering active periodic frame sync...");
+      s_nextSyncMillis = 0;
+      fetchAndRender(false);
+      uint32_t baseSec = max((uint32_t)10, (uint32_t)(s_syncIntervalMs / 1000));
+      scheduleNextSync(baseSec);
     }
   }
 
@@ -1411,7 +1449,7 @@ void loop() {
             redrawCurrentState();
             if (isConfigured && isPaired) {
               uint32_t baseSec = max((uint32_t)10, (uint32_t)(s_syncIntervalMs / 1000));
-              enterDeepSleepWithWakeup(baseSec);
+              scheduleNextSync(baseSec);
             }
           }
         } else {
@@ -1443,7 +1481,7 @@ void loop() {
     redrawCurrentState();
     if (isConfigured && isPaired) {
       uint32_t baseSec = max((uint32_t)10, (uint32_t)(s_syncIntervalMs / 1000));
-      enterDeepSleepWithWakeup(baseSec);
+      scheduleNextSync(baseSec);
     }
   }
 

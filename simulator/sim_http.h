@@ -25,7 +25,9 @@ public:
     const std::string& firmwareVersion,
     int batteryPercent,
     int wifiRssi,
-    const std::string& ifNoneMatchEtag = ""
+    const std::string& ifNoneMatchEtag = "",
+    const std::string& powerSource = "battery",
+    bool isCharging = false
   );
 
 private:

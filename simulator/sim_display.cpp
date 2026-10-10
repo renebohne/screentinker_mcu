@@ -122,11 +122,12 @@ bool SimDisplay::saveBmp(const uint8_t* monoBuffer, const std::string& path) {
   return true;
 }
 
-bool SimDisplay::pollEvents(bool& wakeRequested, int& batteryDelta) {
+bool SimDisplay::pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerToggled) {
   if (m_headless) return true;
 
   wakeRequested = false;
   batteryDelta = 0;
+  powerToggled = false;
 
   SDL_Event event;
   while (SDL_PollEvent(&event)) {
@@ -152,6 +153,10 @@ bool SimDisplay::pollEvents(bool& wakeRequested, int& batteryDelta) {
         case SDLK_b:
           // Toggle battery low/full
           batteryDelta = 999; // Special toggle code
+          break;
+        case SDLK_p:
+          // Toggle power source (battery <-> USB mains)
+          powerToggled = true;
           break;
       }
     }

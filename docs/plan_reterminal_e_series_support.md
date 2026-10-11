@@ -207,8 +207,8 @@ The simulator provides an instant testbench without needing the physical hardwar
   * Test simulated pairing with ScreenTinker server across all 5 profiles.
   * Validate bitmap downloads and BMP snapshot outputs.
 * **Phase 5: Orientation Modes & Sensor Heartbeat Telemetry** (In Progress)
-  * Implement firmware settings menu orientation control (`Auto`/`Landscape`/`Portrait` for Sticky, `Landscape`/`Portrait` for E1001–E1004) (#21).
-  * Integrate LSM6DS3TR-C accelerometer driver on Sticky for debounced auto-orientation switching (#21).
+  * [✓ Commit 19a93bc] Implement firmware settings menu orientation control (`Auto`/`Landscape`/`Portrait` for Sticky, `Landscape`/`Portrait` for E1001–E1004) (#21).
+  * [✓ Commit 19a93bc] Integrate LSM6DS3TR-C accelerometer driver on Sticky for debounced auto-orientation switching (#21).
+  * [✓ Commit 19a93bc] Add simulator hotkey & CLI support (`--orientation`, `O`, `R`) and native unit test suite (#21).
   * Integrate Sensirion SHT40 driver across all 5 devices and transmit temperature/humidity in sync heartbeat headers (#22).
-  * Add simulator CLI & hotkey support (`--orientation`, `O`, `R`, mock sensor telemetry) (#21, #22).
   * Companion server integration for `device_telemetry` ingestion and web UI visualization (renebohne/screentinker#7).

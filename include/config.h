@@ -15,13 +15,24 @@
 #define DEVICE_ID             "your-device-uuid"
 #define DEVICE_TOKEN          "your-device-token"
 
+#include "device_profile.h"
+
 // ─── Display & Timing Parameters ─────────────────────────────────────────────
-#define EPD_WIDTH             800
-#define EPD_HEIGHT            480
-#define EPD_BUFFER_SIZE       (EPD_WIDTH * EPD_HEIGHT / 8) // 48,000 Bytes
+#ifndef EPD_WIDTH
+#define EPD_WIDTH             DEVICE_DISPLAY_WIDTH
+#endif
+#ifndef EPD_HEIGHT
+#define EPD_HEIGHT            DEVICE_DISPLAY_HEIGHT
+#endif
+#ifndef EPD_BUFFER_SIZE
+#define EPD_BUFFER_SIZE       DEVICE_BUFFER_SIZE
+#endif
 
 // ─── PSRAM Cache & Power Management ──────────────────────────────────────────
-#define MAX_CACHED_ITEMS      32   // Up to 32 frames in 8MB PSRAM (~1.5 MB)
+#ifndef MAX_CACHED_ITEMS
+// Up to 4MB total cache in 8MB PSRAM (32 frames for 48KB, 20 for 192KB, 3 for 1.31MB, 4 for 960KB)
+#define MAX_CACHED_ITEMS      ((4000000 / EPD_BUFFER_SIZE) > 32 ? 32 : ((4000000 / EPD_BUFFER_SIZE) < 2 ? 2 : (4000000 / EPD_BUFFER_SIZE)))
+#endif
 #define DEFAULT_SLEEP_SEC     30   // Default sync interval in seconds
 #define HTTP_TIMEOUT_MS       15000
 #define ENABLE_WIFI_POWER_SAVE true // Disconnect WiFi when idle to save battery

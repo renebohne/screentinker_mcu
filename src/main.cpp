@@ -11,7 +11,7 @@ extern "C" {
 #include "epaper_panel.h"
 }
 
-#include "pins_sticky.h"
+#include "device_profile.h"
 #include "config.h"
 #include "setup_screen.h"
 

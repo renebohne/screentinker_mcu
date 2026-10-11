@@ -1,0 +1,98 @@
+#pragma once
+
+/*
+ * ScreenTinker Unified Device Profile Engine
+ * Maps compile-time hardware target flags to pinouts, panel geometries,
+ * color modes, refresh characteristics, and touch digitizer architectures.
+ */
+
+// ─── Color Modes ─────────────────────────────────────────────────────────────
+#define COLOR_MODE_1BPP_MONO   0
+#define COLOR_MODE_GRAY4       1
+#define COLOR_MODE_GRAY16      2
+#define COLOR_MODE_SPECTRA6    3
+
+// ─── Touch Digitizer Architecture ───────────────────────────────────────────
+#define TOUCH_NONE             0
+#define TOUCH_FT6336U          1
+#define TOUCH_GT911            2
+
+#if defined(DEVICE_RETERMINAL_E1001)
+  #include "pins_e1001.h"
+  #define DEVICE_PROFILE_NAME              "e1001"
+  #define DEVICE_MODEL_NAME                "Seeed Studio reTerminal E1001"
+  #define DEVICE_SCREEN_PROFILE            "seeed-reterminal-e1001"
+  #define DEVICE_DISPLAY_WIDTH             800
+  #define DEVICE_DISPLAY_HEIGHT            480
+  #define DEVICE_COLOR_MODE                COLOR_MODE_1BPP_MONO
+  #define DEVICE_BUFFER_SIZE               48000
+  #define DEVICE_SUPPORTS_PARTIAL_REFRESH  true
+  #define DEVICE_FULL_REFRESH_TIME_MS      3000
+  #define DEVICE_PARTIAL_REFRESH_TIME_MS   350
+  #define DEVICE_SUPPORTS_TOUCH            false
+  #define DEVICE_TOUCH_CONTROLLER          TOUCH_NONE
+
+#elif defined(DEVICE_RETERMINAL_E1002)
+  #include "pins_e1002.h"
+  #define DEVICE_PROFILE_NAME              "e1002"
+  #define DEVICE_MODEL_NAME                "Seeed Studio reTerminal E1002"
+  #define DEVICE_SCREEN_PROFILE            "seeed-reterminal-e1002"
+  #define DEVICE_DISPLAY_WIDTH             800
+  #define DEVICE_DISPLAY_HEIGHT            480
+  #define DEVICE_COLOR_MODE                COLOR_MODE_SPECTRA6
+  #define DEVICE_BUFFER_SIZE               192000
+  #define DEVICE_SUPPORTS_PARTIAL_REFRESH  false
+  #define DEVICE_FULL_REFRESH_TIME_MS      14000
+  #define DEVICE_PARTIAL_REFRESH_TIME_MS   0
+  #define DEVICE_SUPPORTS_TOUCH            false
+  #define DEVICE_TOUCH_CONTROLLER          TOUCH_NONE
+
+#elif defined(DEVICE_RETERMINAL_E1003)
+  #include "pins_e1003.h"
+  #define DEVICE_PROFILE_NAME              "e1003"
+  #define DEVICE_MODEL_NAME                "Seeed Studio reTerminal E1003"
+  #define DEVICE_SCREEN_PROFILE            "seeed-reterminal-e1003"
+  #define DEVICE_DISPLAY_WIDTH             1872
+  #define DEVICE_DISPLAY_HEIGHT            1404
+  #define DEVICE_COLOR_MODE                COLOR_MODE_GRAY16
+  #define DEVICE_BUFFER_SIZE               1314144
+  #define DEVICE_SUPPORTS_PARTIAL_REFRESH  true
+  #define DEVICE_FULL_REFRESH_TIME_MS      1200
+  #define DEVICE_PARTIAL_REFRESH_TIME_MS   180
+  #define DEVICE_SUPPORTS_TOUCH            true
+  #define DEVICE_TOUCH_CONTROLLER          TOUCH_GT911
+
+#elif defined(DEVICE_RETERMINAL_E1004)
+  #include "pins_e1004.h"
+  #define DEVICE_PROFILE_NAME              "e1004"
+  #define DEVICE_MODEL_NAME                "Seeed Studio reTerminal E1004"
+  #define DEVICE_SCREEN_PROFILE            "seeed-reterminal-e1004"
+  #define DEVICE_DISPLAY_WIDTH             1200
+  #define DEVICE_DISPLAY_HEIGHT            1600
+  #define DEVICE_COLOR_MODE                COLOR_MODE_SPECTRA6
+  #define DEVICE_BUFFER_SIZE               960000
+  #define DEVICE_SUPPORTS_PARTIAL_REFRESH  false
+  #define DEVICE_FULL_REFRESH_TIME_MS      22000
+  #define DEVICE_PARTIAL_REFRESH_TIME_MS   0
+  #define DEVICE_SUPPORTS_TOUCH            false
+  #define DEVICE_TOUCH_CONTROLLER          TOUCH_NONE
+
+#else
+  // Default Target: Seeed Studio reTerminal Sticky
+  #ifndef DEVICE_RETERMINAL_STICKY
+    #define DEVICE_RETERMINAL_STICKY
+  #endif
+  #include "pins_sticky.h"
+  #define DEVICE_PROFILE_NAME              "sticky"
+  #define DEVICE_MODEL_NAME                "Seeed Studio reTerminal Sticky"
+  #define DEVICE_SCREEN_PROFILE            "seeed-reterminal-sticky"
+  #define DEVICE_DISPLAY_WIDTH             800
+  #define DEVICE_DISPLAY_HEIGHT            480
+  #define DEVICE_COLOR_MODE                COLOR_MODE_1BPP_MONO
+  #define DEVICE_BUFFER_SIZE               48000
+  #define DEVICE_SUPPORTS_PARTIAL_REFRESH  true
+  #define DEVICE_FULL_REFRESH_TIME_MS      1800
+  #define DEVICE_PARTIAL_REFRESH_TIME_MS   350
+  #define DEVICE_SUPPORTS_TOUCH            true
+  #define DEVICE_TOUCH_CONTROLLER          TOUCH_FT6336U
+#endif

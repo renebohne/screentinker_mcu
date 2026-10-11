@@ -94,6 +94,23 @@ Both **reTerminal Sticky** and **reTerminal E1003** are equipped with hardware c
 * **Grayscale Fast-Response (E1003 IT8951)**:
   - Hardware accelerated waveform controller supports GC16 (16-level grayscale, 1.2s) and ultra-fast A2/DU (black/white 180ms) modes.
 
+### 2.3 Onboard Sensors & Orientation Subsystem
+
+* **Sensirion SHT40 (Temperature & Humidity)**:
+  - Present on **all 5 models** (Sticky, E1001, E1002, E1003, E1004) over I2C at address `0x44`.
+  - Sticky I2C: SDA = GPIO 1, SCL = GPIO 0.
+  - E1001–E1004 I2C: SDA = GPIO 19, SCL = GPIO 20 (shared with PCF8563 RTC).
+  - Used for ambient environmental telemetry in sync heartbeats (`X-ST-Device-Temperature`, `X-ST-Device-Humidity`) and display waveform temperature compensation.
+* **STMicroelectronics LSM6DS3TR-C IMU (reTerminal Sticky)**:
+  - 6-axis IMU (3-axis accelerometer + 3-axis gyroscope) over I2C at address `0x6A` (SDA = GPIO 1, SCL = GPIO 0, INT1 = GPIO 7).
+  - Present **only on reTerminal Sticky**; E-Series devices (E1001–E1004) do not have an onboard IMU.
+  - Used for optional auto-orientation detection (Auto mode in settings).
+* **Firmware Orientation Modes**:
+  - **IMU devices (Sticky)**: `AUTO [IMU]` | `LANDSCAPE` | `PORTRAIT`.
+  - **Non-IMU devices (E1001–E1004)**: `LANDSCAPE` | `PORTRAIT`.
+  - Configurable via on-screen system settings menu (`setup_screen.cpp`) and SoftAP captive portal.
+  - Persisted in NVS across reboots.
+
 ---
 
 ## 3. Firmware Architecture (`platformio.ini` & Pin Headers)
@@ -175,16 +192,23 @@ The simulator provides an instant testbench without needing the physical hardwar
 
 ## 5. Phased Implementation Roadmap
 
-* **Phase 1: Simulator Multi-Device Profile Engine**
+* **Phase 1: Simulator Multi-Device Profile Engine** [✓ PR #16]
   * Update `sim_config.h` & `sim_config.cpp` to parse `--device` and profile presets.
   * Update `sim_display.h` & `sim_display.cpp` to dynamically allocate and resize viewport.
   * Update `main_sim.cpp` pairing flow to announce chosen model.
-* **Phase 2: Responsive Setup Screen**
+* **Phase 2: Responsive Setup Screen** [✓ PR #17]
   * Refactor `setup_screen.cpp` so splash screens, pairing PINs, and QR codes scale and center properly for 800×480, 1872×1404, and 1200×1600.
-* **Phase 3: Firmware Pinout & Profile Headers**
+* **Phase 3: Firmware Pinout & Profile Headers** [✓ PR #18]
   * Create `include/pins_e1001.h`, `include/pins_e1002.h`, `include/pins_e1003.h`, `include/pins_e1004.h`.
   * Create `include/device_profile.h` and conditionalize `config.h` dimensions.
-  * Add corresponding environments in `platformio.ini`.
-* **Phase 4: Verification & Server Integration**
-  * Test simulated pairing with local ScreenTinker server (`192.168.100.222:3001`) across all 5 profiles.
+  * Add corresponding environments in `platformio.ini` [✓ PR #19].
+* **Phase 4: Display Driver Integration & Verification** [✓ PR #20]
+  * Integrate display controllers for all 5 models (SSD1677, UC8179, ED2208, IT8951, T133A01).
+  * Test simulated pairing with ScreenTinker server across all 5 profiles.
   * Validate bitmap downloads and BMP snapshot outputs.
+* **Phase 5: Orientation Modes & Sensor Heartbeat Telemetry** (In Progress)
+  * Implement firmware settings menu orientation control (`Auto`/`Landscape`/`Portrait` for Sticky, `Landscape`/`Portrait` for E1001–E1004) (#21).
+  * Integrate LSM6DS3TR-C accelerometer driver on Sticky for debounced auto-orientation switching (#21).
+  * Integrate Sensirion SHT40 driver across all 5 devices and transmit temperature/humidity in sync heartbeat headers (#22).
+  * Add simulator CLI & hotkey support (`--orientation`, `O`, `R`, mock sensor telemetry) (#21, #22).
+  * Companion server integration for `device_telemetry` ingestion and web UI visualization (renebohne/screentinker#7).

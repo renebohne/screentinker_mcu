@@ -4,9 +4,31 @@
 #include <fstream>
 #include <vector>
 
-SimDisplay::SimDisplay(bool headless, int width, int height, int scale)
-  : m_headless(headless), m_width(width), m_height(height), m_scale(scale > 0 ? scale : 1) {
+static const uint32_t s_spectra6_palette[6] = {
+  0xFF141414, // 0: Black (R:20, G:20, B:20)
+  0xFFFBFBFB, // 1: White (R:251, G:251, B:251)
+  0xFFF5DE00, // 2: Yellow (R:245, G:222, B:0)
+  0xFFD71920, // 3: Red (R:215, G:25, B:32)
+  0xFF005BAC, // 4: Blue (R:0, G:91, B:172)
+  0xFF00873D  // 5: Green (R:0, G:135, B:61)
+};
+
+SimDisplay::SimDisplay(bool headless, int width, int height, int scale, SimColorMode colorMode)
+  : m_headless(headless), m_width(width), m_height(height), m_scale(scale > 0 ? scale : 1), m_colorMode(colorMode) {
   m_pixelBuffer = new uint32_t[m_width * m_height];
+}
+
+size_t SimDisplay::bufferSize() const {
+  switch (m_colorMode) {
+    case SIM_COLOR_SPECTRA6:
+    case SIM_COLOR_GRAY16:
+      return ((size_t)m_width * m_height) / 2;
+    case SIM_COLOR_GRAY4:
+      return ((size_t)m_width * m_height) / 4;
+    case SIM_COLOR_1BPP_MONO:
+    default:
+      return ((size_t)m_width * m_height) / 8;
+  }
 }
 
 SimDisplay::~SimDisplay() {
@@ -19,7 +41,7 @@ SimDisplay::~SimDisplay() {
 
 bool SimDisplay::init() {
   if (m_headless) {
-    std::cout << "[Display] Initialized in Headless mode (" << m_width << "x" << m_height << " mono).\n";
+    std::cout << "[Display] Initialized in Headless mode (" << m_width << "x" << m_height << ").\n";
     return true;
   }
 
@@ -59,19 +81,47 @@ bool SimDisplay::init() {
   return true;
 }
 
-void SimDisplay::renderBuffer(const uint8_t* monoBuffer) {
-  if (!monoBuffer) return;
+void SimDisplay::renderBuffer(const uint8_t* buffer) {
+  if (!buffer) return;
 
-  // Convert 1-bit monochrome (1 = White, 0 = Black) to 32-bit ARGB
-  // E-Paper paper background: 0xFFF7F7F7, ink: 0xFF181818 for realistic e-paper look
-  const uint32_t c_white = 0xFFFBFBFB;
-  const uint32_t c_black = 0xFF141414;
-
-  for (int y = 0; y < m_height; ++y) {
-    for (int x = 0; x < m_width; ++x) {
-      size_t byte_idx = (y * (m_width / 8)) + (x / 8);
-      uint8_t bit = (monoBuffer[byte_idx] >> (7 - (x & 7))) & 1;
-      m_pixelBuffer[y * m_width + x] = bit ? c_white : c_black;
+  if (m_colorMode == SIM_COLOR_SPECTRA6) {
+    for (int y = 0; y < m_height; ++y) {
+      for (int x = 0; x < m_width; ++x) {
+        size_t byte_idx = ((size_t)y * (m_width / 2)) + (x / 2);
+        uint8_t nibble = (x & 1) ? (buffer[byte_idx] & 0x0F) : ((buffer[byte_idx] >> 4) & 0x0F);
+        uint32_t color = (nibble < 6) ? s_spectra6_palette[nibble] : 0xFFFBFBFB;
+        m_pixelBuffer[y * m_width + x] = color;
+      }
+    }
+  } else if (m_colorMode == SIM_COLOR_GRAY16) {
+    for (int y = 0; y < m_height; ++y) {
+      for (int x = 0; x < m_width; ++x) {
+        size_t byte_idx = ((size_t)y * (m_width / 2)) + (x / 2);
+        uint8_t nibble = (x & 1) ? (buffer[byte_idx] & 0x0F) : ((buffer[byte_idx] >> 4) & 0x0F);
+        uint8_t gray = nibble * 17;
+        m_pixelBuffer[y * m_width + x] = 0xFF000000 | (gray << 16) | (gray << 8) | gray;
+      }
+    }
+  } else if (m_colorMode == SIM_COLOR_GRAY4) {
+    for (int y = 0; y < m_height; ++y) {
+      for (int x = 0; x < m_width; ++x) {
+        size_t byte_idx = ((size_t)y * (m_width / 4)) + (x / 4);
+        uint8_t shift = 6 - 2 * (x & 3);
+        uint8_t val = (buffer[byte_idx] >> shift) & 0x03;
+        uint8_t gray = val * 85;
+        m_pixelBuffer[y * m_width + x] = 0xFF000000 | (gray << 16) | (gray << 8) | gray;
+      }
+    }
+  } else {
+    // 1-bit monochrome (1 = White, 0 = Black)
+    const uint32_t c_white = 0xFFFBFBFB;
+    const uint32_t c_black = 0xFF141414;
+    for (int y = 0; y < m_height; ++y) {
+      for (int x = 0; x < m_width; ++x) {
+        size_t byte_idx = ((size_t)y * (m_width / 8)) + (x / 8);
+        uint8_t bit = (buffer[byte_idx] >> (7 - (x & 7))) & 1;
+        m_pixelBuffer[y * m_width + x] = bit ? c_white : c_black;
+      }
     }
   }
 
@@ -83,8 +133,10 @@ void SimDisplay::renderBuffer(const uint8_t* monoBuffer) {
   }
 }
 
-bool SimDisplay::saveBmp(const uint8_t* monoBuffer, const std::string& path) {
-  if (!monoBuffer || path.empty()) return false;
+bool SimDisplay::saveBmp(const uint8_t* buffer, const std::string& path) {
+  if (!buffer || path.empty()) return false;
+
+  renderBuffer(buffer);
 
   std::ofstream out(path, std::ios::binary);
   if (!out.is_open()) {
@@ -117,12 +169,10 @@ bool SimDisplay::saveBmp(const uint8_t* monoBuffer, const std::string& path) {
   // BMP writes bottom-to-top
   for (int y = m_height - 1; y >= 0; --y) {
     for (int x = 0; x < m_width; ++x) {
-      size_t byte_idx = (y * (m_width / 8)) + (x / 8);
-      uint8_t bit = (monoBuffer[byte_idx] >> (7 - (x & 7))) & 1;
-      uint8_t val = bit ? 255 : 0;
-      row[x * 3 + 0] = val; // B
-      row[x * 3 + 1] = val; // G
-      row[x * 3 + 2] = val; // R
+      uint32_t pix = m_pixelBuffer[y * m_width + x];
+      row[x * 3 + 0] = (uint8_t)(pix & 0xFF);         // B
+      row[x * 3 + 1] = (uint8_t)((pix >> 8) & 0xFF);  // G
+      row[x * 3 + 2] = (uint8_t)((pix >> 16) & 0xFF); // R
     }
     out.write((char*)row.data(), rowSize);
   }

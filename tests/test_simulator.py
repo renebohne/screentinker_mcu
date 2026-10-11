@@ -37,6 +37,26 @@ def parse_bmp_header(filepath: str):
     }
 
 
+def get_bmp_pixel(filepath: str, x: int, y: int):
+    """Returns (R, G, B) tuple of pixel at (x, y) where (0,0) is top-left."""
+    with open(filepath, "rb") as f:
+        data = f.read()
+    hdr = parse_bmp_header(filepath)
+    w = hdr["width"]
+    h = hdr["height"]
+    offset = hdr["data_offset"]
+    bpp = hdr["bpp"]
+    if bpp != 24:
+        raise ValueError(f"Expected 24 bpp BMP, got {bpp}")
+    row_stride = ((w * 3 + 3) // 4) * 4
+    file_y = h - 1 - y  # BMP rows are stored bottom-to-top
+    px_offset = offset + file_y * row_stride + x * 3
+    b = data[px_offset]
+    g = data[px_offset + 1]
+    r = data[px_offset + 2]
+    return (r, g, b)
+
+
 class TestScreenTinkerSimulator(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -305,6 +325,193 @@ class TestScreenTinkerSimulator(unittest.TestCase):
                 self.assertEqual(last_reg.get("screen_width"), exp_w, f"Width mismatch for {model_name}")
                 self.assertEqual(last_reg.get("screen_height"), exp_h, f"Height mismatch for {model_name}")
 
+    def test_11_spectra6_color_decoding_and_snapshot(self):
+        """Tests that e1002 and e1004 unpack 4bpp Spectra 6 frames into true RGB colors."""
+        spectra_models = [
+            ("e1002", 800, 480),
+            ("e1004", 1200, 1600),
+        ]
+        for model_name, w, h in spectra_models:
+            with self.subTest(model=model_name):
+                self.mock_server.state.screen_width = w
+                self.mock_server.state.screen_height = h
+                self.mock_server.state.color_mode = "spectra6"
+                self.mock_server.state.frame_pattern = "spectra_stripes"
+
+                snap_path = os.path.join(self.temp_dir.name, f"snap_{model_name}_color.bmp")
+                args = [
+                    "--model", model_name,
+                    "--token", "test-token",
+                    "--device", f"dev-{model_name}-color",
+                    "--snapshot", snap_path,
+                ]
+                res = self.run_simulator(args)
+
+                self.assertTrue(os.path.exists(snap_path), f"Snapshot for {model_name} not found")
+                hdr = parse_bmp_header(snap_path)
+                self.assertEqual(hdr["width"], w)
+                self.assertEqual(hdr["height"], h)
+
+                # Check stripe pixel colors:
+                stripe_h = h // 4
+                # Top stripe: Yellow (R > 200, G > 180, B < 60)
+                r_y, g_y, b_y = get_bmp_pixel(snap_path, w // 2, stripe_h // 2)
+                self.assertGreater(r_y, 200, f"Yellow R too low on {model_name}: ({r_y},{g_y},{b_y})")
+                self.assertGreater(g_y, 180, f"Yellow G too low on {model_name}: ({r_y},{g_y},{b_y})")
+                self.assertLess(b_y, 60, f"Yellow B too high on {model_name}: ({r_y},{g_y},{b_y})")
+
+                # Second stripe: Red (R > 180, G < 60, B < 60)
+                r_r, g_r, b_r = get_bmp_pixel(snap_path, w // 2, stripe_h + stripe_h // 2)
+                self.assertGreater(r_r, 180, f"Red R too low on {model_name}: ({r_r},{g_r},{b_r})")
+                self.assertLess(g_r, 60, f"Red G too high on {model_name}: ({r_r},{g_r},{b_r})")
+                self.assertLess(b_r, 60, f"Red B too high on {model_name}: ({r_r},{g_r},{b_r})")
+
+                # Third stripe: Blue (R < 60, G < 150, B > 150)
+                r_b, g_b, b_b = get_bmp_pixel(snap_path, w // 2, stripe_h * 2 + stripe_h // 2)
+                self.assertLess(r_b, 60, f"Blue R too high on {model_name}: ({r_b},{g_b},{b_b})")
+                self.assertGreater(b_b, 150, f"Blue B too low on {model_name}: ({r_b},{g_b},{b_b})")
+
+                # Fourth stripe: Green (R < 60, G > 100, B < 80)
+                r_g, g_g, b_g = get_bmp_pixel(snap_path, w // 2, stripe_h * 3 + stripe_h // 2)
+                self.assertLess(r_g, 60, f"Green R too high on {model_name}: ({r_g},{g_g},{b_g})")
+                self.assertGreater(g_g, 100, f"Green G too low on {model_name}: ({r_g},{g_g},{b_g})")
+
+    def test_12_grayscale_decoding_and_snapshot(self):
+        """Tests that e1003 decodes Gray16 frames into proportional 16-level grayscale RGB."""
+        w, h = 1872, 1404
+        self.mock_server.state.screen_width = w
+        self.mock_server.state.screen_height = h
+        self.mock_server.state.color_mode = "gray16"
+        self.mock_server.state.frame_pattern = "gray16_ramp"
+
+        snap_path = os.path.join(self.temp_dir.name, "snap_e1003_gray.bmp")
+        args = [
+            "--model", "e1003",
+            "--token", "test-token",
+            "--device", "dev-e1003-gray",
+            "--snapshot", snap_path,
+        ]
+        res = self.run_simulator(args)
+
+        self.assertTrue(os.path.exists(snap_path))
+        hdr = parse_bmp_header(snap_path)
+        self.assertEqual(hdr["width"], w)
+        self.assertEqual(hdr["height"], h)
+
+        stripe_h = h // 4
+        # Zone 0: Black
+        r0, g0, b0 = get_bmp_pixel(snap_path, w // 2, stripe_h // 2)
+        self.assertLess(r0, 35)
+        self.assertLess(g0, 35)
+
+        # Zone 1: Dark Gray (~85)
+        r1, g1, b1 = get_bmp_pixel(snap_path, w // 2, stripe_h + stripe_h // 2)
+        self.assertTrue(60 <= r1 <= 110, f"Zone 1 gray out of range: {r1}")
+        self.assertEqual(r1, g1)
+        self.assertEqual(r1, b1)
+
+        # Zone 2: Light Gray (~170)
+        r2, g2, b2 = get_bmp_pixel(snap_path, w // 2, stripe_h * 2 + stripe_h // 2)
+        self.assertTrue(145 <= r2 <= 195, f"Zone 2 gray out of range: {r2}")
+        self.assertEqual(r2, g2)
+        self.assertEqual(r2, b2)
+
+        # Zone 3: White
+        r3, g3, b3 = get_bmp_pixel(snap_path, w // 2, stripe_h * 3 + stripe_h // 2)
+        self.assertGreater(r3, 240)
+        self.assertGreater(g3, 240)
+
+    def test_13_hardware_capabilities_pairing_registration(self):
+        """Tests that --pair announces color_mode, supports_partial_refresh, and refresh durations."""
+        capabilities_matrix = [
+            ("sticky", "mono", True, 1800),
+            ("e1001", "mono", True, 3000),
+            ("e1002", "spectra6", False, 14000),
+            ("e1003", "gray16", True, 1200),
+            ("e1004", "spectra6", False, 22000),
+        ]
+        for model_name, exp_color, exp_partial, exp_full_ms in capabilities_matrix:
+            with self.subTest(model=model_name):
+                cfg_path = os.path.join(self.temp_dir.name, f"pair_cap_{model_name}.json")
+                with open(cfg_path, "w") as f:
+                    json.dump({
+                        "server": {"url": self.server_url},
+                        "device": {"id": f"unpaired-cap-{model_name}", "token": ""},
+                        "simulator": {"headless": True, "pair": True}
+                    }, f)
+
+                args = [
+                    "--model", model_name,
+                    "--config", cfg_path,
+                    "--pair",
+                    "--snapshot", os.path.join(self.temp_dir.name, f"snap_cap_{model_name}.bmp")
+                ]
+                res = self.run_simulator(args)
+
+                last_reg = self.mock_server.state.last_pair_register
+                self.assertEqual(last_reg.get("color_mode"), exp_color, f"Color mode mismatch for {model_name}")
+                self.assertEqual(last_reg.get("supports_partial_refresh"), exp_partial, f"Partial refresh support mismatch for {model_name}")
+                self.assertEqual(last_reg.get("full_refresh_time_ms"), exp_full_ms, f"Full refresh time mismatch for {model_name}")
+
+    def test_14_partial_refresh_promotion_for_spectra6(self):
+        """Tests that simulator promotes partial refresh to full refresh on Spectra 6 panels with notice."""
+        self.mock_server.state.screen_width = 1200
+        self.mock_server.state.screen_height = 1600
+        self.mock_server.state.color_mode = "spectra6"
+        self.mock_server.state.refresh_mode_header = "partial"
+
+        args = [
+            "--model", "e1004",
+            "--token", "test-token",
+            "--device", "dev-e1004-partial",
+            "--snapshot", os.path.join(self.temp_dir.name, "snap_e1004_part.bmp"),
+        ]
+        res = self.run_simulator(args)
+
+        self.assertIn("does not support partial refresh", res.stdout.lower(),
+                      "Expected warning when requesting partial refresh on Spectra 6 panel")
+
+    def test_15_responsive_setup_screens_multi_resolution(self):
+        """Tests that pairing screens render crisp and centered across 800x480, 1872x1404, and 1200x1600."""
+        target_resolutions = [
+            ("sticky", 800, 480),
+            ("e1003", 1872, 1404),
+            ("e1004", 1200, 1600),
+        ]
+        for model_name, exp_w, exp_h in target_resolutions:
+            with self.subTest(model=model_name):
+                cfg_path = os.path.join(self.temp_dir.name, f"resp_{model_name}.json")
+                with open(cfg_path, "w") as f:
+                    json.dump({
+                        "server": {"url": self.server_url},
+                        "device": {"id": f"dev-resp-{model_name}", "token": ""},
+                        "simulator": {"headless": True, "pair": True}
+                    }, f)
+
+                snap_path = os.path.join(self.temp_dir.name, f"snap_resp_{model_name}.bmp")
+                args = [
+                    "--model", model_name,
+                    "--config", cfg_path,
+                    "--pair",
+                    "--snapshot", snap_path,
+                ]
+                res = self.run_simulator(args)
+
+                self.assertTrue(os.path.exists(snap_path), f"Snapshot missing for {model_name}")
+                hdr = parse_bmp_header(snap_path)
+                self.assertEqual(hdr["width"], exp_w)
+                self.assertEqual(hdr["height"], exp_h)
+
+                # Verify screen contains both black (ink) and white (paper) pixels
+                # Header row (y=10) should be within black header banner (ink < 35)
+                r_hdr, g_hdr, b_hdr = get_bmp_pixel(snap_path, exp_w // 2, 10)
+                self.assertLess(r_hdr, 35, f"Header pixel not black on {model_name}: ({r_hdr},{g_hdr},{b_hdr})")
+
+                # Content area around margin should have white background (> 240)
+                r_bg, g_bg, b_bg = get_bmp_pixel(snap_path, 10, 100)
+                self.assertGreater(r_bg, 240, f"Background pixel not white on {model_name}: ({r_bg},{g_bg},{b_bg})")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+

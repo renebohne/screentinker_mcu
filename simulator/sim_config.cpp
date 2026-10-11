@@ -25,35 +25,78 @@ bool SimConfig::setModel(const std::string& modelName) {
     screenProfile = "seeed-reterminal-sticky";
     width = 800;
     height = 480;
+    colorMode = SIM_COLOR_1BPP_MONO;
+    supportsPartialRefresh = true;
+    fullRefreshTimeMs = 1800;
+    partialRefreshTimeMs = 350;
     return true;
   } else if (m == "e1001" || m == "seeed-reterminal-e1001" || m == "reterminal-e1001") {
     model = "e1001";
     screenProfile = "seeed-reterminal-e1001";
     width = 800;
     height = 480;
+    colorMode = SIM_COLOR_1BPP_MONO;
+    supportsPartialRefresh = true;
+    fullRefreshTimeMs = 3000;
+    partialRefreshTimeMs = 450;
     return true;
   } else if (m == "e1002" || m == "seeed-reterminal-e1002" || m == "reterminal-e1002") {
     model = "e1002";
     screenProfile = "seeed-reterminal-e1002";
     width = 800;
     height = 480;
+    colorMode = SIM_COLOR_SPECTRA6;
+    supportsPartialRefresh = false;
+    fullRefreshTimeMs = 14000;
+    partialRefreshTimeMs = 0;
     return true;
   } else if (m == "e1003" || m == "seeed-reterminal-e1003" || m == "reterminal-e1003") {
     model = "e1003";
     screenProfile = "seeed-reterminal-e1003";
     width = 1872;
     height = 1404;
+    colorMode = SIM_COLOR_GRAY16;
+    supportsPartialRefresh = true;
+    fullRefreshTimeMs = 1200;
+    partialRefreshTimeMs = 180;
     return true;
   } else if (m == "e1004" || m == "seeed-reterminal-e1004" || m == "reterminal-e1004") {
     model = "e1004";
     screenProfile = "seeed-reterminal-e1004";
     width = 1200;
     height = 1600;
+    colorMode = SIM_COLOR_SPECTRA6;
+    supportsPartialRefresh = false;
+    fullRefreshTimeMs = 22000;
+    partialRefreshTimeMs = 0;
     return true;
   }
 
   std::cerr << "[Config] Warning: Unknown hardware model '" << modelName << "'. Defaulting to sticky (800x480).\n";
   return false;
+}
+
+std::string SimConfig::colorModeString() const {
+  switch (colorMode) {
+    case SIM_COLOR_GRAY4: return "gray4";
+    case SIM_COLOR_GRAY16: return "gray16";
+    case SIM_COLOR_SPECTRA6: return "spectra6";
+    case SIM_COLOR_1BPP_MONO:
+    default: return "mono";
+  }
+}
+
+size_t SimConfig::bufferSize() const {
+  switch (colorMode) {
+    case SIM_COLOR_GRAY4:
+      return ((size_t)width * height) / 4;
+    case SIM_COLOR_GRAY16:
+    case SIM_COLOR_SPECTRA6:
+      return ((size_t)width * height) / 2;
+    case SIM_COLOR_1BPP_MONO:
+    default:
+      return ((size_t)width * height) / 8;
+  }
 }
 
 static bool isKnownModelName(const std::string& name) {
@@ -206,6 +249,11 @@ void SimConfig::print() const {
             << " ScreenTinker MCU Simulator (" << PLATFORM_OS << " Host)\n"
             << "───────────────────────────────────────────────────────\n"
             << " • Target Hardware:   " << model << " (" << width << "x" << height << ", " << screenProfile << ")\n"
+            << " • Color Mode:        " << colorModeString() << " ("
+            << (colorMode == SIM_COLOR_SPECTRA6 ? "4bpp, 6-Color Spectra 6" :
+                (colorMode == SIM_COLOR_GRAY16 ? "4bpp, 16-Level Grayscale" :
+                 (colorMode == SIM_COLOR_GRAY4 ? "2bpp, 4-Level Grayscale" : "1bpp Monochrome"))) << ")\n"
+            << " • Refresh Support:   " << (supportsPartialRefresh ? "Full & Fast Partial (" + std::to_string(partialRefreshTimeMs) + "ms)" : "Full Refresh Only (" + std::to_string(fullRefreshTimeMs / 1000) + "s)") << "\n"
             << " • Server URL:        " << serverUrl << "\n"
             << " • Device ID:         " << deviceId << "\n"
             << " • Firmware Version:  " << firmwareVersion << "\n"

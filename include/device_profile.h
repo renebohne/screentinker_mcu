@@ -96,3 +96,12 @@
   #define DEVICE_SUPPORTS_TOUCH            true
   #define DEVICE_TOUCH_CONTROLLER          TOUCH_FT6336U
 #endif
+
+// ─── Default Fallbacks for Optional Hardware Pins ─────────────────────────────
+#ifndef PIN_EPD_MISO
+#define PIN_EPD_MISO     -1
+#endif
+
+#ifndef PIN_EPD_DC
+#define PIN_EPD_DC       -1
+#endif

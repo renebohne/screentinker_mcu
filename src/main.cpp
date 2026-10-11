@@ -46,13 +46,21 @@ static int readBatteryPercent() {
 }
 
 static bool isUsbPowerConnected() {
+#ifdef PIN_EXT_POWER
   pinMode(PIN_EXT_POWER, INPUT);
   return digitalRead(PIN_EXT_POWER) == HIGH;
+#else
+  return true;
+#endif
 }
 
 static bool isBatteryCharging() {
+#ifdef PIN_CHG_STAT
   pinMode(PIN_CHG_STAT, INPUT);
   return isUsbPowerConnected() && (digitalRead(PIN_CHG_STAT) == LOW);
+#else
+  return false;
+#endif
 }
 
 // ─── Persistent Storage (NVS) ────────────────────────────────────────────────
@@ -221,44 +229,80 @@ static int getNextCachedItemIndex(int currentIndex) {
 void initBoardPowerAndPins() {
   gpio_deep_sleep_hold_dis();
 
-  constexpr int kHeldPins[] = {
-    PIN_PWR_HOLD,
-    PIN_PWR_LOCK,
-    PIN_BTN_OK,
-    PIN_BTN_UP,
-    PIN_BTN_DOWN,
-    PIN_EPD_PWR_EN,
-    PIN_SD_CS,
-    PIN_SD_EN,
-    PIN_SD_DETECT,
-    PIN_TOUCH_EN,
-    PIN_TOUCH_RST,
-    PIN_BUZZER,
-  };
-  for (int pin : kHeldPins) {
-    gpio_hold_dis((gpio_num_t)pin);
-  }
-
-  // Latch board power
+#ifdef PIN_PWR_HOLD
+  gpio_hold_dis((gpio_num_t)PIN_PWR_HOLD);
   pinMode(PIN_PWR_HOLD, OUTPUT);
   digitalWrite(PIN_PWR_HOLD, HIGH);
+#endif
+#ifdef PIN_PWR_LOCK
+  gpio_hold_dis((gpio_num_t)PIN_PWR_LOCK);
   pinMode(PIN_PWR_LOCK, OUTPUT);
   digitalWrite(PIN_PWR_LOCK, HIGH);
+#endif
 
-  // Release shared SPI bus by idling SD card pins (without altering SD content)
+#ifdef PIN_SD_CS
+  gpio_hold_dis((gpio_num_t)PIN_SD_CS);
   pinMode(PIN_SD_CS, OUTPUT);
   digitalWrite(PIN_SD_CS, HIGH);
+#endif
+#ifdef PIN_SD_EN
+  gpio_hold_dis((gpio_num_t)PIN_SD_EN);
   pinMode(PIN_SD_EN, OUTPUT);
   digitalWrite(PIN_SD_EN, HIGH);
+#endif
+#ifdef PIN_SD_DETECT
+  gpio_hold_dis((gpio_num_t)PIN_SD_DETECT);
+#endif
 
-  // Power EPD display boost converter
+#ifdef PIN_EPD_PWR_EN
+  gpio_hold_dis((gpio_num_t)PIN_EPD_PWR_EN);
   pinMode(PIN_EPD_PWR_EN, OUTPUT);
   digitalWrite(PIN_EPD_PWR_EN, HIGH);
+#endif
+#ifdef PIN_EPD_TFT_EN
+  gpio_hold_dis((gpio_num_t)PIN_EPD_TFT_EN);
+  pinMode(PIN_EPD_TFT_EN, OUTPUT);
+  digitalWrite(PIN_EPD_TFT_EN, HIGH);
+#endif
+#ifdef PIN_EPD_ITE_EN
+  gpio_hold_dis((gpio_num_t)PIN_EPD_ITE_EN);
+  pinMode(PIN_EPD_ITE_EN, OUTPUT);
+  digitalWrite(PIN_EPD_ITE_EN, HIGH);
+#endif
+#ifdef PIN_EPD_ENABLE
+  gpio_hold_dis((gpio_num_t)PIN_EPD_ENABLE);
+  pinMode(PIN_EPD_ENABLE, OUTPUT);
+  digitalWrite(PIN_EPD_ENABLE, HIGH);
+#endif
+#ifdef PIN_BATT_EN
+  gpio_hold_dis((gpio_num_t)PIN_BATT_EN);
+  pinMode(PIN_BATT_EN, OUTPUT);
+  digitalWrite(PIN_BATT_EN, HIGH);
+#endif
+
+#ifdef PIN_TOUCH_EN
+  gpio_hold_dis((gpio_num_t)PIN_TOUCH_EN);
+#endif
+#ifdef PIN_TOUCH_RST
+  gpio_hold_dis((gpio_num_t)PIN_TOUCH_RST);
+#endif
+#ifdef PIN_BUZZER
+  gpio_hold_dis((gpio_num_t)PIN_BUZZER);
+#endif
 
   // Buttons (Active LOW with internal pullup)
+#ifdef PIN_BTN_OK
+  gpio_hold_dis((gpio_num_t)PIN_BTN_OK);
   pinMode(PIN_BTN_OK, INPUT_PULLUP);
+#endif
+#ifdef PIN_BTN_UP
+  gpio_hold_dis((gpio_num_t)PIN_BTN_UP);
   pinMode(PIN_BTN_UP, INPUT_PULLUP);
+#endif
+#ifdef PIN_BTN_DOWN
+  gpio_hold_dis((gpio_num_t)PIN_BTN_DOWN);
   pinMode(PIN_BTN_DOWN, INPUT_PULLUP);
+#endif
 
   delay(50);
 }
@@ -269,7 +313,11 @@ static bool initStickyEpaper() {
 
   spi_bus_config_t bus_config = {};
   bus_config.mosi_io_num = PIN_EPD_MOSI;
+#ifdef PIN_EPD_MISO
   bus_config.miso_io_num = PIN_EPD_MISO;
+#else
+  bus_config.miso_io_num = -1;
+#endif
   bus_config.sclk_io_num = PIN_EPD_SCK;
   bus_config.quadwp_io_num = -1;
   bus_config.quadhd_io_num = -1;
@@ -277,7 +325,7 @@ static bool initStickyEpaper() {
   bus_config.data5_io_num = -1;
   bus_config.data6_io_num = -1;
   bus_config.data7_io_num = -1;
-  bus_config.max_transfer_sz = 800 * 480 / 8;
+  bus_config.max_transfer_sz = EPD_BUFFER_SIZE;
 
   esp_err_t err = spi_bus_initialize(SPI2_HOST, &bus_config, SPI_DMA_CH_AUTO);
   if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
@@ -301,7 +349,11 @@ static bool initStickyEpaper() {
 
   seeed_epaper_panel_config_t panel_config = {};
   panel_config.spi_handle = s_spi_device;
+#ifdef PIN_EPD_DC
   panel_config.pin_dc = (gpio_num_t)PIN_EPD_DC;
+#else
+  panel_config.pin_dc = GPIO_NUM_NC;
+#endif
   panel_config.pin_rst = (gpio_num_t)PIN_EPD_RST;
   panel_config.pin_busy = (gpio_num_t)PIN_EPD_BUSY;
   panel_config.pin_enable = GPIO_NUM_NC;
@@ -341,7 +393,7 @@ static void rotate_mono_180(const uint8_t *source, uint8_t *destination, uint16_
 static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = false) {
   if (!initStickyEpaper()) return false;
 
-  const seeed_epaper_area_t full_screen = {0, 0, 800, 480};
+  const seeed_epaper_area_t full_screen = {0, 0, (uint16_t)EPD_WIDTH, (uint16_t)EPD_HEIGHT};
   uint32_t refStart = millis();
 
   esp_err_t refErr = seeed_epaper_panel_refresh_area(
@@ -366,7 +418,7 @@ void showSplashScreen(const char* version, const char* statusMsg) {
   if (!s_rawBuffer || !s_rotatedBuffer) return;
   Serial.printf("[Display] Rendering Splash Screen (v%s, %s)...\n", version ? version : FIRMWARE_VERSION, statusMsg ? statusMsg : "");
   renderSplashScreen(s_rawBuffer, version, statusMsg, s_currentLang);
-  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
+  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, false);
 }
 
@@ -375,7 +427,7 @@ void showOnboardingScreen(Language lang = LANG_EN) {
   if (!s_rawBuffer || !s_rotatedBuffer) return;
   Serial.println("[Display] Rendering Onboarding Screen on E-Paper...");
   renderOnboardingScreen(s_rawBuffer, lang);
-  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
+  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, false);
 }
 
@@ -384,7 +436,7 @@ void showNoWifiScreen(Language lang = LANG_EN) {
   if (!s_rawBuffer || !s_rotatedBuffer) return;
   Serial.println("[Display] Rendering No Wi-Fi Screen on E-Paper...");
   renderNoWifiScreen(s_rawBuffer, g_wifiSsid.c_str(), lang);
-  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
+  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, false);
 }
 
@@ -393,7 +445,7 @@ void showEmptyPlaylistScreen(const char* deviceName = "", Language lang = LANG_E
   if (!s_rawBuffer || !s_rotatedBuffer) return;
   Serial.printf("[Display] Rendering Empty Playlist Screen for '%s' on E-Paper...\n", deviceName ? deviceName : "");
   renderEmptyPlaylistScreen(s_rawBuffer, deviceName, g_serverUrl.c_str(), lang);
-  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
+  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, false);
 }
 
@@ -406,7 +458,7 @@ void showPairingCodeScreen(const char* code, Language lang = LANG_EN) {
   if (!s_rawBuffer || !s_rotatedBuffer) return;
   Serial.printf("[Display] Rendering Pairing Code Screen (Code: %s)...\n", code ? code : "");
   renderPairingCodeScreen(s_rawBuffer, code, g_serverUrl.c_str(), lang);
-  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
+  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, false);
 }
 
@@ -420,7 +472,7 @@ void showSystemMenu(int selectedIndex, bool fastPartial = false) {
   Serial.printf("[Display] Rendering System Menu (Item: %d, Fast: %d, Lang: %s, TxPwr: %d)...\n",
                 selectedIndex, fastPartial ? 1 : 0, (s_currentLang == LANG_DE) ? "DE" : "EN", s_wifiTxPowerLevel);
   renderSystemMenu(s_rawBuffer, selectedIndex, s_currentLang, s_wifiTxPowerLevel);
-  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
+  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, fastPartial);
 }
 
@@ -446,7 +498,7 @@ void showStatusInfoScreen() {
     FIRMWARE_VERSION,
     s_currentLang
   );
-  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
+  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, false);
 }
 
@@ -467,12 +519,27 @@ void enterDeepSleepWithWakeup(uint32_t sleepSeconds) {
   Serial.println("[Power] Wakeup: RTC Timer OR Buttons (OK / UP / DOWN). Standby ~15 µA.");
 
   // Release display power boost circuit
+#ifdef PIN_EPD_PWR_EN
   digitalWrite(PIN_EPD_PWR_EN, LOW);
+#endif
+#ifdef PIN_EPD_TFT_EN
+  digitalWrite(PIN_EPD_TFT_EN, LOW);
+#endif
+#ifdef PIN_EPD_ITE_EN
+  digitalWrite(PIN_EPD_ITE_EN, LOW);
+#endif
+#ifdef PIN_EPD_ENABLE
+  digitalWrite(PIN_EPD_ENABLE, LOW);
+#endif
   delay(10);
 
   // Maintain board power latches across deep sleep
+#ifdef PIN_PWR_HOLD
   gpio_hold_en((gpio_num_t)PIN_PWR_HOLD);
+#endif
+#ifdef PIN_PWR_LOCK
   gpio_hold_en((gpio_num_t)PIN_PWR_LOCK);
+#endif
   gpio_deep_sleep_hold_en();
 
   // 1. Timer Wakeup
@@ -505,22 +572,42 @@ void powerOffDevice() {
   // Render dedicated Power Off screen on E-Paper so user knows the device is off
   if (s_rawBuffer && s_rotatedBuffer) {
     renderPowerOffScreen(s_rawBuffer, s_currentLang);
-    rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
+    rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
     renderRotatedBuffer(s_rotatedBuffer);
   }
 
   delay(200);
 
   // Release display power boost circuit
+#ifdef PIN_EPD_PWR_EN
   digitalWrite(PIN_EPD_PWR_EN, LOW);
+#endif
+#ifdef PIN_EPD_TFT_EN
+  digitalWrite(PIN_EPD_TFT_EN, LOW);
+#endif
+#ifdef PIN_EPD_ITE_EN
+  digitalWrite(PIN_EPD_ITE_EN, LOW);
+#endif
+#ifdef PIN_EPD_ENABLE
+  digitalWrite(PIN_EPD_ENABLE, LOW);
+#endif
+#ifdef PIN_BATT_EN
+  digitalWrite(PIN_BATT_EN, LOW);
+#endif
   delay(50);
   
   // Release hardware power latches (cuts battery power on battery mode)
+#ifdef PIN_PWR_HOLD
   digitalWrite(PIN_PWR_HOLD, LOW);
+#endif
+#ifdef PIN_PWR_LOCK
   digitalWrite(PIN_PWR_LOCK, LOW);
+#endif
   
   // Set wakeup on OK button (GPIO 4 is active LOW)
+#ifdef PIN_BTN_OK
   esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_BTN_OK, 0);
+#endif
   
   Serial.println("[Power] Power latch released. Entering Deep Sleep (Press OK to wake)...");
   delay(100);
@@ -802,9 +889,9 @@ bool registerAndStartPairing() {
   http.addHeader("Content-Type", "application/json");
 
   JsonDocument doc;
-  doc["screen_profile"] = "seeed-reterminal-sticky";
-  doc["screen_width"] = 800;
-  doc["screen_height"] = 480;
+  doc["screen_profile"] = DEVICE_SCREEN_PROFILE;
+  doc["screen_width"] = EPD_WIDTH;
+  doc["screen_height"] = EPD_HEIGHT;
 
   String body;
   serializeJson(doc, body);
@@ -875,9 +962,9 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
       if (cacheGet(offlineTarget, s_rotatedBuffer)) {
         s_currentItemIndex = offlineTarget;
         Serial.printf("[Sync] Offline mode: Displaying cached item %d with Offline Badge...\n", offlineTarget);
-        rotate_mono_180(s_rotatedBuffer, s_rawBuffer, 800, 480);
+        rotate_mono_180(s_rotatedBuffer, s_rawBuffer, EPD_WIDTH, EPD_HEIGHT);
         gfx_draw_offline_badge(s_rawBuffer);
-        rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
+        rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
         renderRotatedBuffer(s_rotatedBuffer);
       }
     }
@@ -1025,7 +1112,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     Serial.printf("[Sync] Received %u / %u bytes.\n", totalReceived, EPD_BUFFER_SIZE);
 
     if (totalReceived == EPD_BUFFER_SIZE) {
-      rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
+      rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
       cachePut(s_currentItemIndex, newEtag, s_rotatedBuffer);
       renderRotatedBuffer(s_rotatedBuffer);
     } else {
@@ -1086,7 +1173,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
 
     if (s_rawBuffer && s_rotatedBuffer) {
       renderUnsupportedContentScreen(s_rawBuffer, reason.c_str(), s_currentLang);
-      rotate_mono_180(s_rawBuffer, s_rotatedBuffer, 800, 480);
+      rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
       renderRotatedBuffer(s_rotatedBuffer);
     }
     return;

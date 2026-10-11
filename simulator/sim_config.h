@@ -22,6 +22,14 @@ struct SimConfig {
   std::string snapshotPath = "sim_output.bmp";
   std::string configFilePath = "simulator/sim_config.json";
 
+  // Device Model & Profile
+  std::string model = "sticky";
+  std::string screenProfile = "seeed-reterminal-sticky";
+  int width = 800;
+  int height = 480;
+  size_t bufferSize() const { return ((size_t)width * height) / 8; }
+
+  bool setModel(const std::string& modelName);
   static SimConfig load(int argc, char** argv);
   void print() const;
   bool save(const std::string& path = "") const;

@@ -244,6 +244,67 @@ class TestScreenTinkerSimulator(unittest.TestCase):
         self.assertIn("304 Not Modified", res.stdout)
         self.assertIn("Completed 2 poll cycle(s). Exiting.", res.stdout)
 
+    def test_09_multi_device_profile_selection(self):
+        """Tests that --model / --profile dynamically configures resolution and snapshot dimensions."""
+        models = [
+            ("sticky", 800, 480),
+            ("e1001", 800, 480),
+            ("e1002", 800, 480),
+            ("e1003", 1872, 1404),
+            ("e1004", 1200, 1600),
+        ]
+        for model_name, expected_w, expected_h in models:
+            with self.subTest(model=model_name):
+                # Inform mock server of expected dimensions for this model
+                self.mock_server.state.screen_width = expected_w
+                self.mock_server.state.screen_height = expected_h
+
+                snap_path = os.path.join(self.temp_dir.name, f"snap_{model_name}.bmp")
+                args = [
+                    "--model", model_name,
+                    "--token", "test-token",
+                    "--device", f"dev-{model_name}",
+                    "--snapshot", snap_path,
+                ]
+                res = self.run_simulator(args)
+
+                self.assertTrue(os.path.exists(snap_path), f"Snapshot for {model_name} was not generated")
+                bmp_info = parse_bmp_header(snap_path)
+                self.assertEqual(bmp_info["width"], expected_w, f"Width mismatch for {model_name}")
+                self.assertEqual(bmp_info["height"], expected_h, f"Height mismatch for {model_name}")
+
+    def test_10_device_pairing_payload_for_models(self):
+        """Tests that --pair with --model sends the correct screen_profile, width, and height."""
+        models = [
+            ("e1001", "seeed-reterminal-e1001", 800, 480),
+            ("e1002", "seeed-reterminal-e1002", 800, 480),
+            ("e1003", "seeed-reterminal-e1003", 1872, 1404),
+            ("e1004", "seeed-reterminal-e1004", 1200, 1600),
+            ("sticky", "seeed-reterminal-sticky", 800, 480),
+        ]
+        for model_name, exp_profile, exp_w, exp_h in models:
+            with self.subTest(model=model_name):
+                cfg_path = os.path.join(self.temp_dir.name, f"pair_cfg_{model_name}.json")
+                with open(cfg_path, "w") as f:
+                    json.dump({
+                        "server": {"url": self.server_url},
+                        "device": {"id": f"unpaired-{model_name}", "token": ""},
+                        "simulator": {"headless": True, "pair": True}
+                    }, f)
+
+                args = [
+                    "--model", model_name,
+                    "--config", cfg_path,
+                    "--pair",
+                    "--snapshot", os.path.join(self.temp_dir.name, f"snap_pair_{model_name}.bmp")
+                ]
+                res = self.run_simulator(args)
+
+                last_reg = self.mock_server.state.last_pair_register
+                self.assertEqual(last_reg.get("screen_profile"), exp_profile, f"Profile mismatch for {model_name}")
+                self.assertEqual(last_reg.get("screen_width"), exp_w, f"Width mismatch for {model_name}")
+                self.assertEqual(last_reg.get("screen_height"), exp_h, f"Height mismatch for {model_name}")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

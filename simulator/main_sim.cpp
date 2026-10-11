@@ -7,6 +7,7 @@
 #include <iostream>
 #include <chrono>
 #include <thread>
+#include <vector>
 #include <cstring>
 
 static bool runPairingFlow(SimConfig& cfg, SimHttp& http, SimDisplay& display, uint8_t* monoBuffer) {
@@ -14,10 +15,11 @@ static bool runPairingFlow(SimConfig& cfg, SimHttp& http, SimDisplay& display, u
             << "  STARTING AUTOMATIC 6-DIGIT DEVICE PAIRING FLOW\n"
             << "=======================================================\n"
             << " • Server:         " << cfg.serverUrl << "\n"
-            << " • Screen Profile: 800x480 (Seeed reTerminal Sticky)\n";
+            << " • Screen Profile: " << cfg.width << "x" << cfg.height << " (" << cfg.screenProfile << ")\n";
 
   std::string registerUrl = cfg.serverUrl + "/api/embedded/pair/register";
-  std::string regBody = "{\"screen_profile\":\"seeed-reterminal-sticky\",\"screen_width\":800,\"screen_height\":480}";
+  std::string regBody = "{\"screen_profile\":\"" + cfg.screenProfile + "\",\"screen_width\":" +
+                        std::to_string(cfg.width) + ",\"screen_height\":" + std::to_string(cfg.height) + "}";
 
   SimHttpResponse regRes = http.postJson(registerUrl, regBody);
   if (regRes.statusCode != 200) {
@@ -97,18 +99,20 @@ int main(int argc, char** argv) {
   SimConfig cfg = SimConfig::load(argc, argv);
   cfg.print();
 
-  SimDisplay display(cfg.headless, 800, 480, cfg.scale);
+  gfx_set_screen_dimensions(cfg.width, cfg.height);
+
+  SimDisplay display(cfg.headless, cfg.width, cfg.height, cfg.scale);
   if (!display.init()) {
     std::cerr << "[Simulator] Failed to initialize display.\n";
     return 1;
   }
 
   SimHttp http(cfg.timeoutMs);
-  uint8_t monoBuffer[EPD_BUFFER_SIZE];
+  std::vector<uint8_t> monoBuffer(cfg.bufferSize(), 0xFF);
 
   // Check if Pairing flow is required
   if (cfg.pairMode || cfg.deviceToken.empty()) {
-    if (!runPairingFlow(cfg, http, display, monoBuffer)) {
+    if (!runPairingFlow(cfg, http, display, monoBuffer.data())) {
       std::cerr << "[Simulator] Pairing failed or was aborted.\n";
       return 1;
     }
@@ -117,9 +121,9 @@ int main(int argc, char** argv) {
   } else {
     // 1. Show Splash Screen at boot
     std::cout << "[Simulator] Booting: Displaying Firmware v" << cfg.firmwareVersion << " Splash Screen...\n";
-    renderSplashScreen(monoBuffer, cfg.firmwareVersion.c_str(), "Connecting to ScreenTinker...", LANG_EN);
-    display.renderBuffer(monoBuffer);
-    display.saveBmp(monoBuffer, cfg.snapshotPath);
+    renderSplashScreen(monoBuffer.data(), cfg.firmwareVersion.c_str(), "Connecting to ScreenTinker...", LANG_EN);
+    display.renderBuffer(monoBuffer.data());
+    display.saveBmp(monoBuffer.data(), cfg.snapshotPath);
 
     // Small delay so user can see splash screen in window
     if (!cfg.headless && !cfg.oneShot) {
@@ -173,14 +177,14 @@ int main(int argc, char** argv) {
       std::string etag = res.getHeader("etag");
       if (!etag.empty()) lastEtag = etag;
 
-      if (res.body.size() == EPD_BUFFER_SIZE) {
-        std::memcpy(monoBuffer, res.body.data(), EPD_BUFFER_SIZE);
-        std::cout << "[Sync] 200 OK — Downloaded new frame (" << EPD_BUFFER_SIZE << " bytes). Updating display.\n";
-        display.renderBuffer(monoBuffer);
-        display.saveBmp(monoBuffer, cfg.snapshotPath);
+      if (res.body.size() == cfg.bufferSize()) {
+        std::memcpy(monoBuffer.data(), res.body.data(), cfg.bufferSize());
+        std::cout << "[Sync] 200 OK — Downloaded new frame (" << cfg.bufferSize() << " bytes). Updating display.\n";
+        display.renderBuffer(monoBuffer.data());
+        display.saveBmp(monoBuffer.data(), cfg.snapshotPath);
       } else {
         std::cerr << "[Sync] Warning: Received 200 OK but payload size is " << res.body.size()
-                  << " bytes (expected " << EPD_BUFFER_SIZE << ")\n";
+                  << " bytes (expected " << cfg.bufferSize() << ")\n";
       }
     } else if (res.statusCode == 304) {
       std::cout << "[Sync] 304 Not Modified — Cache valid (0 bytes downloaded). E-Paper image preserved.\n";
@@ -199,9 +203,9 @@ int main(int argc, char** argv) {
       std::cout << "[Sync] 404 No Active Playlist — Rendering Empty Playlist card for '"
                 << (deviceName.empty() ? "(unnamed)" : deviceName) << "'...\n";
 
-      renderEmptyPlaylistScreen(monoBuffer, deviceName.c_str(), cfg.serverUrl.c_str(), LANG_EN);
-      display.renderBuffer(monoBuffer);
-      display.saveBmp(monoBuffer, cfg.snapshotPath);
+      renderEmptyPlaylistScreen(monoBuffer.data(), deviceName.c_str(), cfg.serverUrl.c_str(), LANG_EN);
+      display.renderBuffer(monoBuffer.data());
+      display.saveBmp(monoBuffer.data(), cfg.snapshotPath);
       lastEtag = ""; // Reset ETag on empty playlist
     } else if (res.statusCode == 501) {
       std::string detail = "Widget rendering requires a browser (set CHROME_PATH).";
@@ -216,15 +220,15 @@ int main(int argc, char** argv) {
         }
       }
       std::cout << "[Sync] 501 Unsupported Content — " << detail << "\n";
-      renderUnsupportedContentScreen(monoBuffer, detail.c_str(), LANG_EN);
-      display.renderBuffer(monoBuffer);
-      display.saveBmp(monoBuffer, cfg.snapshotPath);
+      renderUnsupportedContentScreen(monoBuffer.data(), detail.c_str(), LANG_EN);
+      display.renderBuffer(monoBuffer.data());
+      display.saveBmp(monoBuffer.data(), cfg.snapshotPath);
       lastEtag = "";
     } else {
       std::cerr << "[Sync] Connection failed (code " << res.statusCode << "). Rendering No Wi-Fi / Offline warning...\n";
-      renderNoWifiScreen(monoBuffer, "ScreenTinker Server", LANG_EN);
-      display.renderBuffer(monoBuffer);
-      display.saveBmp(monoBuffer, cfg.snapshotPath);
+      renderNoWifiScreen(monoBuffer.data(), "ScreenTinker Server", LANG_EN);
+      display.renderBuffer(monoBuffer.data());
+      display.saveBmp(monoBuffer.data(), cfg.snapshotPath);
     }
 
     if (cfg.oneShot) {

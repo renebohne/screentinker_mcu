@@ -101,16 +101,30 @@ const uint8_t font8x8_basic[95][8] = {
   {0x76, 0xDC, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // 126 ~
 };
 
-// ─── Graphics Primitives for 800x480 1-Bit Monochrom ─────────────────────────
+// ─── Graphics Primitives for 1-Bit Monochrom ─────────────────────────
 // 1 = White (0xFF), 0 = Black (0x00)
 
+static int s_epd_width = EPD_WIDTH;
+static int s_epd_height = EPD_HEIGHT;
+
+void gfx_set_screen_dimensions(int w, int h) {
+  if (w > 0 && h > 0) {
+    s_epd_width = w;
+    s_epd_height = h;
+  }
+}
+
+int gfx_get_width() { return s_epd_width; }
+int gfx_get_height() { return s_epd_height; }
+size_t gfx_get_buffer_size() { return ((size_t)s_epd_width * s_epd_height) / 8; }
+
 void gfx_fill(uint8_t* buf, uint8_t color) {
-  memset(buf, color ? 0xFF : 0x00, EPD_BUFFER_SIZE);
+  memset(buf, color ? 0xFF : 0x00, gfx_get_buffer_size());
 }
 
 void gfx_draw_pixel(uint8_t* buf, int x, int y, uint8_t color) {
-  if (x < 0 || x >= EPD_WIDTH || y < 0 || y >= EPD_HEIGHT) return;
-  size_t byte_idx = ((size_t)y * (EPD_WIDTH / 8)) + (x / 8);
+  if (x < 0 || x >= s_epd_width || y < 0 || y >= s_epd_height) return;
+  size_t byte_idx = ((size_t)y * (s_epd_width / 8)) + (x / 8);
   uint8_t bit_mask = 0x80 >> (x & 7);
   if (color) {
     buf[byte_idx] |= bit_mask;  // White
@@ -232,22 +246,22 @@ void renderSplashScreen(uint8_t* buffer, const char* version, const char* status
   gfx_fill(buffer, 1);
 
   // Outer double border
-  gfx_draw_rect(buffer, 10, 10, EPD_WIDTH - 20, EPD_HEIGHT - 20, 0);
-  gfx_draw_rect(buffer, 14, 14, EPD_WIDTH - 28, EPD_HEIGHT - 28, 0);
+  gfx_draw_rect(buffer, 10, 10, s_epd_width - 20, s_epd_height - 20, 0);
+  gfx_draw_rect(buffer, 14, 14, s_epd_width - 28, s_epd_height - 28, 0);
 
   // ScreenTinker Monitor Logo (Scale 4: 96x80)
-  gfx_draw_screentinker_logo(buffer, 352, 45, 4);
+  gfx_draw_screentinker_logo(buffer, (s_epd_width - 96) / 2, 45, 4);
 
-  // "ScreenTinker" Header (Scale 4: 12 chars * 32px = 384px -> centered at 208)
-  gfx_draw_string(buffer, 208, 145, "ScreenTinker", 0, 4);
+  // "ScreenTinker" Header (Scale 4: 12 chars * 32px = 384px -> centered)
+  gfx_draw_string(buffer, (s_epd_width - 384) / 2, 145, "ScreenTinker", 0, 4);
 
   // Subtitle
-  gfx_draw_string(buffer, 224, 195, "Smart Digital Signage", 0, 2);
+  gfx_draw_string(buffer, (s_epd_width - 352) / 2, 195, "Smart Digital Signage", 0, 2);
 
   // Hardware Model line
   const char* hwModel = "Seeed Studio reTerminal Sticky";
   int hwLen = strlen(hwModel);
-  int hwX = (EPD_WIDTH - hwLen * 16) / 2;
+  int hwX = (s_epd_width - hwLen * 16) / 2;
   gfx_draw_string(buffer, hwX, 235, hwModel, 0, 2);
 
   // Firmware Version Pill
@@ -255,16 +269,16 @@ void renderSplashScreen(uint8_t* buffer, const char* version, const char* status
   snprintf(verStr, sizeof(verStr), "Firmware v%s", version ? version : FIRMWARE_VERSION);
   int verLen = strlen(verStr);
   int verW = verLen * 16 + 32;
-  int verX = (EPD_WIDTH - verW) / 2;
+  int verX = (s_epd_width - verW) / 2;
   gfx_draw_rect(buffer, verX, 272, verW, 34, 0);
   gfx_draw_string(buffer, verX + 16, 281, verStr, 0, 2);
 
   // Status message bar (Inverted)
-  gfx_fill_rect(buffer, 50, 350, EPD_WIDTH - 100, 56, 0);
+  gfx_fill_rect(buffer, 50, 350, s_epd_width - 100, 56, 0);
   const char* defMsg = (lang == LANG_DE) ? "Verbindung wird aufgebaut..." : "Connecting to network...";
   const char* msg = statusMsg ? statusMsg : defMsg;
   int msgLen = strlen(msg);
-  int msgX = max(60, (EPD_WIDTH - msgLen * 16) / 2);
+  int msgX = max(60, (s_epd_width - msgLen * 16) / 2);
   gfx_draw_string(buffer, msgX, 368, msg, 1, 2);
 }
 
@@ -273,7 +287,7 @@ void renderPairingCodeScreen(uint8_t* buffer, const char* code, const char* serv
   gfx_fill(buffer, 1);
 
   // Top header banner
-  gfx_fill_rect(buffer, 0, 0, EPD_WIDTH, 54, 0);
+  gfx_fill_rect(buffer, 0, 0, s_epd_width, 54, 0);
   gfx_draw_screentinker_logo(buffer, 20, 12, 1);
   gfx_draw_string(buffer, 56, 16, "ScreenTinker — Setup", 1, 3);
 
@@ -348,13 +362,13 @@ void renderPairingCodeScreen(uint8_t* buffer, const char* code, const char* serv
   }
 
   // Bottom Navigation Bar
-  gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
+  gfx_fill_rect(buffer, 0, s_epd_height - 56, s_epd_width, 56, 0);
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 30, 442, "[ OK 1.5s ]: Einstellungen", 1, 2);
-    gfx_draw_string(buffer, 460, 442, "[ OK kurz ]: Refresh", 1, 2);
+    gfx_draw_string(buffer, 30, s_epd_height - 38, "[ OK 1.5s ]: Einstellungen", 1, 2);
+    gfx_draw_string(buffer, 460, s_epd_height - 38, "[ OK kurz ]: Refresh", 1, 2);
   } else {
-    gfx_draw_string(buffer, 30, 442, "[ OK 1.5s ]: Settings", 1, 2);
-    gfx_draw_string(buffer, 460, 442, "[ OK short ]: Refresh", 1, 2);
+    gfx_draw_string(buffer, 30, s_epd_height - 38, "[ OK 1.5s ]: Settings", 1, 2);
+    gfx_draw_string(buffer, 460, s_epd_height - 38, "[ OK short ]: Refresh", 1, 2);
   }
 }
 
@@ -364,7 +378,7 @@ void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t
   gfx_fill(buffer, 1);
 
   // Header Banner
-  gfx_fill_rect(buffer, 0, 0, EPD_WIDTH, 54, 0);
+  gfx_fill_rect(buffer, 0, 0, s_epd_width, 54, 0);
   gfx_draw_screentinker_logo(buffer, 20, 12, 1);
   if (lang == LANG_DE) {
     gfx_draw_string(buffer, 56, 16, "ScreenTinker — Einstellungen", 1, 3);
@@ -409,7 +423,7 @@ void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t
 
   int startY = 66;
   int itemH = 43;
-  int itemW = EPD_WIDTH - 60;
+  int itemW = s_epd_width - 60;
   int itemX = 30;
 
   for (int i = 0; i < 7; i++) {
@@ -428,13 +442,13 @@ void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t
   }
 
   // Footer Navigation Hint
-  gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
+  gfx_fill_rect(buffer, 0, s_epd_height - 56, s_epd_width, 56, 0);
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 30, 442, "[ UP / DOWN ]: Navigieren", 1, 2);
-    gfx_draw_string(buffer, 500, 442, "[ OK ]: Auswaehlen", 1, 2);
+    gfx_draw_string(buffer, 30, s_epd_height - 38, "[ UP / DOWN ]: Navigieren", 1, 2);
+    gfx_draw_string(buffer, 500, s_epd_height - 38, "[ OK ]: Auswaehlen", 1, 2);
   } else {
-    gfx_draw_string(buffer, 30, 442, "[ UP / DOWN ]: Navigate", 1, 2);
-    gfx_draw_string(buffer, 520, 442, "[ OK ]: Select", 1, 2);
+    gfx_draw_string(buffer, 30, s_epd_height - 38, "[ UP / DOWN ]: Navigate", 1, 2);
+    gfx_draw_string(buffer, 520, s_epd_height - 38, "[ OK ]: Select", 1, 2);
   }
 }
 
@@ -443,13 +457,13 @@ void renderStatusInfoScreen(uint8_t* buffer, const char* ip, const char* ssid, i
   gfx_fill(buffer, 1);
 
   // Header Banner
-  gfx_fill_rect(buffer, 0, 0, EPD_WIDTH, 52, 0);
+  gfx_fill_rect(buffer, 0, 0, s_epd_width, 52, 0);
   gfx_draw_string(buffer, 20, 15, "ScreenTinker — Status & Info", 1, 3);
 
   int y = 64;
   int rowH = 54;
   int rowGap = 12;
-  int boxW = EPD_WIDTH - 20; // 780px wide (x = 10 to 790)
+  int boxW = s_epd_width - 20; // x = 10 to (s_epd_width - 10)
   int boxX = 10;
   int labelX = boxX + 10;   // x = 20
   int valueX = 212;         // x = 212 (guarantees a full space after "IP Address:" and "Server URL:")
@@ -494,11 +508,11 @@ void renderStatusInfoScreen(uint8_t* buffer, const char* ip, const char* ssid, i
   gfx_draw_string(buffer, valueX, y + 18, (devId && strlen(devId) > 0) ? devId : "-", 0, 2);
 
   // Footer Navigation Hint
-  gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
+  gfx_fill_rect(buffer, 0, s_epd_height - 56, s_epd_width, 56, 0);
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 200, 442, "[ OK / UP / DOWN ]: Zurueck", 1, 2);
+    gfx_draw_string(buffer, 200, s_epd_height - 38, "[ OK / UP / DOWN ]: Zurueck", 1, 2);
   } else {
-    gfx_draw_string(buffer, 220, 442, "[ OK / UP / DOWN ]: Back", 1, 2);
+    gfx_draw_string(buffer, 220, s_epd_height - 38, "[ OK / UP / DOWN ]: Back", 1, 2);
   }
 }
 
@@ -507,11 +521,11 @@ void renderNoWifiScreen(uint8_t* buffer, const char* ssid, Language lang) {
   gfx_fill(buffer, 1);
 
   // Header Banner
-  gfx_fill_rect(buffer, 0, 0, EPD_WIDTH, 54, 0);
+  gfx_fill_rect(buffer, 0, 0, s_epd_width, 54, 0);
   gfx_draw_string(buffer, 30, 16, "ScreenTinker — Offline", 1, 3);
 
   // Big Warning Box
-  gfx_fill_rect(buffer, 40, 80, EPD_WIDTH - 80, 70, 0);
+  gfx_fill_rect(buffer, 40, 80, s_epd_width - 80, 70, 0);
   if (lang == LANG_DE) {
     gfx_draw_string(buffer, 120, 100, "[!] KEINE WLAN-VERBINDUNG", 1, 3);
   } else {
@@ -519,7 +533,7 @@ void renderNoWifiScreen(uint8_t* buffer, const char* ssid, Language lang) {
   }
 
   // Details
-  gfx_draw_rect(buffer, 40, 170, EPD_WIDTH - 80, 80, 0);
+  gfx_draw_rect(buffer, 40, 170, s_epd_width - 80, 80, 0);
   gfx_draw_string(buffer, 60, 185, (lang == LANG_DE) ? "Konfigurierte SSID:" : "Configured SSID:   ", 0, 2);
   gfx_draw_string(buffer, 320, 185, (ssid && strlen(ssid) > 0) ? ssid : "-", 0, 2);
   gfx_draw_string(buffer, 60, 218, (lang == LANG_DE) ? "Status: Verbindungsversuch fehlgeschlagen" : "Status: Connection attempt failed", 0, 2);
@@ -535,13 +549,13 @@ void renderNoWifiScreen(uint8_t* buffer, const char* ssid, Language lang) {
   }
 
   // Footer Navigation Hint
-  gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
+  gfx_fill_rect(buffer, 0, s_epd_height - 56, s_epd_width, 56, 0);
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 30, 442, "[ OK ]: Neu verbinden", 1, 2);
-    gfx_draw_string(buffer, 460, 442, "[ OK 1.5s ]: Einstellungen", 1, 2);
+    gfx_draw_string(buffer, 30, s_epd_height - 38, "[ OK ]: Neu verbinden", 1, 2);
+    gfx_draw_string(buffer, 460, s_epd_height - 38, "[ OK 1.5s ]: Einstellungen", 1, 2);
   } else {
-    gfx_draw_string(buffer, 30, 442, "[ OK ]: Retry", 1, 2);
-    gfx_draw_string(buffer, 480, 442, "[ OK 1.5s ]: Settings", 1, 2);
+    gfx_draw_string(buffer, 30, s_epd_height - 38, "[ OK ]: Retry", 1, 2);
+    gfx_draw_string(buffer, 480, s_epd_height - 38, "[ OK 1.5s ]: Settings", 1, 2);
   }
 }
 
@@ -550,7 +564,7 @@ void renderEmptyPlaylistScreen(uint8_t* buffer, const char* deviceName, const ch
   gfx_fill(buffer, 1);
 
   // Top header banner (54px high)
-  gfx_fill_rect(buffer, 0, 0, EPD_WIDTH, 54, 0);
+  gfx_fill_rect(buffer, 0, 0, s_epd_width, 54, 0);
   gfx_draw_screentinker_logo(buffer, 20, 12, 1);
   gfx_draw_string(buffer, 56, 16, "ScreenTinker", 1, 3);
 
@@ -559,15 +573,15 @@ void renderEmptyPlaylistScreen(uint8_t* buffer, const char* deviceName, const ch
     char nameBadge[48];
     snprintf(nameBadge, sizeof(nameBadge), "[ %s ]", deviceName);
     int badgeLen = strlen(nameBadge);
-    int badgeX = EPD_WIDTH - (badgeLen * 16) - 20;
+    int badgeX = s_epd_width - (badgeLen * 16) - 20;
     gfx_draw_string(buffer, max(460, badgeX), 18, nameBadge, 1, 2);
   } else {
     const char* subTitle = (lang == LANG_DE) ? "Verbunden" : "Connected";
-    gfx_draw_string(buffer, 560, 16, subTitle, 1, 3);
+    gfx_draw_string(buffer, max(300, s_epd_width - 240), 16, subTitle, 1, 3);
   }
 
   // 1. Prominent Headline Banner (50px high)
-  gfx_fill_rect(buffer, 30, 68, EPD_WIDTH - 60, 46, 0);
+  gfx_fill_rect(buffer, 30, 68, s_epd_width - 60, 46, 0);
   if (lang == LANG_DE) {
     gfx_draw_string(buffer, 48, 81, "KEINE PLAYLIST ZUGEWIESEN", 1, 2);
   } else {
@@ -633,13 +647,13 @@ void renderEmptyPlaylistScreen(uint8_t* buffer, const char* deviceName, const ch
   gfx_draw_string(buffer, max(546, qrSubX), 350, qrSub, 0, 1);
 
   // Footer Navigation Bar
-  gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
+  gfx_fill_rect(buffer, 0, s_epd_height - 56, s_epd_width, 56, 0);
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 30, 442, "[ OK ]: Jetzt pruefen", 1, 2);
-    gfx_draw_string(buffer, 480, 442, "[ OK 1.5s ]: Einstellungen", 1, 2);
+    gfx_draw_string(buffer, 30, s_epd_height - 38, "[ OK ]: Jetzt pruefen", 1, 2);
+    gfx_draw_string(buffer, 480, s_epd_height - 38, "[ OK 1.5s ]: Einstellungen", 1, 2);
   } else {
-    gfx_draw_string(buffer, 30, 442, "[ OK ]: Check now", 1, 2);
-    gfx_draw_string(buffer, 500, 442, "[ OK 1.5s ]: Settings", 1, 2);
+    gfx_draw_string(buffer, 30, s_epd_height - 38, "[ OK ]: Check now", 1, 2);
+    gfx_draw_string(buffer, 500, s_epd_height - 38, "[ OK 1.5s ]: Settings", 1, 2);
   }
 }
 
@@ -648,7 +662,7 @@ void renderOnboardingScreen(uint8_t* buffer, Language lang) {
   gfx_fill(buffer, 1);
 
   // Header Banner
-  gfx_fill_rect(buffer, 0, 0, EPD_WIDTH, 54, 0);
+  gfx_fill_rect(buffer, 0, 0, s_epd_width, 54, 0);
   gfx_draw_screentinker_logo(buffer, 20, 12, 1);
   if (lang == LANG_DE) {
     gfx_draw_string(buffer, 56, 16, "ScreenTinker — Ersteinrichtung", 1, 3);
@@ -692,13 +706,13 @@ void renderOnboardingScreen(uint8_t* buffer, Language lang) {
   }
 
   // Footer Navigation Hint
-  gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
+  gfx_fill_rect(buffer, 0, s_epd_height - 56, s_epd_width, 56, 0);
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 30, 442, "[ OK 1.5s ]: Einstellungen", 1, 2);
-    gfx_draw_string(buffer, 480, 442, "Warte auf Setup...", 1, 2);
+    gfx_draw_string(buffer, 30, s_epd_height - 38, "[ OK 1.5s ]: Einstellungen", 1, 2);
+    gfx_draw_string(buffer, 480, s_epd_height - 38, "Warte auf Setup...", 1, 2);
   } else {
-    gfx_draw_string(buffer, 30, 442, "[ OK 1.5s ]: Settings", 1, 2);
-    gfx_draw_string(buffer, 480, 442, "Waiting for setup...", 1, 2);
+    gfx_draw_string(buffer, 30, s_epd_height - 38, "[ OK 1.5s ]: Settings", 1, 2);
+    gfx_draw_string(buffer, 480, s_epd_height - 38, "Waiting for setup...", 1, 2);
   }
 }
 
@@ -707,7 +721,7 @@ void renderPowerOffScreen(uint8_t* buffer, Language lang) {
   gfx_fill(buffer, 1);
 
   // Header Banner
-  gfx_fill_rect(buffer, 0, 0, EPD_WIDTH, 54, 0);
+  gfx_fill_rect(buffer, 0, 0, s_epd_width, 54, 0);
   if (lang == LANG_DE) {
     gfx_draw_string(buffer, 180, 16, "ScreenTinker — Standby", 1, 3);
   } else {
@@ -737,19 +751,19 @@ void renderPowerOffScreen(uint8_t* buffer, Language lang) {
   }
 
   // Footer Navigation Hint
-  gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
+  gfx_fill_rect(buffer, 0, s_epd_height - 56, s_epd_width, 56, 0);
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 180, 442, "[ OK ]: Aufwecken & Einschalten", 1, 2);
+    gfx_draw_string(buffer, 180, s_epd_height - 38, "[ OK ]: Aufwecken & Einschalten", 1, 2);
   } else {
-    gfx_draw_string(buffer, 180, 442, "[ OK ]: Wake Up & Turn On", 1, 2);
+    gfx_draw_string(buffer, 180, s_epd_height - 38, "[ OK ]: Wake Up & Turn On", 1, 2);
   }
 }
 
 // ─── Offline Badge for Cache-Rotation Overlay ────────────────────────────────
 void gfx_draw_offline_badge(uint8_t* buffer) {
-  gfx_fill_rect(buffer, 642, 14, 142, 30, 0);
-  gfx_draw_rect(buffer, 644, 16, 138, 26, 1);
-  gfx_draw_string(buffer, 660, 22, "OFFLINE", 1, 2);
+  gfx_fill_rect(buffer, s_epd_width - 158, 14, 142, 30, 0);
+  gfx_draw_rect(buffer, s_epd_width - 156, 16, 138, 26, 1);
+  gfx_draw_string(buffer, s_epd_width - 140, 22, "OFFLINE", 1, 2);
 }
 
 // ─── Unsupported Content (501 / Missing Browser) Screen ─────────────────────
@@ -759,11 +773,11 @@ void renderUnsupportedContentScreen(uint8_t* buffer, const char* reason, Languag
   // Header Bar
   gfx_draw_screentinker_logo(buffer, 30, 20, 2);
   gfx_draw_string(buffer, 85, 26, "ScreenTinker", 0, 2);
-  gfx_draw_string(buffer, 600, 26, (lang == LANG_DE) ? "HINWEIS" : "NOTICE", 0, 2);
-  gfx_draw_hline(buffer, 30, 56, EPD_WIDTH - 60, 0);
+  gfx_draw_string(buffer, max(300, s_epd_width - 200), 26, (lang == LANG_DE) ? "HINWEIS" : "NOTICE", 0, 2);
+  gfx_draw_hline(buffer, 30, 56, s_epd_width - 60, 0);
 
   // Black Banner
-  gfx_fill_rect(buffer, 30, 68, EPD_WIDTH - 60, 46, 0);
+  gfx_fill_rect(buffer, 30, 68, s_epd_width - 60, 46, 0);
   if (lang == LANG_DE) {
     gfx_draw_string(buffer, 48, 81, "INHALT NICHT UNTERSTUETZT (501)", 1, 2);
   } else {
@@ -771,7 +785,7 @@ void renderUnsupportedContentScreen(uint8_t* buffer, const char* reason, Languag
   }
 
   // Main Card
-  gfx_draw_rect(buffer, 30, 122, EPD_WIDTH - 60, 276, 0);
+  gfx_draw_rect(buffer, 30, 122, s_epd_width - 60, 276, 0);
 
   // Guidance text
   if (lang == LANG_DE) {
@@ -783,7 +797,7 @@ void renderUnsupportedContentScreen(uint8_t* buffer, const char* reason, Languag
   }
 
   // Server message box
-  gfx_draw_rect(buffer, 50, 195, EPD_WIDTH - 100, 75, 0);
+  gfx_draw_rect(buffer, 50, 195, s_epd_width - 100, 75, 0);
   gfx_draw_string(buffer, 65, 205, (lang == LANG_DE) ? "Server-Rueckmeldung:" : "Server Message:", 0, 1);
   const char* msg = (reason && strlen(reason) > 0) ? reason : "Widget rendering requires a browser (set CHROME_PATH).";
   
@@ -814,8 +828,8 @@ void renderUnsupportedContentScreen(uint8_t* buffer, const char* reason, Languag
   }
 
   // Footer bar
-  gfx_fill_rect(buffer, 0, 424, EPD_WIDTH, 56, 0);
-  gfx_draw_string(buffer, 120, 442, (lang == LANG_DE) ? "Automatische Neupruefung beim naechsten Abrufzyklus" : "Display will automatically re-check on next sync interval", 1, 2);
+  gfx_fill_rect(buffer, 0, s_epd_height - 56, s_epd_width, 56, 0);
+  gfx_draw_string(buffer, 120, s_epd_height - 38, (lang == LANG_DE) ? "Automatische Neupruefung beim naechsten Abrufzyklus" : "Display will automatically re-check on next sync interval", 1, 2);
 }
 
 

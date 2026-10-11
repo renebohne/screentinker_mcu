@@ -19,6 +19,11 @@ enum Language {
 // ─── Simple 8x8 ASCII Font (Characters 32 - 126) ─────────────────────────────
 extern const uint8_t font8x8_basic[95][8];
 
+void gfx_set_screen_dimensions(int w, int h);
+int gfx_get_width();
+int gfx_get_height();
+size_t gfx_get_buffer_size();
+
 void gfx_fill(uint8_t* buf, uint8_t color);
 void gfx_draw_pixel(uint8_t* buf, int x, int y, uint8_t color);
 void gfx_draw_hline(uint8_t* buf, int x, int y, int w, uint8_t color);

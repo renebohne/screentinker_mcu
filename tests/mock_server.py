@@ -21,24 +21,25 @@ from urllib.parse import urlparse, parse_qs
 # Standard 800x480 monochrome 1-bit frame (800 * 480 / 8 = 48,000 bytes)
 EPD_FRAME_SIZE = 48000
 
-def generate_mock_frame(pattern: str = "checkerboard") -> bytes:
-    """Generates deterministic 48,000 byte 1-bit monochrome test patterns."""
-    data = bytearray(EPD_FRAME_SIZE)
+def generate_mock_frame(pattern: str = "checkerboard", width: int = 800, height: int = 480) -> bytes:
+    """Generates deterministic 1-bit monochrome test patterns for arbitrary resolutions."""
+    frame_size = (width * height) // 8
+    data = bytearray(frame_size)
     if pattern == "checkerboard":
-        # Alternating 0xAA and 0x55 stripes
-        for y in range(480):
+        row_bytes = width // 8
+        for y in range(height):
             byte_val = 0xAA if (y % 16 < 8) else 0x55
-            offset = y * 100
-            for x in range(100):
+            offset = y * row_bytes
+            for x in range(row_bytes):
                 data[offset + x] = byte_val
     elif pattern == "solid_white":
-        for i in range(EPD_FRAME_SIZE):
+        for i in range(frame_size):
             data[i] = 0xFF
     elif pattern == "solid_black":
-        for i in range(EPD_FRAME_SIZE):
+        for i in range(frame_size):
             data[i] = 0x00
     else:
-        for i in range(EPD_FRAME_SIZE):
+        for i in range(frame_size):
             data[i] = (i & 0xFF)
     return bytes(data)
 
@@ -61,6 +62,9 @@ class MockServerState:
             self.claim_secret = "test-claim-secret-xyz"
             self.device_token = "mock-device-token-123"
             self.device_id = "test-device-uuid-456"
+            self.screen_width = 800
+            self.screen_height = 480
+            self.last_pair_register = {}
             self.requests_log = []
             self.last_telemetry = {}
 
@@ -160,7 +164,7 @@ class MockRequestHandler(BaseHTTPRequestHandler):
                 return
 
             # 200 OK Normal Frame Delivery
-            frame_bytes = generate_mock_frame("checkerboard")
+            frame_bytes = generate_mock_frame("checkerboard", self.state.screen_width, self.state.screen_height)
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(len(frame_bytes)))
@@ -209,7 +213,16 @@ class MockRequestHandler(BaseHTTPRequestHandler):
 
         # ── 6-Digit Pairing Registration ──
         if path == "/api/embedded/pair/register":
+            try:
+                reg_payload = json.loads(body.decode("utf-8"))
+            except Exception:
+                reg_payload = {}
             with self.state.lock:
+                self.state.last_pair_register = reg_payload
+                if "screen_width" in reg_payload:
+                    self.state.screen_width = int(reg_payload["screen_width"])
+                if "screen_height" in reg_payload:
+                    self.state.screen_height = int(reg_payload["screen_height"])
                 self._send_json(200, {
                     "device_id": self.state.device_id,
                     "pairing_code": self.state.pairing_code,

@@ -19,7 +19,7 @@ SimDisplay::~SimDisplay() {
 
 bool SimDisplay::init() {
   if (m_headless) {
-    std::cout << "[Display] Initialized in Headless mode (800x480 mono).\n";
+    std::cout << "[Display] Initialized in Headless mode (" << m_width << "x" << m_height << " mono).\n";
     return true;
   }
 
@@ -31,7 +31,9 @@ bool SimDisplay::init() {
 
   int winWidth = m_width * m_scale;
   int winHeight = m_height * m_scale;
-  m_window = SDL_CreateWindow("ScreenTinker E-Paper Simulator (800x480)",
+  char winTitle[128];
+  snprintf(winTitle, sizeof(winTitle), "ScreenTinker E-Paper Simulator (%dx%d)", m_width, m_height);
+  m_window = SDL_CreateWindow(winTitle,
                               SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                               winWidth, winHeight, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
   if (!m_window) {

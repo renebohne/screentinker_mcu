@@ -16,6 +16,57 @@
 #endif
 #endif
 
+bool SimConfig::setModel(const std::string& modelName) {
+  std::string m = modelName;
+  std::transform(m.begin(), m.end(), m.begin(), [](unsigned char c) { return std::tolower(c); });
+
+  if (m == "sticky" || m == "seeed-reterminal-sticky" || m == "reterminal-sticky") {
+    model = "sticky";
+    screenProfile = "seeed-reterminal-sticky";
+    width = 800;
+    height = 480;
+    return true;
+  } else if (m == "e1001" || m == "seeed-reterminal-e1001" || m == "reterminal-e1001") {
+    model = "e1001";
+    screenProfile = "seeed-reterminal-e1001";
+    width = 800;
+    height = 480;
+    return true;
+  } else if (m == "e1002" || m == "seeed-reterminal-e1002" || m == "reterminal-e1002") {
+    model = "e1002";
+    screenProfile = "seeed-reterminal-e1002";
+    width = 800;
+    height = 480;
+    return true;
+  } else if (m == "e1003" || m == "seeed-reterminal-e1003" || m == "reterminal-e1003") {
+    model = "e1003";
+    screenProfile = "seeed-reterminal-e1003";
+    width = 1872;
+    height = 1404;
+    return true;
+  } else if (m == "e1004" || m == "seeed-reterminal-e1004" || m == "reterminal-e1004") {
+    model = "e1004";
+    screenProfile = "seeed-reterminal-e1004";
+    width = 1200;
+    height = 1600;
+    return true;
+  }
+
+  std::cerr << "[Config] Warning: Unknown hardware model '" << modelName << "'. Defaulting to sticky (800x480).\n";
+  return false;
+}
+
+static bool isKnownModelName(const std::string& name) {
+  std::string m = name;
+  std::transform(m.begin(), m.end(), m.begin(), [](unsigned char c) { return std::tolower(c); });
+  return (m == "sticky" || m == "e1001" || m == "e1002" || m == "e1003" || m == "e1004" ||
+          m == "seeed-reterminal-sticky" || m == "seeed-reterminal-e1001" ||
+          m == "seeed-reterminal-e1002" || m == "seeed-reterminal-e1003" ||
+          m == "seeed-reterminal-e1004" || m == "reterminal-sticky" ||
+          m == "reterminal-e1001" || m == "reterminal-e1002" ||
+          m == "reterminal-e1003" || m == "reterminal-e1004");
+}
+
 SimConfig SimConfig::load(int argc, char** argv) {
   SimConfig cfg;
 
@@ -48,6 +99,14 @@ SimConfig SimConfig::load(int argc, char** argv) {
       if (doc["hardware"]["wifi_rssi_dbm"].is<int>()) cfg.wifiRssi = doc["hardware"]["wifi_rssi_dbm"].as<int>();
       if (doc["hardware"]["firmware_version"].is<const char*>()) cfg.firmwareVersion = doc["hardware"]["firmware_version"].as<std::string>();
 
+      if (doc["device_model"].is<const char*>()) cfg.setModel(doc["device_model"].as<std::string>());
+      if (doc["model"].is<const char*>()) cfg.setModel(doc["model"].as<std::string>());
+      if (doc["hardware"]["device_model"].is<const char*>()) cfg.setModel(doc["hardware"]["device_model"].as<std::string>());
+      if (doc["hardware"]["model"].is<const char*>()) cfg.setModel(doc["hardware"]["model"].as<std::string>());
+      if (doc["device"]["model"].is<const char*>()) cfg.setModel(doc["device"]["model"].as<std::string>());
+      if (doc["simulator"]["device_model"].is<const char*>()) cfg.setModel(doc["simulator"]["device_model"].as<std::string>());
+      if (doc["simulator"]["model"].is<const char*>()) cfg.setModel(doc["simulator"]["model"].as<std::string>());
+
       if (doc["simulator"]["headless"].is<bool>()) cfg.headless = doc["simulator"]["headless"].as<bool>();
       if (doc["simulator"]["snapshot_path"].is<const char*>()) cfg.snapshotPath = doc["simulator"]["snapshot_path"].as<std::string>();
       if (doc["simulator"]["fast_forward_sleep"].is<bool>()) cfg.fastForwardSleep = doc["simulator"]["fast_forward_sleep"].as<bool>();
@@ -64,14 +123,25 @@ SimConfig SimConfig::load(int argc, char** argv) {
   if (const char* v = std::getenv("ST_DEVICE_TOKEN")) cfg.deviceToken = v;
   if (const char* v = std::getenv("ST_BATTERY")) cfg.batteryPercent = std::atoi(v);
   if (const char* v = std::getenv("ST_RSSI")) cfg.wifiRssi = std::atoi(v);
+  if (const char* v = std::getenv("ST_MODEL")) cfg.setModel(v);
+  if (const char* v = std::getenv("ST_DEVICE_MODEL")) cfg.setModel(v);
 
   // 4. CLI Argument overrides
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
     if ((arg == "--server" || arg == "-s") && i + 1 < argc) {
       cfg.serverUrl = argv[++i];
-    } else if ((arg == "--device" || arg == "-d") && i + 1 < argc) {
+    } else if ((arg == "--model" || arg == "--profile" || arg == "-m") && i + 1 < argc) {
+      cfg.setModel(argv[++i]);
+    } else if (arg == "--device-id" && i + 1 < argc) {
       cfg.deviceId = argv[++i];
+    } else if ((arg == "--device" || arg == "-d") && i + 1 < argc) {
+      std::string val = argv[++i];
+      if (isKnownModelName(val)) {
+        cfg.setModel(val);
+      } else {
+        cfg.deviceId = val;
+      }
     } else if ((arg == "--token" || arg == "-t") && i + 1 < argc) {
       cfg.deviceToken = argv[++i];
     } else if (arg == "--battery" && i + 1 < argc) {
@@ -104,7 +174,9 @@ SimConfig SimConfig::load(int argc, char** argv) {
                 << "Usage: ./screentinker_sim [options]\n\n"
                 << "Options:\n"
                 << "  -s, --server <url>       Server URL (default: " << cfg.serverUrl << ")\n"
-                << "  -d, --device <uuid>      Device ID\n"
+                << "  -m, --model <name>       Hardware model: sticky, e1001, e1002, e1003, e1004 (default: " << cfg.model << ")\n"
+                << "  -d, --device <uuid|name> Device ID or hardware model name\n"
+                << "      --device-id <uuid>   Explicit Device ID\n"
                 << "  -t, --token <token>      Device Token\n"
                 << "  --pair                   Start in pairing mode (request 6-digit PIN from server)\n"
                 << "  --battery <percent>      Simulated battery (0-100)\n"
@@ -133,6 +205,7 @@ void SimConfig::print() const {
   std::cout << "───────────────────────────────────────────────────────\n"
             << " ScreenTinker MCU Simulator (" << PLATFORM_OS << " Host)\n"
             << "───────────────────────────────────────────────────────\n"
+            << " • Target Hardware:   " << model << " (" << width << "x" << height << ", " << screenProfile << ")\n"
             << " • Server URL:        " << serverUrl << "\n"
             << " • Device ID:         " << deviceId << "\n"
             << " • Firmware Version:  " << firmwareVersion << "\n"
@@ -153,10 +226,12 @@ bool SimConfig::save(const std::string& path) const {
   doc["server"]["device_token"] = deviceToken;
   doc["server"]["timeout_ms"] = timeoutMs;
 
+  doc["hardware"]["device_model"] = model;
   doc["hardware"]["battery_percent"] = batteryPercent;
   doc["hardware"]["wifi_rssi_dbm"] = wifiRssi;
   doc["hardware"]["firmware_version"] = firmwareVersion;
 
+  doc["device_model"] = model;
   doc["simulator"]["headless"] = headless;
   doc["simulator"]["snapshot_path"] = snapshotPath;
   doc["simulator"]["fast_forward_sleep"] = fastForwardSleep;

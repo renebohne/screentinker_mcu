@@ -1080,11 +1080,24 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     Serial.printf("[Sync] Sent conditional ETag: %s\n", cachedEtag.c_str());
   }
 
-  const char* headerKeys[] = {"ETag", "X-ST-Expires-In", "X-ST-Item-Index", "X-ST-Total-Items", "X-ST-Total-Zones", "X-ST-Layout-Fallback", "X-ST-Device-Name", "X-ST-Command", "X-ST-Power-State"};
-  http.collectHeaders(headerKeys, 9);
+  const char* headerKeys[] = {
+    "ETag", "X-ST-Expires-In", "X-ST-Item-Index", "X-ST-Total-Items",
+    "X-ST-Total-Zones", "X-ST-Layout-Fallback", "X-ST-Device-Name",
+    "X-ST-Command", "X-ST-Power-State", "X-ST-Screen-Width",
+    "X-ST-Screen-Height", "X-ST-Rotation", "X-ST-Orientation"
+  };
+  http.collectHeaders(headerKeys, 13);
 
   int httpCode = http.GET();
   Serial.printf("[Sync] HTTP Response: %d\n", httpCode);
+
+  if (http.hasHeader("X-ST-Orientation")) {
+    Serial.printf("[Display] Server orientation: %s, rotation: %s deg (%sx%s)\n",
+                  http.header("X-ST-Orientation").c_str(),
+                  http.header("X-ST-Rotation").c_str(),
+                  http.header("X-ST-Screen-Width").c_str(),
+                  http.header("X-ST-Screen-Height").c_str());
+  }
 
   if (http.hasHeader("X-ST-Command")) {
     String cmd = http.header("X-ST-Command");

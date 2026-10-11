@@ -181,12 +181,41 @@ bool SimDisplay::saveBmp(const uint8_t* buffer, const std::string& path) {
   return true;
 }
 
-bool SimDisplay::pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerToggled) {
+void SimDisplay::updateDimensions(int width, int height) {
+  if (width == m_width && height == m_height) return;
+
+  m_width = width;
+  m_height = height;
+
+  delete[] m_pixelBuffer;
+  m_pixelBuffer = new uint32_t[m_width * m_height];
+
+  if (!m_headless && m_window && m_renderer) {
+    if (m_texture) {
+      SDL_DestroyTexture(m_texture);
+      m_texture = nullptr;
+    }
+    int winWidth = m_width * m_scale;
+    int winHeight = m_height * m_scale;
+    SDL_SetWindowSize(m_window, winWidth, winHeight);
+    SDL_RenderSetLogicalSize(m_renderer, m_width, m_height);
+    m_texture = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_ARGB8888,
+                                  SDL_TEXTUREACCESS_STREAMING, m_width, m_height);
+    char winTitle[128];
+    snprintf(winTitle, sizeof(winTitle), "ScreenTinker E-Paper Simulator (%dx%d)", m_width, m_height);
+    SDL_SetWindowTitle(m_window, winTitle);
+    std::cout << "[Display] Viewport resized to " << winWidth << "x" << winHeight
+              << " (logical " << m_width << "x" << m_height << ").\n";
+  }
+}
+
+bool SimDisplay::pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerToggled, bool& rotateRequested) {
   if (m_headless) return true;
 
   wakeRequested = false;
   batteryDelta = 0;
   powerToggled = false;
+  rotateRequested = false;
 
   SDL_Event event;
   while (SDL_PollEvent(&event)) {
@@ -202,6 +231,10 @@ bool SimDisplay::pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerT
         case SDLK_RETURN:
           wakeRequested = true;
           std::cout << "[Simulator] Manual wake-up triggered by keypress!\n";
+          break;
+        case SDLK_r:
+          rotateRequested = true;
+          std::cout << "[Simulator] Manual rotation toggle triggered by keypress 'R'!\n";
           break;
         case SDLK_UP:
           batteryDelta = +10;

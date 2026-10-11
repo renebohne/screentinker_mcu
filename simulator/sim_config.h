@@ -32,8 +32,12 @@ struct SimConfig {
   // Device Model, Resolution, Color & Refresh Capabilities
   std::string model = "sticky";
   std::string screenProfile = "seeed-reterminal-sticky";
+  int nativeWidth = 800;
+  int nativeHeight = 480;
   int width = 800;
   int height = 480;
+  int rotation = 0;              // 0, 90, 180, 270
+  std::string orientation = "";  // "landscape", "portrait", "landscape-flipped", "portrait-flipped"
   SimColorMode colorMode = SIM_COLOR_1BPP_MONO;
   bool supportsPartialRefresh = true;
   int fullRefreshTimeMs = 1800;
@@ -42,6 +46,9 @@ struct SimConfig {
   std::string colorModeString() const;
   size_t bufferSize() const;
   bool setModel(const std::string& modelName);
+  bool applyOrientation(const std::string& orient);
+  bool applyRotation(int rot);
+  void cycleRotation();
   static SimConfig load(int argc, char** argv);
   void print() const;
   bool save(const std::string& path = "") const;

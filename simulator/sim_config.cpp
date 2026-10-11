@@ -23,57 +23,146 @@ bool SimConfig::setModel(const std::string& modelName) {
   if (m == "sticky" || m == "seeed-reterminal-sticky" || m == "reterminal-sticky") {
     model = "sticky";
     screenProfile = "seeed-reterminal-sticky";
+    nativeWidth = 800;
+    nativeHeight = 480;
     width = 800;
     height = 480;
     colorMode = SIM_COLOR_1BPP_MONO;
     supportsPartialRefresh = true;
     fullRefreshTimeMs = 1800;
     partialRefreshTimeMs = 350;
+    if (!orientation.empty()) applyOrientation(orientation);
+    else if (rotation != 0) applyRotation(rotation);
     return true;
   } else if (m == "e1001" || m == "seeed-reterminal-e1001" || m == "reterminal-e1001") {
     model = "e1001";
     screenProfile = "seeed-reterminal-e1001";
+    nativeWidth = 800;
+    nativeHeight = 480;
     width = 800;
     height = 480;
     colorMode = SIM_COLOR_1BPP_MONO;
     supportsPartialRefresh = true;
     fullRefreshTimeMs = 3000;
     partialRefreshTimeMs = 450;
+    if (!orientation.empty()) applyOrientation(orientation);
+    else if (rotation != 0) applyRotation(rotation);
     return true;
   } else if (m == "e1002" || m == "seeed-reterminal-e1002" || m == "reterminal-e1002") {
     model = "e1002";
     screenProfile = "seeed-reterminal-e1002";
+    nativeWidth = 800;
+    nativeHeight = 480;
     width = 800;
     height = 480;
     colorMode = SIM_COLOR_SPECTRA6;
     supportsPartialRefresh = false;
     fullRefreshTimeMs = 14000;
     partialRefreshTimeMs = 0;
+    if (!orientation.empty()) applyOrientation(orientation);
+    else if (rotation != 0) applyRotation(rotation);
     return true;
   } else if (m == "e1003" || m == "seeed-reterminal-e1003" || m == "reterminal-e1003") {
     model = "e1003";
     screenProfile = "seeed-reterminal-e1003";
+    nativeWidth = 1872;
+    nativeHeight = 1404;
     width = 1872;
     height = 1404;
     colorMode = SIM_COLOR_GRAY16;
     supportsPartialRefresh = true;
     fullRefreshTimeMs = 1200;
     partialRefreshTimeMs = 180;
+    if (!orientation.empty()) applyOrientation(orientation);
+    else if (rotation != 0) applyRotation(rotation);
     return true;
   } else if (m == "e1004" || m == "seeed-reterminal-e1004" || m == "reterminal-e1004") {
     model = "e1004";
     screenProfile = "seeed-reterminal-e1004";
+    nativeWidth = 1200;
+    nativeHeight = 1600;
     width = 1200;
     height = 1600;
     colorMode = SIM_COLOR_SPECTRA6;
     supportsPartialRefresh = false;
     fullRefreshTimeMs = 22000;
     partialRefreshTimeMs = 0;
+    if (!orientation.empty()) applyOrientation(orientation);
+    else if (rotation != 0) applyRotation(rotation);
     return true;
   }
 
   std::cerr << "[Config] Warning: Unknown hardware model '" << modelName << "'. Defaulting to sticky (800x480).\n";
   return false;
+}
+
+bool SimConfig::applyOrientation(const std::string& orient) {
+  std::string o = orient;
+  std::transform(o.begin(), o.end(), o.begin(), [](unsigned char c) { return std::tolower(c); });
+
+  if (o == "portrait" || o == "portrait-flipped") {
+    orientation = o;
+    if (nativeWidth > nativeHeight) {
+      width = nativeHeight;
+      height = nativeWidth;
+    } else {
+      width = nativeWidth;
+      height = nativeHeight;
+    }
+    if (o == "portrait-flipped") {
+      rotation = 180;
+    } else if (rotation == 180) {
+      rotation = 0;
+    }
+    return true;
+  } else if (o == "landscape" || o == "landscape-flipped") {
+    orientation = o;
+    if (nativeWidth < nativeHeight) {
+      width = nativeHeight;
+      height = nativeWidth;
+    } else {
+      width = nativeWidth;
+      height = nativeHeight;
+    }
+    if (o == "landscape-flipped") {
+      rotation = 180;
+    } else if (rotation == 180) {
+      rotation = 0;
+    }
+    return true;
+  }
+  return false;
+}
+
+bool SimConfig::applyRotation(int rot) {
+  rotation = ((rot % 360) + 360) % 360;
+  bool isRotated90or270 = (rotation == 90 || rotation == 270);
+  bool isLandscapeNative = (nativeWidth >= nativeHeight);
+
+  if (isRotated90or270) {
+    width = std::min(nativeWidth, nativeHeight);
+    height = std::max(nativeWidth, nativeHeight);
+    if (!isLandscapeNative) {
+      std::swap(width, height);
+      orientation = (rotation == 90) ? "landscape" : "landscape-flipped";
+    } else {
+      orientation = (rotation == 90) ? "portrait" : "portrait-flipped";
+    }
+  } else {
+    width = nativeWidth;
+    height = nativeHeight;
+    if (isLandscapeNative) {
+      orientation = (rotation == 0) ? "landscape" : "landscape-flipped";
+    } else {
+      orientation = (rotation == 0) ? "portrait" : "portrait-flipped";
+    }
+  }
+  return true;
+}
+
+void SimConfig::cycleRotation() {
+  int nextRot = (rotation + 90) % 360;
+  applyRotation(nextRot);
 }
 
 std::string SimConfig::colorModeString() const {
@@ -155,6 +244,13 @@ SimConfig SimConfig::load(int argc, char** argv) {
       if (doc["simulator"]["fast_forward_sleep"].is<bool>()) cfg.fastForwardSleep = doc["simulator"]["fast_forward_sleep"].as<bool>();
       if (doc["simulator"]["sync_interval_sec"].is<int>()) cfg.syncIntervalSec = doc["simulator"]["sync_interval_sec"].as<int>();
       if (doc["simulator"]["scale"].is<int>()) cfg.scale = doc["simulator"]["scale"].as<int>();
+
+      if (doc["orientation"].is<const char*>()) cfg.applyOrientation(doc["orientation"].as<std::string>());
+      if (doc["hardware"]["orientation"].is<const char*>()) cfg.applyOrientation(doc["hardware"]["orientation"].as<std::string>());
+      if (doc["simulator"]["orientation"].is<const char*>()) cfg.applyOrientation(doc["simulator"]["orientation"].as<std::string>());
+      if (doc["rotation"].is<int>()) cfg.applyRotation(doc["rotation"].as<int>());
+      if (doc["hardware"]["rotation"].is<int>()) cfg.applyRotation(doc["hardware"]["rotation"].as<int>());
+      if (doc["simulator"]["rotation"].is<int>()) cfg.applyRotation(doc["simulator"]["rotation"].as<int>());
     } else {
       std::cerr << "[Config] Warning: Failed to parse " << cfg.configFilePath << " (" << err.c_str() << ")\n";
     }
@@ -168,6 +264,8 @@ SimConfig SimConfig::load(int argc, char** argv) {
   if (const char* v = std::getenv("ST_RSSI")) cfg.wifiRssi = std::atoi(v);
   if (const char* v = std::getenv("ST_MODEL")) cfg.setModel(v);
   if (const char* v = std::getenv("ST_DEVICE_MODEL")) cfg.setModel(v);
+  if (const char* v = std::getenv("ST_ORIENTATION")) cfg.applyOrientation(v);
+  if (const char* v = std::getenv("ST_ROTATION")) cfg.applyRotation(std::atoi(v));
 
   // 4. CLI Argument overrides
   for (int i = 1; i < argc; ++i) {
@@ -187,6 +285,14 @@ SimConfig SimConfig::load(int argc, char** argv) {
       }
     } else if ((arg == "--token" || arg == "-t") && i + 1 < argc) {
       cfg.deviceToken = argv[++i];
+    } else if ((arg == "--orientation" || arg == "-o") && i + 1 < argc) {
+      cfg.applyOrientation(argv[++i]);
+    } else if ((arg == "--rotate" || arg == "--rotation" || arg == "-r") && i + 1 < argc) {
+      cfg.applyRotation(std::atoi(argv[++i]));
+    } else if (arg == "--portrait") {
+      cfg.applyOrientation("portrait");
+    } else if (arg == "--landscape") {
+      cfg.applyOrientation("landscape");
     } else if (arg == "--battery" && i + 1 < argc) {
       cfg.batteryPercent = std::atoi(argv[++i]);
     } else if (arg == "--power" && i + 1 < argc) {
@@ -221,6 +327,10 @@ SimConfig SimConfig::load(int argc, char** argv) {
                 << "  -d, --device <uuid|name> Device ID or hardware model name\n"
                 << "      --device-id <uuid>   Explicit Device ID\n"
                 << "  -t, --token <token>      Device Token\n"
+                << "  -o, --orientation <name> Orientation: landscape, portrait, landscape-flipped, portrait-flipped\n"
+                << "  -r, --rotate <deg>       Rotation: 0, 90, 180, 270 degrees\n"
+                << "      --portrait           Shortcut for --orientation portrait\n"
+                << "      --landscape          Shortcut for --orientation landscape\n"
                 << "  --pair                   Start in pairing mode (request 6-digit PIN from server)\n"
                 << "  --battery <percent>      Simulated battery (0-100)\n"
                 << "  --power <usb|battery>    Power source mode (default: battery)\n"
@@ -249,6 +359,8 @@ void SimConfig::print() const {
             << " ScreenTinker MCU Simulator (" << PLATFORM_OS << " Host)\n"
             << "───────────────────────────────────────────────────────\n"
             << " • Target Hardware:   " << model << " (" << width << "x" << height << ", " << screenProfile << ")\n"
+            << " • Orientation:       " << (orientation.empty() ? (width > height ? "landscape" : "portrait") : orientation)
+            << " (" << rotation << "°)\n"
             << " • Color Mode:        " << colorModeString() << " ("
             << (colorMode == SIM_COLOR_SPECTRA6 ? "4bpp, 6-Color Spectra 6" :
                 (colorMode == SIM_COLOR_GRAY16 ? "4bpp, 16-Level Grayscale" :
@@ -278,6 +390,8 @@ bool SimConfig::save(const std::string& path) const {
   doc["hardware"]["battery_percent"] = batteryPercent;
   doc["hardware"]["wifi_rssi_dbm"] = wifiRssi;
   doc["hardware"]["firmware_version"] = firmwareVersion;
+  doc["hardware"]["orientation"] = orientation;
+  doc["hardware"]["rotation"] = rotation;
 
   doc["device_model"] = model;
   doc["simulator"]["headless"] = headless;
@@ -285,6 +399,8 @@ bool SimConfig::save(const std::string& path) const {
   doc["simulator"]["fast_forward_sleep"] = fastForwardSleep;
   doc["simulator"]["sync_interval_sec"] = syncIntervalSec;
   doc["simulator"]["scale"] = scale;
+  doc["simulator"]["orientation"] = orientation;
+  doc["simulator"]["rotation"] = rotation;
 
   std::ofstream f(target);
   if (!f.is_open()) return false;

@@ -58,7 +58,7 @@ static void monoToNativeBuffer(const uint8_t* monoBuf, uint8_t* nativeBuf, int w
   }
 }
 
-static bool runPairingFlow(SimConfig& cfg, SimHttp& http, SimDisplay& display, uint8_t* frameBuffer) {
+static bool runPairingFlow(SimConfig& cfg, SimHttp& http, SimDisplay& display, std::vector<uint8_t>& frameBuffer) {
   std::cout << "\n=======================================================\n"
             << "  STARTING AUTOMATIC 6-DIGIT DEVICE PAIRING FLOW\n"
             << "=======================================================\n"
@@ -102,9 +102,9 @@ static bool runPairingFlow(SimConfig& cfg, SimHttp& http, SimDisplay& display, u
   // Render Pairing PIN + QR code on E-Paper display
   std::vector<uint8_t> monoBuffer(gfx_get_buffer_size(), 0xFF);
   renderPairingCodeScreen(monoBuffer.data(), pairingCode.c_str(), cfg.serverUrl.c_str(), LANG_EN);
-  monoToNativeBuffer(monoBuffer.data(), frameBuffer, cfg.width, cfg.height, cfg.colorMode);
-  display.renderBuffer(frameBuffer);
-  display.saveBmp(frameBuffer, cfg.snapshotPath);
+  monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+  display.renderBuffer(frameBuffer.data());
+  display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
 
   // Poll pairing status every 2.5 seconds until claimed
   std::string statusUrl = cfg.serverUrl + "/api/embedded/pair/status?device_id=" + deviceId;
@@ -114,9 +114,22 @@ static bool runPairingFlow(SimConfig& cfg, SimHttp& http, SimDisplay& display, u
     bool wakeRequested = false;
     int batteryDelta = 0;
     bool powerToggled = false;
-    if (!display.pollEvents(wakeRequested, batteryDelta, powerToggled)) {
+    bool rotateRequested = false;
+    if (!display.pollEvents(wakeRequested, batteryDelta, powerToggled, rotateRequested)) {
       std::cout << "[Pairing] Aborted by user.\n";
       return false;
+    }
+
+    if (rotateRequested) {
+      cfg.cycleRotation();
+      gfx_set_screen_dimensions(cfg.width, cfg.height);
+      display.updateDimensions(cfg.width, cfg.height);
+      frameBuffer = std::vector<uint8_t>(cfg.bufferSize(), 0xFF);
+      monoBuffer.resize(gfx_get_buffer_size(), 0xFF);
+      renderPairingCodeScreen(monoBuffer.data(), pairingCode.c_str(), cfg.serverUrl.c_str(), LANG_EN);
+      monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+      display.renderBuffer(frameBuffer.data());
+      display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
@@ -169,7 +182,7 @@ int main(int argc, char** argv) {
 
   // Check if Pairing flow is required
   if (cfg.pairMode || cfg.deviceToken.empty()) {
-    if (!runPairingFlow(cfg, http, display, frameBuffer.data())) {
+    if (!runPairingFlow(cfg, http, display, frameBuffer)) {
       std::cerr << "[Simulator] Pairing failed or was aborted.\n";
       return 1;
     }
@@ -196,6 +209,12 @@ int main(int argc, char** argv) {
 
   while (running) {
     std::string url = cfg.serverUrl + "/api/embedded/render?device_id=" + cfg.deviceId;
+    if (!cfg.orientation.empty()) {
+      url += "&orientation=" + cfg.orientation;
+    }
+    if (cfg.rotation != 0) {
+      url += "&rotation=" + std::to_string(cfg.rotation);
+    }
     std::cout << "\n[Sync] Polling server: " << url << "\n";
     std::cout << "[Sync] Telemetry: Power=" << cfg.powerSource << (cfg.isCharging ? " (Charging)" : "")
               << ", Battery=" << cfg.batteryPercent << "%, RSSI=" << cfg.wifiRssi
@@ -213,6 +232,27 @@ int main(int argc, char** argv) {
     );
 
     std::cout << "[Sync] Server response status: " << res.statusCode << "\n";
+
+    if (res.hasHeader("x-st-screen-width") && res.hasHeader("x-st-screen-height")) {
+      int serverW = std::atoi(res.getHeader("x-st-screen-width").c_str());
+      int serverH = std::atoi(res.getHeader("x-st-screen-height").c_str());
+      if (serverW > 0 && serverH > 0 && (serverW != cfg.width || serverH != cfg.height)) {
+        std::cout << "[Sync] Server updated dimensions to " << serverW << "x" << serverH
+                  << " (was " << cfg.width << "x" << cfg.height << ")\n";
+        cfg.width = serverW;
+        cfg.height = serverH;
+        gfx_set_screen_dimensions(cfg.width, cfg.height);
+        display.updateDimensions(cfg.width, cfg.height);
+        frameBuffer.resize(cfg.bufferSize(), 0xFF);
+        monoBuffer.resize(gfx_get_buffer_size(), 0xFF);
+      }
+    }
+    if (res.hasHeader("x-st-rotation")) {
+      cfg.rotation = std::atoi(res.getHeader("x-st-rotation").c_str());
+    }
+    if (res.hasHeader("x-st-orientation")) {
+      cfg.orientation = res.getHeader("x-st-orientation");
+    }
 
     if (res.hasHeader("x-st-expires-in")) {
       int exp = std::atoi(res.getHeader("x-st-expires-in").c_str());
@@ -310,7 +350,7 @@ int main(int argc, char** argv) {
       return (res.statusCode == 0) ? 1 : 0;
     }
 
-    std::cout << "[Sleep] Next poll scheduled in " << sleepDurationSec << "s (Press [Space] to wake, [P] to toggle USB/Battery, [B] to toggle battery level, [Q] to quit)\n";
+    std::cout << "[Sleep] Next poll scheduled in " << sleepDurationSec << "s (Press [Space] to wake, [R] to rotate, [P] to toggle USB/Battery, [B] to toggle battery level, [Q] to quit)\n";
 
     // Simulate sleep interval while polling interactive SDL2 events
     auto sleepStart = std::chrono::steady_clock::now();
@@ -319,9 +359,23 @@ int main(int argc, char** argv) {
     while (running && !wakeRequested) {
       int batteryDelta = 0;
       bool powerToggled = false;
-      if (!display.pollEvents(wakeRequested, batteryDelta, powerToggled)) {
+      bool rotateRequested = false;
+      if (!display.pollEvents(wakeRequested, batteryDelta, powerToggled, rotateRequested)) {
         running = false;
         break;
+      }
+
+      if (rotateRequested) {
+        cfg.cycleRotation();
+        std::cout << "[Simulator] Rotated to " << cfg.rotation << "° ("
+                  << (cfg.orientation.empty() ? (cfg.width > cfg.height ? "landscape" : "portrait") : cfg.orientation)
+                  << "), new dimensions: " << cfg.width << "x" << cfg.height << "\n";
+        gfx_set_screen_dimensions(cfg.width, cfg.height);
+        display.updateDimensions(cfg.width, cfg.height);
+        frameBuffer.resize(cfg.bufferSize(), 0xFF);
+        monoBuffer.resize(gfx_get_buffer_size(), 0xFF);
+        lastEtag = ""; // Invalidate ETag to fetch fresh frame for new orientation
+        wakeRequested = true;
       }
 
       if (powerToggled) {

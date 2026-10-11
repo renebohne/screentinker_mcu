@@ -57,15 +57,42 @@ classDiagram
     BaseDevice <|-- E1004
 ```
 
-### Detailed Specs
+### Detailed Specs & Capabilities Matrix
 
-| Model | Screen Size | Resolution | Color Depth | E-Paper Controller | Frame Size | Onboard Peripherals |
-| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Sticky** | 3.97" | 800 × 480 | 1bpp Mono | SSD1677 | 48,000 B | BQ27220 fuel gauge, BQ25616 charger, 3 buttons, buzzer |
-| **E1001** | 7.5" | 800 × 480 | 1bpp / Gray4 | UC8179 | 48,000 B | ADC battery divider, 3 buttons, buzzer, LED (GPIO6), SHT4x, PCF8563 |
-| **E1002** | 7.3" | 800 × 480 | 6-Color Spectra 6 | ED2208 | 192,000 B | ADC battery divider, 3 buttons, buzzer, LED (GPIO6), SHT4x, PCF8563 |
-| **E1003** | 10.3" | 1872 × 1404 | 1bpp / Gray16 | IT8951 | 328,548 B | Capacitive Touch, ADC battery divider, 3 buttons, buzzer, LED (GPIO16), PCF8563 |
-| **E1004** | 13.3" | 1200 × 1600 | 6-Color Spectra 6 | T133A01 (dual CS) | 960,000 B | Front/rear buttons, buzzer, LED (GPIO48), ADC battery divider, PCF8563 |
+| Model | Screen Size | Resolution | Color Depth | E-Paper Controller | Partial Refresh | Refresh Time | Touch Interface | Frame Size | Onboard Peripherals |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **Sticky** | 3.97" | 800 × 480 | 1bpp Mono | SSD1677 | **Yes** (~350ms) | ~1.8 s | **Capacitive Touch** (I2C) | 48,000 B | BQ27220 fuel gauge, BQ25616 charger, 3 buttons, buzzer, SD slot |
+| **E1001** | 7.5" | 800 × 480 | 1bpp / Gray4 | UC8179 | **Yes** (~450ms) | ~3.0 s | *None* (Buttons) | 48,000 B (Mono)<br>96,000 B (Gray4) | ADC battery divider, 3 buttons, buzzer, LED, SHT4x, PCF8563, SD slot |
+| **E1002** | 7.3" | 800 × 480 | 6-Color Spectra 6 | ED2208 | **No** (Full AC only) | ~14.0 s | *None* (Buttons) | 192,000 B | ADC battery divider, 3 buttons, buzzer, LED, SHT4x, PCF8563, SD slot |
+| **E1003** | 10.3" | 1872 × 1404 | 1bpp / Gray16 | IT8951 | **Yes** (~180ms A2) | ~1.2 s | **Capacitive Touch** (Multi-touch) | 328,536 B (Mono)<br>1,314,144 B (Gray16) | Touch digitizer, ADC battery divider, 3 buttons, buzzer, LED, PCF8563, SD slot |
+| **E1004** | 13.3" | 1200 × 1600 | 6-Color Spectra 6 | T133A01 (dual CS) | **No** (Full AC only) | ~22.0 s | *None* (Buttons) | 960,000 B | Front/rear buttons, buzzer, LED, ADC battery divider, PCF8563, SD slot |
+
+### 2.1 Touch Screen Architecture & Future Roadmap
+
+Both **reTerminal Sticky** and **reTerminal E1003** are equipped with hardware capacitive touch panels:
+* **reTerminal Sticky Touch Hardware**:
+  - Touch Bus: Dedicated I2C bus on `PIN_TOUCH_SDA` (GPIO 3), `PIN_TOUCH_SCL` (GPIO 2).
+  - Control Pins: Interrupt `PIN_TOUCH_INT` (GPIO 21), Reset `PIN_TOUCH_RST` (GPIO 41), Power Rail Latch `PIN_TOUCH_EN` (GPIO 42).
+  - Low Power: Can enter deep sleep touch-listen mode for wake-on-tap.
+* **reTerminal E1003 Touch Hardware**:
+  - 10.3" large-format capacitive digitizer layer over I2C, paired with IT8951's ultra-low latency A2 waveform mode (~150-200ms).
+* **Future Firmware Feature Potential**:
+  - *Slide Carousel Navigation*: Tap left/right screen edges to advance or rewind slides without opening the mobile app.
+  - *Interactive Dashboard Widgets*: Tapping checklist items, toggling room occupancy, or confirming meeting check-ins directly on the e-paper display.
+  - *On-Screen Settings UI*: Direct touchscreen interaction for Wi-Fi selection and settings menus.
+* **Simulator Integration**:
+  - SDL2 mouse clicks and touch events can map directly to simulated touch interrupts, enabling offline development of touch features before physical deployment.
+
+### 2.2 Refresh Timing & Waveform Strategies
+
+* **Monochrome Panels (Sticky, E1001)**:
+  - Full refresh (~1.8s - 3.0s) inverts pixels to clear ghosting.
+  - Fast partial refresh (~350ms - 450ms) writes changed regions only, ideal for clocks and metric updates.
+* **Spectra 6 Color Panels (E1002, E1004)**:
+  - Do **not** support partial refresh. Moving 6 colored electrophoretic particles (Black, White, Red, Yellow, Blue, Green) requires complex multi-phase AC agitation waveforms.
+  - Minimum slide intervals should be ≥ 30s–60s on the ScreenTinker server to protect panel longevity.
+* **Grayscale Fast-Response (E1003 IT8951)**:
+  - Hardware accelerated waveform controller supports GC16 (16-level grayscale, 1.2s) and ultra-fast A2/DU (black/white 180ms) modes.
 
 ---
 

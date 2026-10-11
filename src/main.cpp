@@ -307,8 +307,8 @@ void initBoardPowerAndPins() {
   delay(50);
 }
 
-// ─── Display Driver (SSD1677) ────────────────────────────────────────────────
-static bool initStickyEpaper() {
+// ─── Display Driver HAL (Multi-Panel Unified Abstraction) ───────────────────
+static bool initDisplayPanel() {
   if (s_epdInitialized && s_panel != NULL) return true;
 
   spi_bus_config_t bus_config = {};
@@ -356,22 +356,31 @@ static bool initStickyEpaper() {
 #endif
   panel_config.pin_rst = (gpio_num_t)PIN_EPD_RST;
   panel_config.pin_busy = (gpio_num_t)PIN_EPD_BUSY;
+#ifdef PIN_EPD_ENABLE
+  panel_config.pin_enable = (gpio_num_t)PIN_EPD_ENABLE;
+#else
   panel_config.pin_enable = GPIO_NUM_NC;
-  panel_config.busy_timeout_ms = 10000;
+#endif
+#ifdef PIN_EPD_CS1
+  panel_config.pin_cs1 = (gpio_num_t)PIN_EPD_CS1;
+#else
+  panel_config.pin_cs1 = GPIO_NUM_NC;
+#endif
+  panel_config.busy_timeout_ms = DEVICE_FULL_REFRESH_TIME_MS + 2000;
   panel_config.reset_low_ms = 10;
   panel_config.reset_high_ms = 10;
   panel_config.busy_level = 1;
   panel_config.enable_level = 1;
   panel_config.mirror_x = true;
 
-  err = seeed_epaper_new_panel(SEEED_EPAPER_PANEL_SSD1677, &panel_config, &s_panel);
+  err = seeed_epaper_new_panel((seeed_epaper_panel_model_t)DEVICE_PANEL_MODEL, &panel_config, &s_panel);
   if (err != ESP_OK) {
     Serial.printf("[EPD] seeed_epaper_new_panel error: %s\n", esp_err_to_name(err));
     return false;
   }
 
   s_epdInitialized = true;
-  Serial.println("[EPD] SSD1677 display panel initialized.");
+  Serial.printf("[EPD] Display panel initialized (%s, model %d).\n", DEVICE_PROFILE_NAME, (int)DEVICE_PANEL_MODEL);
   return true;
 }
 
@@ -390,24 +399,69 @@ static void rotate_mono_180(const uint8_t *source, uint8_t *destination, uint16_
   }
 }
 
+static void rotate_nibble_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height) {
+  if (!source || !destination) return;
+  const size_t stride = (width + 1) / 2;
+  memset(destination, 0, stride * height);
+  for (uint16_t y = 0; y < height; ++y) {
+    for (uint16_t x = 0; x < width; ++x) {
+      uint8_t src_byte = source[y * stride + (x >> 1)];
+      uint8_t nibble = (x & 1) ? (src_byte & 0x0F) : (src_byte >> 4);
+      uint16_t dx = width - 1 - x;
+      uint16_t dy = height - 1 - y;
+      if (dx & 1) {
+        destination[dy * stride + (dx >> 1)] |= (nibble & 0x0F);
+      } else {
+        destination[dy * stride + (dx >> 1)] |= (nibble << 4);
+      }
+    }
+  }
+}
+
+static void rotate_buffer_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height) {
+#if (DEVICE_COLOR_MODE == COLOR_MODE_SPECTRA6) || (DEVICE_COLOR_MODE == COLOR_MODE_GRAY16)
+  rotate_nibble_180(source, destination, width, height);
+#else
+  rotate_mono_180(source, destination, width, height);
+#endif
+}
+
 static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = false) {
-  if (!initStickyEpaper()) return false;
+  if (!initDisplayPanel()) return false;
 
   const seeed_epaper_area_t full_screen = {0, 0, (uint16_t)EPD_WIDTH, (uint16_t)EPD_HEIGHT};
   uint32_t refStart = millis();
+
+  seeed_epaper_refresh_mode_t mode = SEEED_EPAPER_REFRESH_FULL;
+  if (fastPartial && DEVICE_SUPPORTS_PARTIAL_REFRESH) {
+    mode = SEEED_EPAPER_REFRESH_PARTIAL;
+  }
+
+  seeed_epaper_pixel_format_t pixel_fmt = SEEED_EPAPER_PIXEL_FORMAT_MONO1_MSB;
+  size_t stride = EPD_WIDTH / 8;
+#if (DEVICE_COLOR_MODE == COLOR_MODE_SPECTRA6)
+  pixel_fmt = SEEED_EPAPER_PIXEL_FORMAT_SPECTRA6;
+  stride = (EPD_WIDTH + 1) / 2;
+#elif (DEVICE_COLOR_MODE == COLOR_MODE_GRAY16)
+  pixel_fmt = SEEED_EPAPER_PIXEL_FORMAT_GRAY16;
+  stride = (EPD_WIDTH + 1) / 2;
+#elif (DEVICE_COLOR_MODE == COLOR_MODE_GRAY4)
+  pixel_fmt = SEEED_EPAPER_PIXEL_FORMAT_GRAY4;
+  stride = (EPD_WIDTH + 3) / 4;
+#endif
 
   esp_err_t refErr = seeed_epaper_panel_refresh_area(
     s_panel,
     &full_screen,
     rotatedBuf,
-    100,
-    SEEED_EPAPER_PIXEL_FORMAT_MONO1_MSB,
-    fastPartial ? SEEED_EPAPER_REFRESH_PARTIAL : SEEED_EPAPER_REFRESH_FULL
+    stride,
+    pixel_fmt,
+    mode
   );
 
   uint32_t refElapsed = millis() - refStart;
   Serial.printf("[EPD] Refresh (%s) completed in %u ms (result: %s)\n",
-                fastPartial ? "PARTIAL" : "FULL", refElapsed, esp_err_to_name(refErr));
+                (mode == SEEED_EPAPER_REFRESH_PARTIAL) ? "PARTIAL" : "FULL", refElapsed, esp_err_to_name(refErr));
   return refErr == ESP_OK;
 }
 
@@ -518,6 +572,11 @@ void enterDeepSleepWithWakeup(uint32_t sleepSeconds) {
                 sleepSeconds, rtc_unchangedCycles);
   Serial.println("[Power] Wakeup: RTC Timer OR Buttons (OK / UP / DOWN). Standby ~15 µA.");
 
+  // Controller Deep Sleep
+  if (s_panel) {
+    seeed_epaper_panel_sleep(s_panel);
+  }
+
   // Release display power boost circuit
 #ifdef PIN_EPD_PWR_EN
   digitalWrite(PIN_EPD_PWR_EN, LOW);
@@ -577,6 +636,11 @@ void powerOffDevice() {
   }
 
   delay(200);
+
+  // Controller Deep Sleep
+  if (s_panel) {
+    seeed_epaper_panel_sleep(s_panel);
+  }
 
   // Release display power boost circuit
 #ifdef PIN_EPD_PWR_EN
@@ -962,9 +1026,9 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
       if (cacheGet(offlineTarget, s_rotatedBuffer)) {
         s_currentItemIndex = offlineTarget;
         Serial.printf("[Sync] Offline mode: Displaying cached item %d with Offline Badge...\n", offlineTarget);
-        rotate_mono_180(s_rotatedBuffer, s_rawBuffer, EPD_WIDTH, EPD_HEIGHT);
+        rotate_buffer_180(s_rotatedBuffer, s_rawBuffer, EPD_WIDTH, EPD_HEIGHT);
         gfx_draw_offline_badge(s_rawBuffer);
-        rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
+        rotate_buffer_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
         renderRotatedBuffer(s_rotatedBuffer);
       }
     }
@@ -1112,7 +1176,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     Serial.printf("[Sync] Received %u / %u bytes.\n", totalReceived, EPD_BUFFER_SIZE);
 
     if (totalReceived == EPD_BUFFER_SIZE) {
-      rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
+      rotate_buffer_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
       cachePut(s_currentItemIndex, newEtag, s_rotatedBuffer);
       renderRotatedBuffer(s_rotatedBuffer);
     } else {

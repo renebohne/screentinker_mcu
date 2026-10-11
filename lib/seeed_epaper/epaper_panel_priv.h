@@ -56,3 +56,6 @@ void seeed_epaper_panel_mirror_x(uint8_t *buffer, uint16_t width, uint16_t heigh
 
 const seeed_epaper_driver_t *seeed_epaper_uc8179_driver(void);
 const seeed_epaper_driver_t *seeed_epaper_ssd1677_driver(void);
+const seeed_epaper_driver_t *seeed_epaper_ed2208_driver(void);
+const seeed_epaper_driver_t *seeed_epaper_it8951_driver(void);
+const seeed_epaper_driver_t *seeed_epaper_t133a01_driver(void);

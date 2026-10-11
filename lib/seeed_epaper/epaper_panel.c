@@ -60,6 +60,10 @@ static const char *pixel_format_name(seeed_epaper_pixel_format_t format)
         return "gray8";
     case SEEED_EPAPER_PIXEL_FORMAT_RGB565:
         return "rgb565";
+    case SEEED_EPAPER_PIXEL_FORMAT_SPECTRA6:
+        return "spectra6";
+    case SEEED_EPAPER_PIXEL_FORMAT_GRAY16:
+        return "gray16";
     default:
         return "unknown";
     }
@@ -128,7 +132,7 @@ static esp_err_t ensure_framebuffer(seeed_epaper_panel_t *panel)
     // 完整对比帧优先放入PSRAM，分配失败时再使用内部内存。
     ESP_RETURN_ON_FALSE(panel != NULL, ESP_ERR_INVALID_ARG, TAG, "panel is null");
 
-    const size_t stride = packed_mono_stride(panel->info.width);
+    const size_t stride = (panel->info.native_bpp == 4) ? (size_t)((panel->info.width + 1U) >> 1) : packed_mono_stride(panel->info.width);
     const size_t len = stride * panel->info.height;
     if (panel->framebuffer != NULL && panel->framebuffer_len == len) {
         return ESP_OK;
@@ -275,6 +279,9 @@ static size_t pixel_format_stride(uint16_t width, seeed_epaper_pixel_format_t fo
         return (size_t)width;
     case SEEED_EPAPER_PIXEL_FORMAT_RGB565:
         return (size_t)width * sizeof(uint16_t);
+    case SEEED_EPAPER_PIXEL_FORMAT_SPECTRA6:
+    case SEEED_EPAPER_PIXEL_FORMAT_GRAY16:
+        return (size_t)((width + 1U) >> 1);
     default:
         return 0;
     }
@@ -682,9 +689,15 @@ static esp_err_t configure_gpio(const seeed_epaper_panel_config_t *config)
     if (gpio_is_valid(config->pin_enable)) {
         output_mask |= 1ULL << config->pin_enable;
     }
+    if (gpio_is_valid(config->pin_cs1)) {
+        output_mask |= 1ULL << config->pin_cs1;
+    }
     if (output_mask != 0U) {
         io_conf.pin_bit_mask = output_mask;
         ESP_RETURN_ON_ERROR(gpio_config(&io_conf), TAG, "configure output gpio failed");
+        if (gpio_is_valid(config->pin_cs1)) {
+            gpio_set_level(config->pin_cs1, 1);
+        }
     }
 
     if (gpio_is_valid(config->pin_busy)) {
@@ -741,6 +754,12 @@ static const seeed_epaper_driver_t *select_driver(seeed_epaper_panel_model_t mod
         return seeed_epaper_uc8179_driver();
     case SEEED_EPAPER_PANEL_SSD1677:
         return seeed_epaper_ssd1677_driver();
+    case SEEED_EPAPER_PANEL_ED2208:
+        return seeed_epaper_ed2208_driver();
+    case SEEED_EPAPER_PANEL_IT8951:
+        return seeed_epaper_it8951_driver();
+    case SEEED_EPAPER_PANEL_T133A01:
+        return seeed_epaper_t133a01_driver();
     default:
         return NULL;
     }
@@ -753,7 +772,7 @@ esp_err_t seeed_epaper_new_panel(seeed_epaper_panel_model_t model,
     ESP_RETURN_ON_FALSE(config != NULL, ESP_ERR_INVALID_ARG, TAG, "config is null");
     ESP_RETURN_ON_FALSE(ret_panel != NULL, ESP_ERR_INVALID_ARG, TAG, "ret_panel is null");
     ESP_RETURN_ON_FALSE(config->spi_handle != NULL, ESP_ERR_INVALID_ARG, TAG, "spi handle is null");
-    ESP_RETURN_ON_FALSE(gpio_is_valid(config->pin_dc), ESP_ERR_INVALID_ARG, TAG, "pin_dc is invalid");
+    ESP_RETURN_ON_FALSE(config->pin_dc != GPIO_NUM_NC ? gpio_is_valid(config->pin_dc) : true, ESP_ERR_INVALID_ARG, TAG, "pin_dc is invalid");
 
     const seeed_epaper_driver_t *driver = select_driver(model);
     ESP_RETURN_ON_FALSE(driver != NULL, ESP_ERR_NOT_SUPPORTED, TAG, "panel model not supported");
@@ -953,15 +972,25 @@ esp_err_t seeed_epaper_panel_write_bitmap(seeed_epaper_panel_handle_t panel,
 
     uint8_t *native = NULL;
     size_t native_len = 0;
-    err = build_native_1bpp(&clipped,
-                            &aligned,
-                            pixels,
-                            src_stride_bytes,
-                            input_format,
-                            panel->config.mirror_x,
-                            &native,
-                            &native_len);
-    ESP_RETURN_ON_ERROR(err, TAG, "build native buffer failed");
+    if (input_format == SEEED_EPAPER_PIXEL_FORMAT_SPECTRA6 || input_format == SEEED_EPAPER_PIXEL_FORMAT_GRAY16) {
+        if (src_stride_bytes == 0U) {
+            src_stride_bytes = pixel_format_stride(aligned.width, input_format);
+        }
+        native_len = src_stride_bytes * aligned.height;
+        native = (uint8_t *)alloc_temp_buffer(native_len);
+        ESP_RETURN_ON_FALSE(native != NULL, ESP_ERR_NO_MEM, TAG, "alloc native buffer failed");
+        memcpy(native, pixels, native_len);
+    } else {
+        err = build_native_1bpp(&clipped,
+                                &aligned,
+                                pixels,
+                                src_stride_bytes,
+                                input_format,
+                                panel->config.mirror_x,
+                                &native,
+                                &native_len);
+        ESP_RETURN_ON_ERROR(err, TAG, "build native buffer failed");
+    }
     APP_EPAPER_DEBUG_LOGI(TAG,
              "write_bitmap native buffer ready: len=%u effective_mode=%s mirror_x=%d",
              (unsigned)native_len,

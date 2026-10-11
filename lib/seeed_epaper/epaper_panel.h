@@ -21,6 +21,9 @@ typedef struct seeed_epaper_panel_t *seeed_epaper_panel_handle_t;
 typedef enum {
     SEEED_EPAPER_PANEL_UC8179 = 0,
     SEEED_EPAPER_PANEL_SSD1677,
+    SEEED_EPAPER_PANEL_ED2208,
+    SEEED_EPAPER_PANEL_IT8951,
+    SEEED_EPAPER_PANEL_T133A01,
 } seeed_epaper_panel_model_t;
 
 typedef enum {
@@ -34,6 +37,8 @@ typedef enum {
     SEEED_EPAPER_PIXEL_FORMAT_GRAY4,
     SEEED_EPAPER_PIXEL_FORMAT_GRAY8,
     SEEED_EPAPER_PIXEL_FORMAT_RGB565,
+    SEEED_EPAPER_PIXEL_FORMAT_SPECTRA6,
+    SEEED_EPAPER_PIXEL_FORMAT_GRAY16,
 } seeed_epaper_pixel_format_t;
 
 typedef struct {
@@ -60,6 +65,7 @@ typedef struct {
     gpio_num_t pin_rst;
     gpio_num_t pin_busy;
     gpio_num_t pin_enable;
+    gpio_num_t pin_cs1;
     uint32_t busy_timeout_ms;
     uint16_t reset_low_ms;
     uint16_t reset_high_ms;

@@ -10,16 +10,70 @@
 #include <vector>
 #include <cstring>
 
-static bool runPairingFlow(SimConfig& cfg, SimHttp& http, SimDisplay& display, uint8_t* monoBuffer) {
+static void monoToNativeBuffer(const uint8_t* monoBuf, uint8_t* nativeBuf, int width, int height, SimColorMode colorMode) {
+  if (colorMode == SIM_COLOR_1BPP_MONO) {
+    std::memcpy(nativeBuf, monoBuf, ((size_t)width * height) / 8);
+    return;
+  }
+  if (colorMode == SIM_COLOR_SPECTRA6) {
+    for (int y = 0; y < height; ++y) {
+      for (int x = 0; x < width; ++x) {
+        size_t monoIdx = ((size_t)y * (width / 8)) + (x / 8);
+        uint8_t bit = (monoBuf[monoIdx] >> (7 - (x & 7))) & 1;
+        uint8_t nibble = bit ? 0x01 : 0x00;
+        size_t natIdx = ((size_t)y * (width / 2)) + (x / 2);
+        if ((x & 1) == 0) {
+          nativeBuf[natIdx] = (nibble << 4);
+        } else {
+          nativeBuf[natIdx] |= (nibble & 0x0F);
+        }
+      }
+    }
+  } else if (colorMode == SIM_COLOR_GRAY16) {
+    for (int y = 0; y < height; ++y) {
+      for (int x = 0; x < width; ++x) {
+        size_t monoIdx = ((size_t)y * (width / 8)) + (x / 8);
+        uint8_t bit = (monoBuf[monoIdx] >> (7 - (x & 7))) & 1;
+        uint8_t nibble = bit ? 0x0F : 0x00;
+        size_t natIdx = ((size_t)y * (width / 2)) + (x / 2);
+        if ((x & 1) == 0) {
+          nativeBuf[natIdx] = (nibble << 4);
+        } else {
+          nativeBuf[natIdx] |= (nibble & 0x0F);
+        }
+      }
+    }
+  } else if (colorMode == SIM_COLOR_GRAY4) {
+    for (int y = 0; y < height; ++y) {
+      for (int x = 0; x < width; ++x) {
+        size_t monoIdx = ((size_t)y * (width / 8)) + (x / 8);
+        uint8_t bit = (monoBuf[monoIdx] >> (7 - (x & 7))) & 1;
+        uint8_t val = bit ? 0x03 : 0x00;
+        size_t natIdx = ((size_t)y * (width / 4)) + (x / 4);
+        uint8_t shift = 6 - 2 * (x & 3);
+        if ((x & 3) == 0) nativeBuf[natIdx] = 0;
+        nativeBuf[natIdx] |= (val << shift);
+      }
+    }
+  }
+}
+
+static bool runPairingFlow(SimConfig& cfg, SimHttp& http, SimDisplay& display, uint8_t* frameBuffer) {
   std::cout << "\n=======================================================\n"
             << "  STARTING AUTOMATIC 6-DIGIT DEVICE PAIRING FLOW\n"
             << "=======================================================\n"
             << " • Server:         " << cfg.serverUrl << "\n"
-            << " • Screen Profile: " << cfg.width << "x" << cfg.height << " (" << cfg.screenProfile << ")\n";
+            << " • Screen Profile: " << cfg.width << "x" << cfg.height << " (" << cfg.screenProfile << ")\n"
+            << " • Color Mode:     " << cfg.colorModeString() << "\n";
 
   std::string registerUrl = cfg.serverUrl + "/api/embedded/pair/register";
-  std::string regBody = "{\"screen_profile\":\"" + cfg.screenProfile + "\",\"screen_width\":" +
-                        std::to_string(cfg.width) + ",\"screen_height\":" + std::to_string(cfg.height) + "}";
+  std::string regBody = "{\"screen_profile\":\"" + cfg.screenProfile +
+                        "\",\"screen_width\":" + std::to_string(cfg.width) +
+                        ",\"screen_height\":" + std::to_string(cfg.height) +
+                        ",\"color_mode\":\"" + cfg.colorModeString() +
+                        "\",\"supports_partial_refresh\":" + (cfg.supportsPartialRefresh ? "true" : "false") +
+                        ",\"full_refresh_time_ms\":" + std::to_string(cfg.fullRefreshTimeMs) +
+                        ",\"partial_refresh_time_ms\":" + std::to_string(cfg.partialRefreshTimeMs) + "}";
 
   SimHttpResponse regRes = http.postJson(registerUrl, regBody);
   if (regRes.statusCode != 200) {
@@ -46,9 +100,11 @@ static bool runPairingFlow(SimConfig& cfg, SimHttp& http, SimDisplay& display, u
             << "=======================================================\n";
 
   // Render Pairing PIN + QR code on E-Paper display
-  renderPairingCodeScreen(monoBuffer, pairingCode.c_str(), cfg.serverUrl.c_str(), LANG_EN);
-  display.renderBuffer(monoBuffer);
-  display.saveBmp(monoBuffer, cfg.snapshotPath);
+  std::vector<uint8_t> monoBuffer(gfx_get_buffer_size(), 0xFF);
+  renderPairingCodeScreen(monoBuffer.data(), pairingCode.c_str(), cfg.serverUrl.c_str(), LANG_EN);
+  monoToNativeBuffer(monoBuffer.data(), frameBuffer, cfg.width, cfg.height, cfg.colorMode);
+  display.renderBuffer(frameBuffer);
+  display.saveBmp(frameBuffer, cfg.snapshotPath);
 
   // Poll pairing status every 2.5 seconds until claimed
   std::string statusUrl = cfg.serverUrl + "/api/embedded/pair/status?device_id=" + deviceId;
@@ -101,18 +157,19 @@ int main(int argc, char** argv) {
 
   gfx_set_screen_dimensions(cfg.width, cfg.height);
 
-  SimDisplay display(cfg.headless, cfg.width, cfg.height, cfg.scale);
+  SimDisplay display(cfg.headless, cfg.width, cfg.height, cfg.scale, cfg.colorMode);
   if (!display.init()) {
     std::cerr << "[Simulator] Failed to initialize display.\n";
     return 1;
   }
 
   SimHttp http(cfg.timeoutMs);
-  std::vector<uint8_t> monoBuffer(cfg.bufferSize(), 0xFF);
+  std::vector<uint8_t> frameBuffer(cfg.bufferSize(), 0xFF);
+  std::vector<uint8_t> monoBuffer(gfx_get_buffer_size(), 0xFF);
 
   // Check if Pairing flow is required
   if (cfg.pairMode || cfg.deviceToken.empty()) {
-    if (!runPairingFlow(cfg, http, display, monoBuffer.data())) {
+    if (!runPairingFlow(cfg, http, display, frameBuffer.data())) {
       std::cerr << "[Simulator] Pairing failed or was aborted.\n";
       return 1;
     }
@@ -122,8 +179,9 @@ int main(int argc, char** argv) {
     // 1. Show Splash Screen at boot
     std::cout << "[Simulator] Booting: Displaying Firmware v" << cfg.firmwareVersion << " Splash Screen...\n";
     renderSplashScreen(monoBuffer.data(), cfg.firmwareVersion.c_str(), "Connecting to ScreenTinker...", LANG_EN);
-    display.renderBuffer(monoBuffer.data());
-    display.saveBmp(monoBuffer.data(), cfg.snapshotPath);
+    monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+    display.renderBuffer(frameBuffer.data());
+    display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
 
     // Small delay so user can see splash screen in window
     if (!cfg.headless && !cfg.oneShot) {
@@ -163,6 +221,13 @@ int main(int argc, char** argv) {
     if (res.hasHeader("x-st-power-state")) {
       std::cout << "[Sync] Power State: " << res.getHeader("x-st-power-state") << "\n";
     }
+    if (res.hasHeader("x-st-refresh-mode")) {
+      std::string reqRefresh = res.getHeader("x-st-refresh-mode");
+      if (reqRefresh == "partial" && !cfg.supportsPartialRefresh) {
+        std::cout << "[Display] Notice: Device '" << cfg.model
+                  << "' (Spectra 6) does not support partial refresh; promoting to full refresh.\n";
+      }
+    }
 
     std::string cmd = res.getHeader("x-st-command");
     if (!cmd.empty()) {
@@ -178,10 +243,10 @@ int main(int argc, char** argv) {
       if (!etag.empty()) lastEtag = etag;
 
       if (res.body.size() == cfg.bufferSize()) {
-        std::memcpy(monoBuffer.data(), res.body.data(), cfg.bufferSize());
+        std::memcpy(frameBuffer.data(), res.body.data(), cfg.bufferSize());
         std::cout << "[Sync] 200 OK — Downloaded new frame (" << cfg.bufferSize() << " bytes). Updating display.\n";
-        display.renderBuffer(monoBuffer.data());
-        display.saveBmp(monoBuffer.data(), cfg.snapshotPath);
+        display.renderBuffer(frameBuffer.data());
+        display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
       } else {
         std::cerr << "[Sync] Warning: Received 200 OK but payload size is " << res.body.size()
                   << " bytes (expected " << cfg.bufferSize() << ")\n";
@@ -204,8 +269,9 @@ int main(int argc, char** argv) {
                 << (deviceName.empty() ? "(unnamed)" : deviceName) << "'...\n";
 
       renderEmptyPlaylistScreen(monoBuffer.data(), deviceName.c_str(), cfg.serverUrl.c_str(), LANG_EN);
-      display.renderBuffer(monoBuffer.data());
-      display.saveBmp(monoBuffer.data(), cfg.snapshotPath);
+      monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+      display.renderBuffer(frameBuffer.data());
+      display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
       lastEtag = ""; // Reset ETag on empty playlist
     } else if (res.statusCode == 501) {
       std::string detail = "Widget rendering requires a browser (set CHROME_PATH).";
@@ -221,14 +287,16 @@ int main(int argc, char** argv) {
       }
       std::cout << "[Sync] 501 Unsupported Content — " << detail << "\n";
       renderUnsupportedContentScreen(monoBuffer.data(), detail.c_str(), LANG_EN);
-      display.renderBuffer(monoBuffer.data());
-      display.saveBmp(monoBuffer.data(), cfg.snapshotPath);
+      monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+      display.renderBuffer(frameBuffer.data());
+      display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
       lastEtag = "";
     } else {
       std::cerr << "[Sync] Connection failed (code " << res.statusCode << "). Rendering No Wi-Fi / Offline warning...\n";
       renderNoWifiScreen(monoBuffer.data(), "ScreenTinker Server", LANG_EN);
-      display.renderBuffer(monoBuffer.data());
-      display.saveBmp(monoBuffer.data(), cfg.snapshotPath);
+      monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+      display.renderBuffer(frameBuffer.data());
+      display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
     }
 
     if (cfg.oneShot) {

@@ -21,27 +21,89 @@ from urllib.parse import urlparse, parse_qs
 # Standard 800x480 monochrome 1-bit frame (800 * 480 / 8 = 48,000 bytes)
 EPD_FRAME_SIZE = 48000
 
-def generate_mock_frame(pattern: str = "checkerboard", width: int = 800, height: int = 480) -> bytes:
-    """Generates deterministic 1-bit monochrome test patterns for arbitrary resolutions."""
-    frame_size = (width * height) // 8
-    data = bytearray(frame_size)
-    if pattern == "checkerboard":
-        row_bytes = width // 8
-        for y in range(height):
-            byte_val = 0xAA if (y % 16 < 8) else 0x55
-            offset = y * row_bytes
-            for x in range(row_bytes):
-                data[offset + x] = byte_val
-    elif pattern == "solid_white":
+def generate_mock_frame(pattern: str = "checkerboard", width: int = 800, height: int = 480, color_mode: str = "mono") -> bytes:
+    """Generates deterministic test patterns for arbitrary resolutions and color modes."""
+    if color_mode == "spectra6":
+        # 4 bits per pixel (2 pixels per byte):
+        # 0: Black, 1: White, 2: Yellow, 3: Red, 4: Blue, 5: Green
+        frame_size = (width * height) // 2
+        data = bytearray(frame_size)
+        if pattern == "spectra_stripes":
+            # 4 horizontal stripes: Yellow, Red, Blue, Green
+            stripe_h = height // 4
+            for y in range(height):
+                if y < stripe_h:
+                    color = 2  # Yellow
+                elif y < stripe_h * 2:
+                    color = 3  # Red
+                elif y < stripe_h * 3:
+                    color = 4  # Blue
+                else:
+                    color = 5  # Green
+                byte_val = (color << 4) | color
+                row_start = y * (width // 2)
+                for x in range(width // 2):
+                    data[row_start + x] = byte_val
+        elif pattern == "solid_red":
+            for i in range(frame_size):
+                data[i] = 0x33
+        else:
+            for i in range(frame_size):
+                data[i] = ((i % 6) << 4) | ((i + 1) % 6)
+        return bytes(data)
+
+    elif color_mode == "gray16":
+        # 4 bits per pixel (2 pixels per byte), levels 0x0 (black) to 0xF (white)
+        frame_size = (width * height) // 2
+        data = bytearray(frame_size)
+        if pattern == "gray16_ramp":
+            stripe_h = height // 4
+            for y in range(height):
+                if y < stripe_h:
+                    val = 0x0  # Black
+                elif y < stripe_h * 2:
+                    val = 0x5  # Dark Gray (~85)
+                elif y < stripe_h * 3:
+                    val = 0xA  # Light Gray (~170)
+                else:
+                    val = 0xF  # White (255)
+                byte_val = (val << 4) | val
+                row_start = y * (width // 2)
+                for x in range(width // 2):
+                    data[row_start + x] = byte_val
+        else:
+            for i in range(frame_size):
+                data[i] = 0x88  # Mid-gray
+        return bytes(data)
+
+    elif color_mode == "gray4":
+        frame_size = (width * height) // 4
+        data = bytearray(frame_size)
         for i in range(frame_size):
-            data[i] = 0xFF
-    elif pattern == "solid_black":
-        for i in range(frame_size):
-            data[i] = 0x00
+            data[i] = 0x55
+        return bytes(data)
+
     else:
-        for i in range(frame_size):
-            data[i] = (i & 0xFF)
-    return bytes(data)
+        # 1-bit monochrome (default)
+        frame_size = (width * height) // 8
+        data = bytearray(frame_size)
+        if pattern == "checkerboard":
+            row_bytes = width // 8
+            for y in range(height):
+                byte_val = 0xAA if (y % 16 < 8) else 0x55
+                offset = y * row_bytes
+                for x in range(row_bytes):
+                    data[offset + x] = byte_val
+        elif pattern == "solid_white":
+            for i in range(frame_size):
+                data[i] = 0xFF
+        elif pattern == "solid_black":
+            for i in range(frame_size):
+                data[i] = 0x00
+        else:
+            for i in range(frame_size):
+                data[i] = (i & 0xFF)
+        return bytes(data)
 
 
 class MockServerState:
@@ -64,6 +126,9 @@ class MockServerState:
             self.device_id = "test-device-uuid-456"
             self.screen_width = 800
             self.screen_height = 480
+            self.color_mode = "mono"
+            self.frame_pattern = "checkerboard"
+            self.refresh_mode_header = None
             self.last_pair_register = {}
             self.requests_log = []
             self.last_telemetry = {}
@@ -164,13 +229,15 @@ class MockRequestHandler(BaseHTTPRequestHandler):
                 return
 
             # 200 OK Normal Frame Delivery
-            frame_bytes = generate_mock_frame("checkerboard", self.state.screen_width, self.state.screen_height)
+            frame_bytes = generate_mock_frame(self.state.frame_pattern, self.state.screen_width, self.state.screen_height, self.state.color_mode)
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(len(frame_bytes)))
             self.send_header("ETag", f'"{current_etag}"')
             self.send_header("X-ST-Expires-In", str(exp_sec))
             self.send_header("X-ST-Power-State", p_state)
+            if self.state.refresh_mode_header:
+                self.send_header("X-ST-Refresh-Mode", self.state.refresh_mode_header)
             if scenario == "reboot":
                 self.send_header("X-ST-Command", "reboot")
             self.end_headers()

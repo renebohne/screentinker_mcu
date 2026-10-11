@@ -16,6 +16,12 @@ enum Language {
   LANG_DE = 1
 };
 
+enum OrientationMode {
+  ORIENT_MODE_AUTO = 0,
+  ORIENT_MODE_LANDSCAPE = 1,
+  ORIENT_MODE_PORTRAIT = 2
+};
+
 // ─── Simple 8x8 ASCII Font (Characters 32 - 126) ─────────────────────────────
 extern const uint8_t font8x8_basic[95][8];
 
@@ -41,7 +47,7 @@ void renderNoWifiScreen(uint8_t* buffer, const char* ssid, Language lang = LANG_
 void renderEmptyPlaylistScreen(uint8_t* buffer, const char* deviceName, const char* serverUrl, Language lang = LANG_EN);
 void renderPairingCodeScreen(uint8_t* buffer, const char* code, const char* serverUrl, Language lang = LANG_EN);
 void renderStatusInfoScreen(uint8_t* buffer, const char* ip, const char* ssid, int rssi, const char* serverUrl, const char* devId, const char* version, Language lang = LANG_EN);
-void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang = LANG_EN, uint8_t wifiTxLevel = 0);
+void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang = LANG_EN, uint8_t wifiTxLevel = 0, uint8_t orientMode = 1, bool hasImu = false);
 void renderPowerOffScreen(uint8_t* buffer, Language lang = LANG_EN);
 void renderUnsupportedContentScreen(uint8_t* buffer, const char* reason = nullptr, Language lang = LANG_EN);
 void gfx_draw_offline_badge(uint8_t* buffer);

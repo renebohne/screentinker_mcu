@@ -460,9 +460,8 @@ void renderPairingCodeScreen(uint8_t* buffer, const char* code, const char* serv
   }
 }
 
-// ─── 3. Settings Menu (7 Items with Language Selection) ──────────────────────
-// ─── 3. Settings Menu (7 Items with Wi-Fi Power & Language) ──────────────────
-void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t wifiTxLevel) {
+// ─── 3. Settings Menu (8 Items with Orientation, Wi-Fi Power & Language) ─────
+void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t wifiTxLevel, uint8_t orientMode, bool hasImu) {
   gfx_fill(buffer, 1);
 
   // Header Banner
@@ -474,58 +473,84 @@ void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t
     gfx_draw_string(buffer, 56, 16, "ScreenTinker — Settings", 1, 3);
   }
 
+  char orientDE[64];
+  char orientEN[64];
+  if (hasImu) {
+    if (orientMode == ORIENT_MODE_AUTO) {
+      snprintf(orientDE, sizeof(orientDE), "2. AUSRICHTUNG: AUTO [IMU]");
+      snprintf(orientEN, sizeof(orientEN), "2. ORIENTATION: AUTO [IMU]");
+    } else if (orientMode == ORIENT_MODE_PORTRAIT) {
+      snprintf(orientDE, sizeof(orientDE), "2. AUSRICHTUNG: HOCHFORMAT");
+      snprintf(orientEN, sizeof(orientEN), "2. ORIENTATION: PORTRAIT");
+    } else {
+      snprintf(orientDE, sizeof(orientDE), "2. AUSRICHTUNG: QUERFORMAT");
+      snprintf(orientEN, sizeof(orientEN), "2. ORIENTATION: LANDSCAPE");
+    }
+  } else {
+    if (orientMode == ORIENT_MODE_PORTRAIT) {
+      snprintf(orientDE, sizeof(orientDE), "2. AUSRICHTUNG: HOCHFORMAT");
+      snprintf(orientEN, sizeof(orientEN), "2. ORIENTATION: PORTRAIT");
+    } else {
+      snprintf(orientDE, sizeof(orientDE), "2. AUSRICHTUNG: QUERFORMAT");
+      snprintf(orientEN, sizeof(orientEN), "2. ORIENTATION: LANDSCAPE");
+    }
+  }
+
   char wifiPwrDE[64];
   char wifiPwrEN[64];
   if (wifiTxLevel == 1) {
-    snprintf(wifiPwrDE, sizeof(wifiPwrDE), "2. WLAN-LEISTUNG: MITTEL [15 dBm]");
-    snprintf(wifiPwrEN, sizeof(wifiPwrEN), "2. WI-FI POWER: MED [15 dBm]");
+    snprintf(wifiPwrDE, sizeof(wifiPwrDE), "3. WLAN-LEISTUNG: MITTEL [15 dBm]");
+    snprintf(wifiPwrEN, sizeof(wifiPwrEN), "3. WI-FI POWER: MED [15 dBm]");
   } else if (wifiTxLevel == 2) {
-    snprintf(wifiPwrDE, sizeof(wifiPwrDE), "2. WLAN-LEISTUNG: NIEDRIG [11 dBm]");
-    snprintf(wifiPwrEN, sizeof(wifiPwrEN), "2. WI-FI POWER: LOW [11 dBm]");
+    snprintf(wifiPwrDE, sizeof(wifiPwrDE), "3. WLAN-LEISTUNG: NIEDRIG [11 dBm]");
+    snprintf(wifiPwrEN, sizeof(wifiPwrEN), "3. WI-FI POWER: LOW [11 dBm]");
   } else {
-    snprintf(wifiPwrDE, sizeof(wifiPwrDE), "2. WLAN-LEISTUNG: MAX [19.5 dBm]");
-    snprintf(wifiPwrEN, sizeof(wifiPwrEN), "2. WI-FI POWER: MAX [19.5 dBm]");
+    snprintf(wifiPwrDE, sizeof(wifiPwrDE), "3. WLAN-LEISTUNG: MAX [19.5 dBm]");
+    snprintf(wifiPwrEN, sizeof(wifiPwrEN), "3. WI-FI POWER: MAX [19.5 dBm]");
   }
 
-  const char* menuItemsDE[7] = {
+  const char* menuItemsDE[8] = {
     "1. STATUS & INFO",
+    orientDE,
     wifiPwrDE,
-    "3. SPRACHE: DEUTSCH [DE]",
-    "4. GERAET ENTKOPPELN (UNPAIR)",
-    "5. AUSSCHALTEN / STANDBY",
-    "6. WERKSEINSTELLUNGEN (RESET)",
-    "7. ZURUECK / SCHLIESSEN"
+    "4. SPRACHE: DEUTSCH [DE]",
+    "5. GERAET ENTKOPPELN (UNPAIR)",
+    "6. AUSSCHALTEN / STANDBY",
+    "7. WERKSEINSTELLUNGEN (RESET)",
+    "8. ZURUECK / SCHLIESSEN"
   };
 
-  const char* menuItemsEN[7] = {
+  const char* menuItemsEN[8] = {
     "1. STATUS & INFO",
+    orientEN,
     wifiPwrEN,
-    "3. LANGUAGE: ENGLISH [EN]",
-    "4. UNPAIR DEVICE",
-    "5. POWER OFF / STANDBY",
-    "6. FACTORY RESET",
-    "7. BACK / CLOSE"
+    "4. LANGUAGE: ENGLISH [EN]",
+    "5. UNPAIR DEVICE",
+    "6. POWER OFF / STANDBY",
+    "7. FACTORY RESET",
+    "8. BACK / CLOSE"
   };
 
   const char** menuItems = (lang == LANG_DE) ? menuItemsDE : menuItemsEN;
 
-  int startY = 66;
-  int itemH = 43;
+  int startY = 60;
+  int itemH = 38;
+  int itemGap = 5;
   int itemW = s_epd_width - 60;
   int itemX = 30;
 
-  for (int i = 0; i < 7; i++) {
-    int y = startY + i * (itemH + 6);
+  for (int i = 0; i < 8; i++) {
+    int y = startY + i * (itemH + itemGap);
     if (i == selectedIndex) {
       gfx_fill_rect(buffer, itemX, y, itemW, itemH, 0);
       char selText[64];
       snprintf(selText, sizeof(selText), "> %s", menuItems[i]);
-      gfx_draw_string(buffer, itemX + 20, y + 12, selText, 1, 2);
+      gfx_draw_string(buffer, itemX + 20, y + 11, selText, 1, 2);
     } else {
       gfx_draw_rect(buffer, itemX, y, itemW, itemH, 0);
       char normText[64];
       snprintf(normText, sizeof(normText), "  %s", menuItems[i]);
-      gfx_draw_string(buffer, itemX + 20, y + 12, normText, 0, 2);
+      gfx_draw_string(buffer, itemX + 20, y + 11, normText, 0, 2);
     }
   }
 

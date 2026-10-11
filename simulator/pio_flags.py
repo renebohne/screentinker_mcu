@@ -7,6 +7,8 @@ Import("env")
 env.Append(CFLAGS=["-std=gnu11"])
 
 def after_build(source, target, env):
+    if env.get("PIOENV") != "simulator":
+        return
     prog_path = str(target[0])
     dest_path = os.path.join(env.get("PROJECT_DIR"), "screentinker_sim")
     try:

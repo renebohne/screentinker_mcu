@@ -43,3 +43,7 @@
 #define PIN_TOUCH_EN     42
 #define PIN_TOUCH_INT    21
 #define PIN_TOUCH_RST    41
+
+// ─── 6-Axis IMU (ST LSM6DS3TR-C) ──────────────────────────────────────────────
+#define PIN_IMU_INT      7   // IMU Interrupt 1 (INT1)
+#define IMU_I2C_ADDR     0x6A

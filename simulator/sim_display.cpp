@@ -233,8 +233,9 @@ bool SimDisplay::pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerT
           std::cout << "[Simulator] Manual wake-up triggered by keypress!\n";
           break;
         case SDLK_r:
+        case SDLK_o:
           rotateRequested = true;
-          std::cout << "[Simulator] Manual rotation toggle triggered by keypress 'R'!\n";
+          std::cout << "[Simulator] Manual orientation/rotation toggle triggered by keypress ('R'/'O')!\n";
           break;
         case SDLK_UP:
           batteryDelta = +10;

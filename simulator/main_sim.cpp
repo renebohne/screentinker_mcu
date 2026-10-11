@@ -350,7 +350,7 @@ int main(int argc, char** argv) {
       return (res.statusCode == 0) ? 1 : 0;
     }
 
-    std::cout << "[Sleep] Next poll scheduled in " << sleepDurationSec << "s (Press [Space] to wake, [R] to rotate, [P] to toggle USB/Battery, [B] to toggle battery level, [Q] to quit)\n";
+    std::cout << "[Sleep] Next poll scheduled in " << sleepDurationSec << "s (Press [Space] to wake, [O]/[R] to rotate orientation, [P] to toggle USB/Battery, [B] to toggle battery level, [Q] to quit)\n";
 
     // Simulate sleep interval while polling interactive SDL2 events
     auto sleepStart = std::chrono::steady_clock::now();

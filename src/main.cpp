@@ -14,18 +14,27 @@ extern "C" {
 #include "device_profile.h"
 #include "config.h"
 #include "setup_screen.h"
+#include "imu_driver.h"
 
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <Wire.h>
 
-// ─── Hardware Fuel Gauge (TI BQ27220) ────────────────────────────────────────
-static int readBatteryPercent() {
-  static bool wireStarted = false;
-  if (!wireStarted) {
+// ─── Hardware I2C & Fuel Gauge (TI BQ27220) ──────────────────────────────────
+static bool s_wireInitialized = false;
+static void ensureI2C() {
+  if (!s_wireInitialized) {
+#if defined(PIN_I2C_SDA) && defined(PIN_I2C_SCL)
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL, 100000);
-    wireStarted = true;
+#else
+    Wire.begin();
+#endif
+    s_wireInitialized = true;
   }
+}
+
+static int readBatteryPercent() {
+  ensureI2C();
 
   // BQ27220 standard command StateOfCharge() is at 0x2C (16-bit little-endian)
   Wire.beginTransmission(0x55);
@@ -468,6 +477,18 @@ static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = fa
 static Language s_currentLang = LANG_EN;
 static uint8_t s_wifiTxPowerLevel = 0; // 0 = MAX (19.5 dBm), 1 = MED (15 dBm), 2 = LOW (11 dBm)
 
+#if DEVICE_SUPPORTS_IMU
+static bool s_hasImu = true;
+#else
+static bool s_hasImu = false;
+#endif
+
+static OrientationMode s_orientationMode = ORIENT_MODE_LANDSCAPE;
+static int s_activeOrientation = ORIENTATION_LANDSCAPE_0;
+static int s_pendingOrientation = -1;
+static uint32_t s_pendingOrientationStart = 0;
+static uint32_t s_lastImuCheckMillis = 0;
+
 void showSplashScreen(const char* version, const char* statusMsg) {
   if (!s_rawBuffer || !s_rotatedBuffer) return;
   Serial.printf("[Display] Rendering Splash Screen (v%s, %s)...\n", version ? version : FIRMWARE_VERSION, statusMsg ? statusMsg : "");
@@ -523,9 +544,9 @@ static uint32_t s_menuOpenMillis = 0;
 
 void showSystemMenu(int selectedIndex, bool fastPartial = false) {
   if (!s_rawBuffer || !s_rotatedBuffer) return;
-  Serial.printf("[Display] Rendering System Menu (Item: %d, Fast: %d, Lang: %s, TxPwr: %d)...\n",
-                selectedIndex, fastPartial ? 1 : 0, (s_currentLang == LANG_DE) ? "DE" : "EN", s_wifiTxPowerLevel);
-  renderSystemMenu(s_rawBuffer, selectedIndex, s_currentLang, s_wifiTxPowerLevel);
+  Serial.printf("[Display] Rendering System Menu (Item: %d, Fast: %d, Lang: %s, TxPwr: %d, OrientMode: %d)...\n",
+                selectedIndex, fastPartial ? 1 : 0, (s_currentLang == LANG_DE) ? "DE" : "EN", s_wifiTxPowerLevel, (int)s_orientationMode);
+  renderSystemMenu(s_rawBuffer, selectedIndex, s_currentLang, s_wifiTxPowerLevel, (uint8_t)s_orientationMode, s_hasImu);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, fastPartial);
 }
@@ -707,16 +728,29 @@ void loadConfigFromNVS() {
   s_currentLang = (langCode == 1) ? LANG_DE : LANG_EN;
   s_wifiTxPowerLevel = s_prefs.getUChar("wifi_tx_pwr", 0);
   if (s_wifiTxPowerLevel > 2) s_wifiTxPowerLevel = 0;
+  uint8_t defOrient = s_hasImu ? (uint8_t)ORIENT_MODE_AUTO : (uint8_t)ORIENT_MODE_LANDSCAPE;
+  uint8_t savedOrient = s_prefs.getUChar("orient_mode", defOrient);
+  if (!s_hasImu && savedOrient == ORIENT_MODE_AUTO) {
+    savedOrient = ORIENT_MODE_LANDSCAPE;
+  }
+  if (savedOrient > 2) savedOrient = defOrient;
+  s_orientationMode = (OrientationMode)savedOrient;
+  if (s_orientationMode == ORIENT_MODE_LANDSCAPE) {
+    s_activeOrientation = ORIENTATION_LANDSCAPE_0;
+  } else if (s_orientationMode == ORIENT_MODE_PORTRAIT) {
+    s_activeOrientation = ORIENTATION_PORTRAIT_90;
+  }
   s_prefs.end();
 
   Serial.println("[Config] Loaded configuration from NVS/Defaults:");
-  Serial.printf("  SSID:       %s\n", g_wifiSsid.c_str());
-  Serial.printf("  Server:     %s\n", g_serverUrl.c_str());
-  Serial.printf("  Device ID:  %s\n", g_deviceId.c_str());
-  Serial.printf("  Token set:  %s\n", g_deviceToken.length() > 0 ? "YES" : "NO");
-  Serial.printf("  Multi-Zone: %s\n", g_multiZone ? "ENABLED" : "DISABLED");
-  Serial.printf("  Language:   %s\n", (s_currentLang == LANG_DE) ? "Deutsch (DE)" : "English (EN)");
-  Serial.printf("  Wi-Fi TX:   %s\n", (s_wifiTxPowerLevel == 1) ? "15.0 dBm" : (s_wifiTxPowerLevel == 2) ? "11.0 dBm" : "19.5 dBm (MAX)");
+  Serial.printf("  SSID:        %s\n", g_wifiSsid.c_str());
+  Serial.printf("  Server:      %s\n", g_serverUrl.c_str());
+  Serial.printf("  Device ID:   %s\n", g_deviceId.c_str());
+  Serial.printf("  Token set:   %s\n", g_deviceToken.length() > 0 ? "YES" : "NO");
+  Serial.printf("  Multi-Zone:  %s\n", g_multiZone ? "ENABLED" : "DISABLED");
+  Serial.printf("  Language:    %s\n", (s_currentLang == LANG_DE) ? "Deutsch (DE)" : "English (EN)");
+  Serial.printf("  Wi-Fi TX:    %s\n", (s_wifiTxPowerLevel == 1) ? "15.0 dBm" : (s_wifiTxPowerLevel == 2) ? "11.0 dBm" : "19.5 dBm (MAX)");
+  Serial.printf("  Orientation: %s\n", (s_orientationMode == ORIENT_MODE_AUTO) ? "Auto (IMU)" : (s_orientationMode == ORIENT_MODE_PORTRAIT) ? "Portrait" : "Landscape");
 }
 
 void stopCaptivePortal();
@@ -792,9 +826,15 @@ static const char CAPTIVE_PORTAL_HTML[] PROGMEM = R"rawliteral(
         <option value="0">Standard (Fullscreen Slides & Widgets)</option>
         <option value="1">Multi-Zone Layouts</option>
       </select>
+      <label>Orientation / Ausrichtung</label>
+      <select name="orientation">
+        <option value="1">Landscape / Querformat</option>
+        <option value="2">Portrait / Hochformat</option>
+        <option value="0">Auto (IMU Sensor)</option>
+      </select>
       <button class="btn" type="submit">💾 Save & Connect / Speichern</button>
     </form>
-    <div class="footer">reTerminal Sticky • SSD1677 800x480 E-Paper</div>
+    <div class="footer">reTerminal Series • E-Paper Display</div>
   </div>
 </body>
 </html>
@@ -813,6 +853,7 @@ static String s_pendingSsid = "";
 static String s_pendingPass = "";
 static String s_pendingServer = "";
 static bool s_pendingMultiZone = false;
+static uint8_t s_pendingOrient = 1;
 
 static void handleCaptivePortalSave() {
   if (!s_webServer) return;
@@ -820,6 +861,7 @@ static void handleCaptivePortalSave() {
   String pass = s_webServer->arg("pass");
   String server = s_webServer->arg("server");
   String mzStr = s_webServer->arg("multizone");
+  String orientArg = s_webServer->arg("orientation");
 
   ssid.trim();
   pass.trim();
@@ -834,6 +876,11 @@ static void handleCaptivePortalSave() {
   s_pendingPass = pass;
   s_pendingServer = server;
   s_pendingMultiZone = (mzStr == "1" || mzStr == "true");
+  if (orientArg.length() > 0) {
+    s_pendingOrient = orientArg.toInt();
+    if (!s_hasImu && s_pendingOrient == 0) s_pendingOrient = 1;
+    if (s_pendingOrient > 2) s_pendingOrient = 1;
+  }
   s_pendingConfigSave = true;
   s_pendingSaveMillis = millis();
 
@@ -1041,11 +1088,37 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     return;
   }
 
+  const char* orientStr = "landscape";
+  int rotDeg = 0;
+  if (s_orientationMode == ORIENT_MODE_LANDSCAPE) {
+    orientStr = "landscape";
+    rotDeg = 0;
+  } else if (s_orientationMode == ORIENT_MODE_PORTRAIT) {
+    orientStr = "portrait";
+    rotDeg = 90;
+  } else if (s_orientationMode == ORIENT_MODE_AUTO) {
+    if (s_activeOrientation == ORIENTATION_PORTRAIT_90) {
+      orientStr = "portrait";
+      rotDeg = 90;
+    } else if (s_activeOrientation == ORIENTATION_LANDSCAPE_180) {
+      orientStr = "landscape-flipped";
+      rotDeg = 180;
+    } else if (s_activeOrientation == ORIENTATION_PORTRAIT_270) {
+      orientStr = "portrait-flipped";
+      rotDeg = 270;
+    } else {
+      orientStr = "landscape";
+      rotDeg = 0;
+    }
+  }
+
   String url = g_serverUrl + "/api/embedded/render?device_id=" + g_deviceId;
+  url += "&orientation=" + String(orientStr);
+  url += "&rotation=" + String(rotDeg);
   if (requestedItemIndex >= 0) {
     url += "&item=" + String(requestedItemIndex);
   }
-  Serial.printf("[Sync] Fetching %s\n", url.c_str());
+  Serial.printf("[Sync] Fetching %s (orient=%s, rot=%d)\n", url.c_str(), orientStr, rotDeg);
 
   HTTPClient http;
   http.begin(url);
@@ -1053,6 +1126,8 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   http.addHeader("Authorization", String("Bearer ") + g_deviceToken);
   http.addHeader("User-Agent", "ScreenTinker-Sticky/1.2 (ESP32-S3-PSRAM)");
   http.addHeader("X-ST-Firmware-Version", FIRMWARE_VERSION);
+  http.addHeader("X-ST-Device-Orientation", orientStr);
+  http.addHeader("X-ST-Device-Rotation", String(rotDeg));
 
   int curRssi = WiFi.RSSI();
   if (curRssi != 0) {
@@ -1357,14 +1432,40 @@ void processSerialLine(const String& line) {
       registerAndStartPairing();
     }
   } else if (strcmp(cmd, "status") == 0) {
-    Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"multi_zone\":%s,\"psram_free\":%u,\"rssi\":%d}\n",
+    Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"multi_zone\":%s,\"orient_mode\":%d,\"active_orient\":%d,\"psram_free\":%u,\"rssi\":%d}\n",
                   FIRMWARE_VERSION,
                   WiFi.localIP().toString().c_str(),
                   WiFi.status() == WL_CONNECTED ? "true" : "false",
                   g_deviceId.c_str(),
                   g_multiZone ? "true" : "false",
+                  (int)s_orientationMode,
+                  s_activeOrientation,
                   psramFound() ? ESP.getFreePsram() : 0,
                   WiFi.RSSI());
+  } else if (strcmp(cmd, "set_orientation") == 0 || strcmp(cmd, "orientation") == 0) {
+    if (!doc["mode"].isNull()) {
+      const char* m = doc["mode"].as<const char*>();
+      if (strcasecmp(m, "auto") == 0 && s_hasImu) s_orientationMode = ORIENT_MODE_AUTO;
+      else if (strcasecmp(m, "portrait") == 0) s_orientationMode = ORIENT_MODE_PORTRAIT;
+      else if (strcasecmp(m, "landscape") == 0) s_orientationMode = ORIENT_MODE_LANDSCAPE;
+    } else {
+      if (s_hasImu) {
+        s_orientationMode = (OrientationMode)(((int)s_orientationMode + 1) % 3);
+      } else {
+        s_orientationMode = (s_orientationMode == ORIENT_MODE_LANDSCAPE) ? ORIENT_MODE_PORTRAIT : ORIENT_MODE_LANDSCAPE;
+      }
+    }
+    s_prefs.begin("screentinker", false);
+    s_prefs.putUChar("orient_mode", (uint8_t)s_orientationMode);
+    s_prefs.end();
+    if (s_orientationMode == ORIENT_MODE_LANDSCAPE) s_activeOrientation = ORIENTATION_LANDSCAPE_0;
+    else if (s_orientationMode == ORIENT_MODE_PORTRAIT) s_activeOrientation = ORIENTATION_PORTRAIT_90;
+    else if (s_orientationMode == ORIENT_MODE_AUTO && s_hasImu) {
+      int detected = imu_detect_orientation(s_activeOrientation);
+      if (detected >= 0) s_activeOrientation = detected;
+    }
+    Serial.printf("{\"status\":\"ok\",\"v\":1,\"orientation_mode\":%d,\"active_orient\":%d}\n", (int)s_orientationMode, s_activeOrientation);
+    fetchAndRender(true);
   } else if (strcmp(cmd, "set_multizone") == 0 || strcmp(cmd, "multizone") == 0) {
     if (!doc["enabled"].isNull()) {
       g_multiZone = doc["enabled"].as<bool>();
@@ -1413,7 +1514,29 @@ void setup() {
   esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
 
   initPsramBuffers();
+
+#if DEVICE_SUPPORTS_IMU
+  ensureI2C();
+  if (imu_init()) {
+    s_hasImu = true;
+    Serial.println("[IMU] LSM6DS3TR-C 6-axis IMU detected & initialized.");
+  } else {
+    s_hasImu = false;
+    Serial.println("[IMU] LSM6DS3TR-C not detected on I2C bus.");
+  }
+#else
+  s_hasImu = false;
+#endif
+
   loadConfigFromNVS();
+
+  if (s_hasImu && s_orientationMode == ORIENT_MODE_AUTO) {
+    int detected = imu_detect_orientation(s_activeOrientation);
+    if (detected >= 0) {
+      s_activeOrientation = detected;
+      Serial.printf("[Orientation] Initial IMU orientation detected: %d\n", s_activeOrientation);
+    }
+  }
 
   bool isConfigured = (g_wifiSsid.length() > 0 && g_wifiSsid != "Your-WiFi-SSID");
   bool isPaired = (isConfigured && g_deviceId.length() > 0 && g_deviceToken.length() > 0 && g_deviceId != "your-device-uuid");
@@ -1508,6 +1631,18 @@ void loop() {
   if (s_pendingConfigSave && (millis() - s_pendingSaveMillis > 800)) {
     s_pendingConfigSave = false;
     Serial.println("[CaptivePortal] Applying pending configuration...");
+    s_orientationMode = (OrientationMode)s_pendingOrient;
+    if (s_orientationMode == ORIENT_MODE_LANDSCAPE) {
+      s_activeOrientation = ORIENTATION_LANDSCAPE_0;
+    } else if (s_orientationMode == ORIENT_MODE_PORTRAIT) {
+      s_activeOrientation = ORIENTATION_PORTRAIT_90;
+    } else if (s_orientationMode == ORIENT_MODE_AUTO && s_hasImu) {
+      int detected = imu_detect_orientation(s_activeOrientation);
+      if (detected >= 0) s_activeOrientation = detected;
+    }
+    s_prefs.begin("screentinker", false);
+    s_prefs.putUChar("orient_mode", (uint8_t)s_orientationMode);
+    s_prefs.end();
     saveConfigToNVS(s_pendingSsid, s_pendingPass, s_pendingServer, "", "", s_pendingMultiZone);
     registerAndStartPairing();
   }
@@ -1552,6 +1687,30 @@ void loop() {
       fetchAndRender(false);
       uint32_t baseSec = max((uint32_t)10, (uint32_t)(s_syncIntervalMs / 1000));
       scheduleNextSync(baseSec);
+    }
+  }
+
+  // ─── IMU Orientation Debounced Auto-Detection ───────────────────────────────
+  if (s_hasImu && s_orientationMode == ORIENT_MODE_AUTO && !s_inSystemMenu && !s_inStatusScreen) {
+    if (millis() - s_lastImuCheckMillis >= 500) {
+      s_lastImuCheckMillis = millis();
+      int detected = imu_detect_orientation(s_activeOrientation);
+      if (detected >= 0 && detected != s_activeOrientation) {
+        if (s_pendingOrientation != detected) {
+          s_pendingOrientation = detected;
+          s_pendingOrientationStart = millis();
+        } else if (millis() - s_pendingOrientationStart >= 600) {
+          Serial.printf("\n>>> [IMU] Orientation change sustained (%d -> %d). Updating display...\n",
+                        s_activeOrientation, s_pendingOrientation);
+          s_activeOrientation = s_pendingOrientation;
+          s_pendingOrientation = -1;
+          if (isConfigured && isPaired) {
+            fetchAndRender(true);
+          }
+        }
+      } else {
+        s_pendingOrientation = -1;
+      }
     }
   }
 
@@ -1604,7 +1763,31 @@ void loop() {
             s_inStatusScreen = true;
             showStatusInfoScreen();
           } else if (s_menuSelection == 1) {
-            // 1: Wi-Fi TX Power Toggle (MAX -> MED -> LOW -> MAX)
+            // 1: Orientation Mode Cycle
+            if (s_hasImu) {
+              s_orientationMode = (OrientationMode)(((int)s_orientationMode + 1) % 3);
+            } else {
+              s_orientationMode = (s_orientationMode == ORIENT_MODE_LANDSCAPE) ? ORIENT_MODE_PORTRAIT : ORIENT_MODE_LANDSCAPE;
+            }
+            s_prefs.begin("screentinker", false);
+            s_prefs.putUChar("orient_mode", (uint8_t)s_orientationMode);
+            s_prefs.end();
+
+            if (s_orientationMode == ORIENT_MODE_LANDSCAPE) {
+              s_activeOrientation = ORIENTATION_LANDSCAPE_0;
+            } else if (s_orientationMode == ORIENT_MODE_PORTRAIT) {
+              s_activeOrientation = ORIENTATION_PORTRAIT_90;
+            } else if (s_orientationMode == ORIENT_MODE_AUTO && s_hasImu) {
+              int detected = imu_detect_orientation(s_activeOrientation);
+              if (detected >= 0) s_activeOrientation = detected;
+            }
+
+            Serial.printf("\n>>> [SystemMenu] Orientation mode changed to: %d (%s)!\n",
+                          (int)s_orientationMode,
+                          (s_orientationMode == ORIENT_MODE_AUTO) ? "Auto (IMU)" : (s_orientationMode == ORIENT_MODE_PORTRAIT) ? "Portrait" : "Landscape");
+            showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
+          } else if (s_menuSelection == 2) {
+            // 2: Wi-Fi TX Power Toggle (MAX -> MED -> LOW -> MAX)
             s_wifiTxPowerLevel = (s_wifiTxPowerLevel + 1) % 3;
             s_prefs.begin("screentinker", false);
             s_prefs.putUChar("wifi_tx_pwr", s_wifiTxPowerLevel);
@@ -1615,29 +1798,29 @@ void loop() {
             Serial.printf("\n>>> [SystemMenu] Wi-Fi TX Power switched to level %d (%s)!\n",
                           s_wifiTxPowerLevel, (s_wifiTxPowerLevel == 1) ? "15 dBm" : (s_wifiTxPowerLevel == 2) ? "11 dBm" : "19.5 dBm");
             showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
-          } else if (s_menuSelection == 2) {
-            // 2: Language Toggle (EN <-> DE)
+          } else if (s_menuSelection == 3) {
+            // 3: Language Toggle (EN <-> DE)
             s_currentLang = (s_currentLang == LANG_EN) ? LANG_DE : LANG_EN;
             s_prefs.begin("screentinker", false);
             s_prefs.putUChar("lang", (uint8_t)s_currentLang);
             s_prefs.end();
             Serial.printf("\n>>> [SystemMenu] Language changed to: %s\n", (s_currentLang == LANG_DE) ? "DE" : "EN");
             showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
-          } else if (s_menuSelection == 3) {
-            // 3: Gerät entkoppeln (Unpair)
+          } else if (s_menuSelection == 4) {
+            // 4: Gerät entkoppeln (Unpair)
             s_inSystemMenu = false;
             Serial.println("[SystemMenu] Unpairing device and generating new pairing code...");
             saveConfigToNVS(g_wifiSsid, g_wifiPass, g_serverUrl, "", "");
             registerAndStartPairing();
-          } else if (s_menuSelection == 4) {
-            // 4: Ausschalten / Standby
-            powerOffDevice();
           } else if (s_menuSelection == 5) {
-            // 5: Factory Reset
+            // 5: Ausschalten / Standby
+            powerOffDevice();
+          } else if (s_menuSelection == 6) {
+            // 6: Factory Reset
             s_inSystemMenu = false;
             factoryResetNVS();
-          } else if (s_menuSelection == 6) {
-            // 6: Zurück / Schließen -> Deep Sleep
+          } else if (s_menuSelection == 7) {
+            // 7: Zurück / Schließen -> Deep Sleep
             s_inSystemMenu = false;
             s_inInteractiveMode = false;
             redrawCurrentState();
@@ -1691,7 +1874,7 @@ void loop() {
       s_menuOpenMillis = millis();
       showSystemMenu(s_menuSelection, false);
     } else if (s_inSystemMenu) {
-      s_menuSelection = (s_menuSelection - 1 + 7) % 7;
+      s_menuSelection = (s_menuSelection - 1 + 8) % 8;
       s_menuOpenMillis = millis();
       Serial.printf("\n>>> [SystemMenu] UP pressed -> Selection: %d\n", s_menuSelection);
       showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
@@ -1714,7 +1897,7 @@ void loop() {
       s_menuOpenMillis = millis();
       showSystemMenu(s_menuSelection, false);
     } else if (s_inSystemMenu) {
-      s_menuSelection = (s_menuSelection + 1) % 7;
+      s_menuSelection = (s_menuSelection + 1) % 8;
       s_menuOpenMillis = millis();
       Serial.printf("\n>>> [SystemMenu] DOWN pressed -> Selection: %d\n", s_menuSelection);
       showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!

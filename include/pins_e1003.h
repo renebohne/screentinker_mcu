@@ -30,8 +30,8 @@
 #define PIN_BTN_DOWN     6
 
 // ─── I2C Sensors ─────────────────────────────────────────────────────────────
-#define PIN_I2C_SDA      1
-#define PIN_I2C_SCL      0
+#define PIN_I2C_SDA      19
+#define PIN_I2C_SCL      20
 
 // ─── Capacitive Touch (Goodix GT911) ─────────────────────────────────────────
 #define PIN_TOUCH_SDA    19

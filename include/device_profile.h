@@ -32,6 +32,7 @@
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   350
   #define DEVICE_SUPPORTS_TOUCH            false
   #define DEVICE_TOUCH_CONTROLLER          TOUCH_NONE
+  #define DEVICE_SUPPORTS_IMU              false
 
 #elif defined(DEVICE_RETERMINAL_E1002)
   #include "pins_e1002.h"
@@ -48,6 +49,7 @@
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   0
   #define DEVICE_SUPPORTS_TOUCH            false
   #define DEVICE_TOUCH_CONTROLLER          TOUCH_NONE
+  #define DEVICE_SUPPORTS_IMU              false
 
 #elif defined(DEVICE_RETERMINAL_E1003)
   #include "pins_e1003.h"
@@ -64,6 +66,7 @@
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   180
   #define DEVICE_SUPPORTS_TOUCH            true
   #define DEVICE_TOUCH_CONTROLLER          TOUCH_GT911
+  #define DEVICE_SUPPORTS_IMU              false
 
 #elif defined(DEVICE_RETERMINAL_E1004)
   #include "pins_e1004.h"
@@ -80,6 +83,7 @@
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   0
   #define DEVICE_SUPPORTS_TOUCH            false
   #define DEVICE_TOUCH_CONTROLLER          TOUCH_NONE
+  #define DEVICE_SUPPORTS_IMU              false
 
 #else
   // Default Target: Seeed Studio reTerminal Sticky
@@ -100,6 +104,7 @@
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   350
   #define DEVICE_SUPPORTS_TOUCH            true
   #define DEVICE_TOUCH_CONTROLLER          TOUCH_FT6336U
+  #define DEVICE_SUPPORTS_IMU              true
 #endif
 
 // ─── Default Fallbacks for Optional Hardware Pins ─────────────────────────────

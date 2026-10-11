@@ -1,5 +1,7 @@
 #pragma once
+#ifdef ARDUINO
 #include <Arduino.h>
+#endif
 
 /*
  * Pinout Definitions for Seeed Studio reTerminal Sticky

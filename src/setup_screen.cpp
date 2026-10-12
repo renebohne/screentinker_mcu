@@ -566,7 +566,7 @@ void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t
 }
 
 // ─── 4. Status & Diagnostic Info Screen (5 Full-Width Spacious Rows) ─────────
-void renderStatusInfoScreen(uint8_t* buffer, const char* ip, const char* ssid, int rssi, const char* serverUrl, const char* devId, const char* version, Language lang) {
+void renderStatusInfoScreen(uint8_t* buffer, const char* ip, const char* ssid, int rssi, const char* serverUrl, const char* devId, const char* version, Language lang, float tempC, float humidityPct) {
   gfx_fill(buffer, 1);
 
   // Header Banner
@@ -606,12 +606,18 @@ void renderStatusInfoScreen(uint8_t* buffer, const char* ip, const char* ssid, i
   gfx_draw_string(buffer, labelX, y + 18, (lang == LANG_DE) ? "Server-URL:" : "Server URL:", 0, 2);
   gfx_draw_string(buffer, valueX, y + 18, (serverUrl && strlen(serverUrl) > 0) ? serverUrl : "-", 0, 2);
 
-  // Row 4: Firmware Version
+  // Row 4: Firmware Version & Ambient Environment
   y += rowH + rowGap;
   gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
   gfx_draw_string(buffer, labelX, y + 18, "Firmware:", 0, 2);
   char verStr[64];
-  snprintf(verStr, sizeof(verStr), "v%s (Seeed Sticky E-Paper)", version ? version : FIRMWARE_VERSION);
+  if (tempC > -90.0f && humidityPct >= 0.0f && humidityPct <= 100.0f) {
+    snprintf(verStr, sizeof(verStr), "v%s (%s) · %.1f C / %.0f%% RH",
+             version ? version : FIRMWARE_VERSION, DEVICE_PROFILE_NAME, tempC, humidityPct);
+  } else {
+    snprintf(verStr, sizeof(verStr), "v%s (%s)",
+             version ? version : FIRMWARE_VERSION, DEVICE_PROFILE_NAME);
+  }
   gfx_draw_string(buffer, valueX, y + 18, verStr, 0, 2);
 
   // Row 5: Device ID

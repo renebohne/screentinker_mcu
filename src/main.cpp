@@ -15,6 +15,7 @@ extern "C" {
 #include "config.h"
 #include "setup_screen.h"
 #include "imu_driver.h"
+#include "sht40_driver.h"
 
 #include <WebServer.h>
 #include <DNSServer.h>
@@ -563,6 +564,10 @@ void showStatusInfoScreen() {
     currentIp = WiFi.localIP().toString();
     currentRssi = WiFi.RSSI();
   }
+  float curT = -999.0f;
+  float curH = -1.0f;
+  sht40_read(&curT, &curH);
+
   renderStatusInfoScreen(
     s_rawBuffer,
     currentIp.c_str(),
@@ -571,7 +576,9 @@ void showStatusInfoScreen() {
     g_serverUrl.c_str(),
     g_deviceId.c_str(),
     FIRMWARE_VERSION,
-    s_currentLang
+    s_currentLang,
+    curT,
+    curH
   );
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, false);
@@ -1146,6 +1153,14 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   http.addHeader("X-ST-Charging", charging ? "1" : "0");
   Serial.printf("[Sync] Power Source: %s (charging=%s)\n", usbPower ? "USB/Mains" : "Battery", charging ? "yes" : "no");
 
+  float tempC = -999.0f;
+  float humidityPct = -1.0f;
+  if (sht40_read(&tempC, &humidityPct)) {
+    http.addHeader("X-ST-Device-Temperature", String(tempC, 1));
+    http.addHeader("X-ST-Device-Humidity", String(humidityPct, 1));
+    Serial.printf("[Sync] Ambient SHT40: %.1f C, %.1f%% RH\n", tempC, humidityPct);
+  }
+
   String cachedEtag = cacheGetEtag(targetIndex);
   if (cachedEtag.length() == 0 && strlen(rtc_lastEtag) > 0) {
     cachedEtag = String(rtc_lastEtag);
@@ -1432,7 +1447,9 @@ void processSerialLine(const String& line) {
       registerAndStartPairing();
     }
   } else if (strcmp(cmd, "status") == 0) {
-    Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"multi_zone\":%s,\"orient_mode\":%d,\"active_orient\":%d,\"psram_free\":%u,\"rssi\":%d}\n",
+    float curT = -999.0f, curH = -1.0f;
+    bool hasEnv = sht40_read(&curT, &curH);
+    Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"multi_zone\":%s,\"orient_mode\":%d,\"active_orient\":%d,\"temp_c\":%s,\"humidity\":%s,\"psram_free\":%u,\"rssi\":%d}\n",
                   FIRMWARE_VERSION,
                   WiFi.localIP().toString().c_str(),
                   WiFi.status() == WL_CONNECTED ? "true" : "false",
@@ -1440,8 +1457,17 @@ void processSerialLine(const String& line) {
                   g_multiZone ? "true" : "false",
                   (int)s_orientationMode,
                   s_activeOrientation,
+                  hasEnv ? String(curT, 1).c_str() : "null",
+                  hasEnv ? String(curH, 1).c_str() : "null",
                   psramFound() ? ESP.getFreePsram() : 0,
                   WiFi.RSSI());
+  } else if (strcmp(cmd, "sht40") == 0 || strcmp(cmd, "sensors") == 0) {
+    float t = 0.0f, h = 0.0f;
+    if (sht40_read(&t, &h)) {
+      Serial.printf("{\"status\":\"ok\",\"v\":1,\"sensor\":\"SHT40\",\"temp_c\":%.2f,\"humidity\":%.2f}\n", t, h);
+    } else {
+      Serial.println("{\"status\":\"error\",\"v\":1,\"message\":\"SHT40 read failed or sensor not available\"}");
+    }
   } else if (strcmp(cmd, "set_orientation") == 0 || strcmp(cmd, "orientation") == 0) {
     if (!doc["mode"].isNull()) {
       const char* m = doc["mode"].as<const char*>();
@@ -1515,8 +1541,14 @@ void setup() {
 
   initPsramBuffers();
 
-#if DEVICE_SUPPORTS_IMU
   ensureI2C();
+  if (sht40_init()) {
+    Serial.println("[SHT40] Sensirion SHT40 temperature & humidity sensor initialized.");
+  } else {
+    Serial.println("[SHT40] Sensor not detected on I2C bus.");
+  }
+
+#if DEVICE_SUPPORTS_IMU
   if (imu_init()) {
     s_hasImu = true;
     Serial.println("[IMU] LSM6DS3TR-C 6-axis IMU detected & initialized.");

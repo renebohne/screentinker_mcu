@@ -67,7 +67,9 @@ SimHttpResponse SimHttp::get(
   int wifiRssi,
   const std::string& ifNoneMatchEtag,
   const std::string& powerSource,
-  bool isCharging
+  bool isCharging,
+  float tempC,
+  float humidityPct
 ) {
   SimHttpResponse res;
   CURL* curl = curl_easy_init();
@@ -115,6 +117,20 @@ SimHttpResponse SimHttp::get(
   if (wifiRssi != 0) {
     std::string rssi = "X-ST-Device-RSSI: " + std::to_string(wifiRssi);
     headers = curl_slist_append(headers, rssi.c_str());
+  }
+
+  if (tempC > -900.0f) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%.1f", tempC);
+    std::string thdr = "X-ST-Device-Temperature: " + std::string(buf);
+    headers = curl_slist_append(headers, thdr.c_str());
+  }
+
+  if (humidityPct >= 0.0f) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%.1f", humidityPct);
+    std::string hhdr = "X-ST-Device-Humidity: " + std::string(buf);
+    headers = curl_slist_append(headers, hhdr.c_str());
   }
 
   if (!ifNoneMatchEtag.empty()) {

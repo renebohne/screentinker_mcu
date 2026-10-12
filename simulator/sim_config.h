@@ -43,6 +43,11 @@ struct SimConfig {
   int fullRefreshTimeMs = 1800;
   int partialRefreshTimeMs = 350;
 
+  // Sensirion SHT40 Temperature & Humidity Telemetry
+  bool hasSht40 = true;
+  float mockTemp = 21.5f;
+  float mockHumidity = 45.0f;
+
   std::string colorModeString() const;
   size_t bufferSize() const;
   bool setModel(const std::string& modelName);

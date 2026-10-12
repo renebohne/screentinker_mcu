@@ -46,7 +46,7 @@ void renderOnboardingScreen(uint8_t* buffer, Language lang = LANG_EN);
 void renderNoWifiScreen(uint8_t* buffer, const char* ssid, Language lang = LANG_EN);
 void renderEmptyPlaylistScreen(uint8_t* buffer, const char* deviceName, const char* serverUrl, Language lang = LANG_EN);
 void renderPairingCodeScreen(uint8_t* buffer, const char* code, const char* serverUrl, Language lang = LANG_EN);
-void renderStatusInfoScreen(uint8_t* buffer, const char* ip, const char* ssid, int rssi, const char* serverUrl, const char* devId, const char* version, Language lang = LANG_EN);
+void renderStatusInfoScreen(uint8_t* buffer, const char* ip, const char* ssid, int rssi, const char* serverUrl, const char* devId, const char* version, Language lang = LANG_EN, float tempC = -999.0f, float humidityPct = -1.0f);
 void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang = LANG_EN, uint8_t wifiTxLevel = 0, uint8_t orientMode = 1, bool hasImu = false);
 void renderPowerOffScreen(uint8_t* buffer, Language lang = LANG_EN);
 void renderUnsupportedContentScreen(uint8_t* buffer, const char* reason = nullptr, Language lang = LANG_EN);

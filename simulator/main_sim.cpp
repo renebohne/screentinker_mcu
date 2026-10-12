@@ -218,7 +218,11 @@ int main(int argc, char** argv) {
     std::cout << "\n[Sync] Polling server: " << url << "\n";
     std::cout << "[Sync] Telemetry: Power=" << cfg.powerSource << (cfg.isCharging ? " (Charging)" : "")
               << ", Battery=" << cfg.batteryPercent << "%, RSSI=" << cfg.wifiRssi
-              << " dBm, ETag=" << (lastEtag.empty() ? "(none)" : lastEtag) << "\n";
+              << " dBm";
+    if (cfg.hasSht40) {
+      std::cout << ", Ambient SHT40=" << cfg.mockTemp << "°C / " << cfg.mockHumidity << "% RH";
+    }
+    std::cout << ", ETag=" << (lastEtag.empty() ? "(none)" : lastEtag) << "\n";
 
     SimHttpResponse res = http.get(
       url,
@@ -228,7 +232,9 @@ int main(int argc, char** argv) {
       cfg.wifiRssi,
       lastEtag,
       cfg.powerSource,
-      cfg.isCharging
+      cfg.isCharging,
+      cfg.hasSht40 ? cfg.mockTemp : -999.0f,
+      cfg.hasSht40 ? cfg.mockHumidity : -1.0f
     );
 
     std::cout << "[Sync] Server response status: " << res.statusCode << "\n";

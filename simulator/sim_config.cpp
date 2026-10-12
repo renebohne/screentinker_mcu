@@ -251,6 +251,10 @@ SimConfig SimConfig::load(int argc, char** argv) {
       if (doc["rotation"].is<int>()) cfg.applyRotation(doc["rotation"].as<int>());
       if (doc["hardware"]["rotation"].is<int>()) cfg.applyRotation(doc["hardware"]["rotation"].as<int>());
       if (doc["simulator"]["rotation"].is<int>()) cfg.applyRotation(doc["simulator"]["rotation"].as<int>());
+
+      if (doc["hardware"]["mock_temp"].is<float>()) cfg.mockTemp = doc["hardware"]["mock_temp"].as<float>();
+      if (doc["hardware"]["mock_humidity"].is<float>()) cfg.mockHumidity = doc["hardware"]["mock_humidity"].as<float>();
+      if (doc["hardware"]["has_sht40"].is<bool>()) cfg.hasSht40 = doc["hardware"]["has_sht40"].as<bool>();
     } else {
       std::cerr << "[Config] Warning: Failed to parse " << cfg.configFilePath << " (" << err.c_str() << ")\n";
     }
@@ -313,6 +317,12 @@ SimConfig SimConfig::load(int argc, char** argv) {
       cfg.syncIntervalSec = std::atoi(argv[++i]);
     } else if (arg == "--headless") {
       cfg.headless = true;
+    } else if (arg == "--mock-temp" && i + 1 < argc) {
+      cfg.mockTemp = std::atof(argv[++i]);
+    } else if (arg == "--mock-humidity" && i + 1 < argc) {
+      cfg.mockHumidity = std::atof(argv[++i]);
+    } else if (arg == "--no-sht40") {
+      cfg.hasSht40 = false;
     } else if (arg == "--oneshot") {
       cfg.oneShot = true;
       cfg.maxCycles = 1;
@@ -331,6 +341,9 @@ SimConfig SimConfig::load(int argc, char** argv) {
                 << "  -r, --rotate <deg>       Rotation: 0, 90, 180, 270 degrees\n"
                 << "      --portrait           Shortcut for --orientation portrait\n"
                 << "      --landscape          Shortcut for --orientation landscape\n"
+                << "  --mock-temp <degC>       Simulated ambient temperature (default: 21.5)\n"
+                << "  --mock-humidity <pct>    Simulated relative humidity (default: 45.0)\n"
+                << "  --no-sht40               Disable simulated SHT40 sensor telemetry\n"
                 << "  --pair                   Start in pairing mode (request 6-digit PIN from server)\n"
                 << "  --battery <percent>      Simulated battery (0-100)\n"
                 << "  --power <usb|battery>    Power source mode (default: battery)\n"
@@ -372,6 +385,7 @@ void SimConfig::print() const {
             << " • Power Source:      " << (powerSource == "usb" ? (isCharging ? "USB (Charging)" : "USB (Mains Connected)") : "Battery") << "\n"
             << " • Battery Level:     " << batteryPercent << "%\n"
             << " • Wi-Fi RSSI:        " << wifiRssi << " dBm\n"
+            << " • SHT40 Sensor:      " << (hasSht40 ? (std::to_string(mockTemp).substr(0, 4) + " °C, " + std::to_string(mockHumidity).substr(0, 4) + "% RH") : "Disabled") << "\n"
             << " • Mode:              " << (headless ? "Headless (Snapshot only)" : ("Interactive Window (SDL2, " + std::to_string(scale) + "x)")) << "\n"
             << " • Snapshot Output:   " << snapshotPath << "\n"
             << " • Pairing Mode:      " << (pairMode ? "Enabled (--pair)" : (deviceToken.empty() ? "Auto (No Token)" : "Disabled (Token Configured)")) << "\n"

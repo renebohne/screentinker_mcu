@@ -27,7 +27,9 @@ public:
     int wifiRssi = 0,
     const std::string& ifNoneMatchEtag = "",
     const std::string& powerSource = "battery",
-    bool isCharging = false
+    bool isCharging = false,
+    float tempC = -999.0f,
+    float humidityPct = -1.0f
   );
 
   SimHttpResponse postJson(

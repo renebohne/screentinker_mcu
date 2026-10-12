@@ -10,3 +10,4 @@ screentinker_sim
 *.png
 simulator/build/
 simulator/sim_config.json
+SESSION.md

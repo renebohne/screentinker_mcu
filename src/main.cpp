@@ -16,6 +16,7 @@ extern "C" {
 #include "setup_screen.h"
 #include "imu_driver.h"
 #include "sht40_driver.h"
+#include "diag_logger.h"
 
 #include <WebServer.h>
 #include <DNSServer.h>
@@ -1065,6 +1066,42 @@ bool checkPairingStatus() {
   return false;
 }
 
+// ─── Diagnostic Log Remote Upload ─────────────────────────────────────────────
+bool uploadLogsToServer() {
+  if (g_serverUrl.length() == 0 || g_deviceId.length() == 0) return false;
+  if (WiFi.status() != WL_CONNECTED) {
+    if (!connectWiFi()) return false;
+  }
+
+  diag_log_printf(DIAG_LOG_INFO, "Diag", "Uploading %zu diagnostic log entries to server...", diag_log_count());
+
+  HTTPClient http;
+  String url = g_serverUrl + "/api/embedded/logs?device_id=" + g_deviceId;
+  http.begin(url);
+  http.setTimeout(HTTP_TIMEOUT_MS);
+  http.addHeader("Content-Type", "application/json");
+  if (g_deviceToken.length() > 0) {
+    http.addHeader("Authorization", "Bearer " + g_deviceToken);
+  }
+  http.addHeader("X-ST-Device-Id", g_deviceId);
+
+  int bat = readBatteryPercent();
+  int rssi = WiFi.RSSI();
+  std::string payload = diag_log_to_json_string(g_deviceId.c_str(), FIRMWARE_VERSION, bat, rssi);
+
+  int httpCode = http.POST((uint8_t*)payload.c_str(), payload.length());
+  bool success = (httpCode >= 200 && httpCode < 300);
+  if (success) {
+    Serial.printf("[Diag] Logs successfully uploaded (HTTP %d). Clearing buffer.\n", httpCode);
+    diag_log_clear();
+  } else {
+    Serial.printf("[Diag] Log upload failed with HTTP code %d\n", httpCode);
+    diag_log_printf(DIAG_LOG_WARN, "Diag", "Log upload failed: HTTP %d", httpCode);
+  }
+  http.end();
+  return success;
+}
+
 // ─── Fetch & Render (with PSRAM Caching) ──────────────────────────────────────
 void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   int targetIndex = (requestedItemIndex >= 0) ? requestedItemIndex : s_currentItemIndex;
@@ -1193,10 +1230,15 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     String cmd = http.header("X-ST-Command");
     cmd.trim();
     if (cmd.equalsIgnoreCase("reboot")) {
+      diag_log_printf(DIAG_LOG_WARN, "Sync", "Remote reboot command received from server! Restarting ESP32...");
       Serial.println("[Sync] Remote reboot command received from server! Restarting ESP32...");
       http.end();
       delay(500);
       ESP.restart();
+    } else if (cmd.equalsIgnoreCase("upload_logs") || cmd.equalsIgnoreCase("logs")) {
+      diag_log_printf(DIAG_LOG_INFO, "Sync", "Remote upload_logs command received from server!");
+      Serial.println("[Sync] Remote upload_logs command received from server!");
+      uploadLogsToServer();
     }
   }
 
@@ -1468,6 +1510,14 @@ void processSerialLine(const String& line) {
     } else {
       Serial.println("{\"status\":\"error\",\"v\":1,\"message\":\"SHT40 read failed or sensor not available\"}");
     }
+  } else if (strcmp(cmd, "logs") == 0 || strcmp(cmd, "dump_logs") == 0) {
+    diag_log_dump_stdout();
+  } else if (strcmp(cmd, "clear_logs") == 0) {
+    diag_log_clear();
+    Serial.println("{\"status\":\"ok\",\"v\":1,\"message\":\"Diagnostic logs cleared\"}");
+  } else if (strcmp(cmd, "upload_logs") == 0) {
+    bool ok = uploadLogsToServer();
+    Serial.printf("{\"status\":\"%s\",\"v\":1}\n", ok ? "ok" : "error");
   } else if (strcmp(cmd, "set_orientation") == 0 || strcmp(cmd, "orientation") == 0) {
     if (!doc["mode"].isNull()) {
       const char* m = doc["mode"].as<const char*>();
@@ -1536,6 +1586,9 @@ void setup() {
   initBoardPowerAndPins();
   Serial.begin(115200);
   delay(100);
+
+  diag_log_init();
+  diag_log_printf(DIAG_LOG_INFO, "Boot", "ScreenTinker MCU v%s (%s) booting...", FIRMWARE_VERSION, DEVICE_PROFILE_NAME);
 
   esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
 

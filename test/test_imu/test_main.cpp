@@ -179,15 +179,76 @@ void test_status_screen_telemetry() {
   std::cout << "  ✓ All Status Screen telemetry tests passed!\n";
 }
 
+#include "diag_logger.h"
+
+void test_diag_logger() {
+  std::cout << "[Test] Running Diagnostic Logger ring buffer tests...\n";
+
+  diag_log_init();
+  assert(diag_log_count() == 0);
+
+  // 1. Basic write and read
+  diag_log_write(DIAG_LOG_INFO, "WiFi", "Connected to AP");
+  assert(diag_log_count() == 1);
+
+  DiagLogEntry entry;
+  assert(diag_log_get(0, &entry));
+  assert(entry.level == DIAG_LOG_INFO);
+  assert(std::string(entry.tag) == "WiFi");
+  assert(std::string(entry.msg) == "Connected to AP");
+
+  // Out of bounds get
+  assert(!diag_log_get(1, &entry));
+
+  // 2. Clear buffer
+  diag_log_clear();
+  assert(diag_log_count() == 0);
+
+  // 3. Ring buffer overflow / overwrite test (150 entries into buffer size 100)
+  for (int i = 0; i < 150; i++) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "Log event %d", i);
+    diag_log_write(DIAG_LOG_DEBUG, "SYS", buf);
+  }
+
+  assert(diag_log_count() == 100);
+
+  // Oldest should now be index 50
+  assert(diag_log_get(0, &entry));
+  assert(std::string(entry.msg) == "Log event 50");
+
+  // Newest should be index 149
+  assert(diag_log_get(99, &entry));
+  assert(std::string(entry.msg) == "Log event 149");
+
+  // 4. JSON serialization test
+  diag_log_clear();
+  diag_log_write(DIAG_LOG_INFO, "Sync", "200 OK");
+  diag_log_write(DIAG_LOG_WARN, "Battery", "Low voltage: < 3.3V");
+
+  std::string json = diag_log_to_json_string("dev-test-123", "1.3.0", 85, -65);
+  assert(json.find("\"device_id\":\"dev-test-123\"") != std::string::npos);
+  assert(json.find("\"version\":\"1.3.0\"") != std::string::npos);
+  assert(json.find("\"battery\":85") != std::string::npos);
+  assert(json.find("\"rssi\":-65") != std::string::npos);
+  assert(json.find("\"log_count\":2") != std::string::npos);
+  assert(json.find("\"tag\":\"Sync\"") != std::string::npos);
+  assert(json.find("\"msg\":\"200 OK\"") != std::string::npos);
+  assert(json.find("\"level\":\"WARN\"") != std::string::npos);
+
+  std::cout << "  ✓ All Diagnostic Logger tests passed!\n";
+}
+
 int main() {
   std::cout << "==========================================\n";
-  std::cout << " ScreenTinker Native Unit Tests (#21 & #22)\n";
+  std::cout << " ScreenTinker Native Unit Tests (#9, #21, #22)\n";
   std::cout << "==========================================\n";
 
   test_imu_orientation_detection();
   test_system_menu_rendering();
   test_sht40_driver();
   test_status_screen_telemetry();
+  test_diag_logger();
 
   std::cout << "\n✅ ALL UNIT TESTS PASSED SUCCESSFULLY!\n";
   return 0;

@@ -1,6 +1,7 @@
 #include "sim_config.h"
 #include "sim_display.h"
 #include "sim_http.h"
+#include "diag_logger.h"
 #include "setup_screen.h"
 #include <ArduinoJson.h>
 #include <qrcode.h>
@@ -165,7 +166,9 @@ static bool runPairingFlow(SimConfig& cfg, SimHttp& http, SimDisplay& display, s
 }
 
 int main(int argc, char** argv) {
+  diag_log_init();
   SimConfig cfg = SimConfig::load(argc, argv);
+  diag_log_printf(DIAG_LOG_INFO, "Boot", "Simulator starting up: model %s (%dx%d)", cfg.model.c_str(), cfg.width, cfg.height);
   cfg.print();
 
   gfx_set_screen_dimensions(cfg.width, cfg.height);
@@ -278,9 +281,21 @@ int main(int argc, char** argv) {
     std::string cmd = res.getHeader("x-st-command");
     if (!cmd.empty()) {
       std::cout << "[Sync] Remote command received from server: " << cmd << "\n";
+      diag_log_printf(DIAG_LOG_INFO, "Sync", "Remote command: %s", cmd.c_str());
       if (cmd == "reboot") {
         std::cout << "[Simulator] Remote reboot executed! Resetting simulated device state...\n";
         lastEtag = "";
+      } else if (cmd == "upload_logs" || cmd == "logs") {
+        std::cout << "[Diag] Uploading diagnostic logs to server...\n";
+        std::string logJson = diag_log_to_json_string(cfg.deviceId.c_str(), cfg.firmwareVersion.c_str(), cfg.batteryPercent, cfg.wifiRssi);
+        std::string uploadUrl = cfg.serverUrl + "/api/embedded/logs?device_id=" + cfg.deviceId;
+        SimHttpResponse logRes = http.postJson(uploadUrl, logJson, cfg.deviceToken);
+        if (logRes.statusCode >= 200 && logRes.statusCode < 300) {
+          std::cout << "[Diag] Logs successfully uploaded (HTTP " << logRes.statusCode << "). Clearing buffer.\n";
+          diag_log_clear();
+        } else {
+          std::cerr << "[Diag] Log upload failed (HTTP " << logRes.statusCode << ")\n";
+        }
       }
     }
 
@@ -356,7 +371,7 @@ int main(int argc, char** argv) {
       return (res.statusCode == 0) ? 1 : 0;
     }
 
-    std::cout << "[Sleep] Next poll scheduled in " << sleepDurationSec << "s (Press [Space] to wake, [O]/[R] to rotate orientation, [P] to toggle USB/Battery, [B] to toggle battery level, [Q] to quit)\n";
+    std::cout << "[Sleep] Next poll scheduled in " << sleepDurationSec << "s (Press [Space] to wake, [O]/[R] to rotate orientation, [P] to toggle USB/Battery, [B] to toggle battery level, [L] to dump logs, [Q] to quit)\n";
 
     // Simulate sleep interval while polling interactive SDL2 events
     auto sleepStart = std::chrono::steady_clock::now();

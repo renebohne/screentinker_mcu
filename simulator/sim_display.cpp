@@ -1,4 +1,5 @@
 #include "sim_display.h"
+#include "diag_logger.h"
 #include <SDL2/SDL.h>
 #include <iostream>
 #include <fstream>
@@ -250,6 +251,9 @@ bool SimDisplay::pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerT
         case SDLK_p:
           // Toggle power source (battery <-> USB mains)
           powerToggled = true;
+          break;
+        case SDLK_l:
+          diag_log_dump_stdout();
           break;
       }
     }

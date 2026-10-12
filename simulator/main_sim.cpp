@@ -3,6 +3,7 @@
 #include "sim_http.h"
 #include "diag_logger.h"
 #include "setup_screen.h"
+#include "ota_updater.h"
 #include <ArduinoJson.h>
 #include <qrcode.h>
 #include <iostream>
@@ -205,6 +206,7 @@ int main(int argc, char** argv) {
     }
   }
 
+  ota_init();
   std::string lastEtag = "";
   int sleepDurationSec = cfg.syncIntervalSec;
   bool running = true;
@@ -296,10 +298,24 @@ int main(int argc, char** argv) {
         } else {
           std::cerr << "[Diag] Log upload failed (HTTP " << logRes.statusCode << ")\n";
         }
+      } else if (cmd.rfind("update ", 0) == 0 || cmd.rfind("ota ", 0) == 0) {
+        std::string updateUrl = cmd.substr(cmd.find(' ') + 1);
+        if (!updateUrl.empty() && updateUrl[0] == '/') {
+          updateUrl = cfg.serverUrl + updateUrl;
+        }
+        std::cout << "[Simulator] Remote OTA update command received: " << updateUrl << "\n";
+        renderOtaUpdateScreen(monoBuffer.data(), "Updating Firmware...", LANG_EN);
+        monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+        display.renderBuffer(frameBuffer.data());
+        display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
+        ota_perform_update(updateUrl.c_str(), nullptr);
+        std::cout << "[Simulator] Simulated OTA update complete. Resetting state.\n";
+        lastEtag = "";
       }
     }
 
     if (res.statusCode == 200) {
+      ota_confirm_running_partition();
       std::string etag = res.getHeader("etag");
       if (!etag.empty()) lastEtag = etag;
 
@@ -313,6 +329,7 @@ int main(int argc, char** argv) {
                   << " bytes (expected " << cfg.bufferSize() << ")\n";
       }
     } else if (res.statusCode == 304) {
+      ota_confirm_running_partition();
       std::cout << "[Sync] 304 Not Modified — Cache valid (0 bytes downloaded). E-Paper image preserved.\n";
     } else if (res.statusCode == 404) {
       std::string deviceName = res.getHeader("x-st-device-name");

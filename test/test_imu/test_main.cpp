@@ -239,9 +239,62 @@ void test_diag_logger() {
   std::cout << "  ✓ All Diagnostic Logger tests passed!\n";
 }
 
+#include "ota_updater.h"
+
+void test_ota_updater() {
+  std::cout << "[Test] Running OTA Updater tests (#8)...\n";
+
+  // 1. Init and state query
+  ota_init();
+  OtaState st;
+  ota_get_state(&st);
+  assert(st.running_partition != nullptr);
+  assert(st.next_partition != nullptr);
+  assert(st.status == OTA_STATUS_IDLE);
+
+  // 2. Confirm running partition
+  assert(ota_confirm_running_partition());
+
+  // 3. Invalid URL should fail immediately
+  assert(!ota_perform_update(nullptr, nullptr));
+  ota_get_state(&st);
+  assert(st.status == OTA_STATUS_ERROR);
+
+  assert(!ota_perform_update("", nullptr));
+  ota_get_state(&st);
+  assert(st.status == OTA_STATUS_ERROR);
+
+  // 4. Valid mock update
+  assert(ota_perform_update("http://127.0.0.1:3001/firmware.bin", nullptr));
+  ota_get_state(&st);
+  assert(st.status == OTA_STATUS_SUCCESS);
+  assert(st.progress_percent == 100);
+
+  // 5. OTA Screen Rendering tests (EN & DE)
+  gfx_set_screen_dimensions(800, 480);
+  std::vector<uint8_t> buffer(gfx_get_buffer_size(), 0xFF);
+
+  renderOtaUpdateScreen(buffer.data(), "Updating...", LANG_EN);
+  bool hasBlackPixels = false;
+  for (uint8_t b : buffer) {
+    if (b != 0xFF) { hasBlackPixels = true; break; }
+  }
+  assert(hasBlackPixels);
+
+  std::fill(buffer.begin(), buffer.end(), 0xFF);
+  renderOtaUpdateScreen(buffer.data(), "Aktualisiere...", LANG_DE);
+  hasBlackPixels = false;
+  for (uint8_t b : buffer) {
+    if (b != 0xFF) { hasBlackPixels = true; break; }
+  }
+  assert(hasBlackPixels);
+
+  std::cout << "  ✓ All OTA Updater tests passed!\n";
+}
+
 int main() {
   std::cout << "==========================================\n";
-  std::cout << " ScreenTinker Native Unit Tests (#9, #21, #22)\n";
+  std::cout << " ScreenTinker Native Unit Tests (#8, #9, #21, #22)\n";
   std::cout << "==========================================\n";
 
   test_imu_orientation_detection();
@@ -249,6 +302,7 @@ int main() {
   test_sht40_driver();
   test_status_screen_telemetry();
   test_diag_logger();
+  test_ota_updater();
 
   std::cout << "\n✅ ALL UNIT TESTS PASSED SUCCESSFULLY!\n";
   return 0;

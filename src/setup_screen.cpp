@@ -955,6 +955,54 @@ void renderUnsupportedContentScreen(uint8_t* buffer, const char* reason, Languag
   gfx_draw_string(buffer, 120, s_epd_height - 38, (lang == LANG_DE) ? "Automatische Neupruefung beim naechsten Abrufzyklus" : "Display will automatically re-check on next sync interval", 1, 2);
 }
 
+// ─── 8. Over-The-Air (OTA) Firmware Update Screen ───────────────────────────
+void renderOtaUpdateScreen(uint8_t* buffer, const char* statusMsg, Language lang) {
+  gfx_fill(buffer, 1);
+
+  // Top header banner (54px high)
+  gfx_fill_rect(buffer, 0, 0, s_epd_width, 54, 0);
+  gfx_draw_screentinker_logo(buffer, 20, 12, 1);
+  gfx_draw_string(buffer, 56, 16, "ScreenTinker", 1, 3);
+
+  const char* title = (lang == LANG_DE) ? "Firmware-Update" : "Firmware Update";
+  gfx_draw_string(buffer, max(300, s_epd_width - 280), 16, title, 1, 3);
+
+  // Prominent Headline Banner (46px high)
+  gfx_fill_rect(buffer, 30, 68, s_epd_width - 60, 46, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 48, 81, "FIRMWARE-UPDATE LAEUFT", 1, 2);
+  } else {
+    gfx_draw_string(buffer, 48, 81, "FIRMWARE UPDATE IN PROGRESS", 1, 2);
+  }
+
+  // Main Card
+  gfx_draw_rect(buffer, 30, 122, s_epd_width - 60, 276, 0);
+
+  // Warning text
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 50, 150, "Das System aktualisiert die Geraete-Firmware (OTA).", 0, 2);
+    gfx_draw_string(buffer, 50, 185, "BITTE DAS GERAET NICHT AUSSCHALTEN!", 0, 2);
+  } else {
+    gfx_draw_string(buffer, 50, 150, "The system is updating device firmware over the air.", 0, 2);
+    gfx_draw_string(buffer, 50, 185, "DO NOT POWER OFF OR DISCONNECT POWER!", 0, 2);
+  }
+
+  // Status message box
+  if (statusMsg && strlen(statusMsg) > 0) {
+    gfx_draw_rect(buffer, 50, 230, s_epd_width - 100, 60, 0);
+    gfx_draw_string(buffer, 65, 252, statusMsg, 0, 2);
+  }
+
+  // Footer bar
+  gfx_fill_rect(buffer, 0, s_epd_height - 56, s_epd_width, 56, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 60, s_epd_height - 38, "Automatischer Neustart nach Abschluss des Downloads...", 1, 2);
+  } else {
+    gfx_draw_string(buffer, 60, s_epd_height - 38, "Device will automatically restart when complete...", 1, 2);
+  }
+}
+
+
 
 
 

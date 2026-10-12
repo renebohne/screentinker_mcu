@@ -17,6 +17,7 @@ extern "C" {
 #include "imu_driver.h"
 #include "sht40_driver.h"
 #include "diag_logger.h"
+#include "ota_updater.h"
 
 #include <WebServer.h>
 #include <DNSServer.h>
@@ -522,6 +523,15 @@ void showEmptyPlaylistScreen(const char* deviceName = "", Language lang = LANG_E
   if (!s_rawBuffer || !s_rotatedBuffer) return;
   Serial.printf("[Display] Rendering Empty Playlist Screen for '%s' on E-Paper...\n", deviceName ? deviceName : "");
   renderEmptyPlaylistScreen(s_rawBuffer, deviceName, g_serverUrl.c_str(), lang);
+  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
+  renderRotatedBuffer(s_rotatedBuffer, false);
+}
+
+void showOtaUpdateScreen(const char* statusMsg = nullptr, Language lang = LANG_EN) {
+  s_currentLang = lang;
+  if (!s_rawBuffer || !s_rotatedBuffer) return;
+  Serial.println("[Display] Rendering OTA Update Screen on E-Paper...");
+  renderOtaUpdateScreen(s_rawBuffer, statusMsg, lang);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, false);
 }
@@ -1239,6 +1249,29 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
       diag_log_printf(DIAG_LOG_INFO, "Sync", "Remote upload_logs command received from server!");
       Serial.println("[Sync] Remote upload_logs command received from server!");
       uploadLogsToServer();
+    } else if (cmd.startsWith("update") || cmd.startsWith("ota")) {
+      int firstSpace = cmd.indexOf(' ');
+      if (firstSpace > 0) {
+        String rest = cmd.substring(firstSpace + 1);
+        rest.trim();
+        String url = rest;
+        String sha = "";
+        int secondSpace = rest.indexOf(' ');
+        if (secondSpace > 0) {
+          url = rest.substring(0, secondSpace);
+          sha = rest.substring(secondSpace + 1);
+          sha.trim();
+        }
+        if (url.startsWith("/")) {
+          url = g_serverUrl + url;
+        }
+        diag_log_printf(DIAG_LOG_WARN, "Sync", "Remote update command received: url=%s", url.c_str());
+        Serial.printf("[Sync] Remote update command received: url=%s\n", url.c_str());
+        http.end();
+        showOtaUpdateScreen("Updating Firmware...", s_currentLang);
+        ota_perform_update(url.c_str(), sha.length() > 0 ? sha.c_str() : nullptr);
+        return;
+      }
     }
   }
 
@@ -1272,6 +1305,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     rtc_unchangedCycles++;
     Serial.printf("[Sync] 304 Not Modified — Content for item %d unchanged (0 bytes download, consecutive 304s: %d).\n",
                   resolvedIndex, rtc_unchangedCycles);
+    ota_confirm_running_partition();
     http.end();
     disconnectWiFiIfPowerSave();
     // If playlist advanced to another item that is in cache, display it without re-downloading
@@ -1324,6 +1358,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
       rotate_buffer_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
       cachePut(s_currentItemIndex, newEtag, s_rotatedBuffer);
       renderRotatedBuffer(s_rotatedBuffer);
+      ota_confirm_running_partition();
     } else {
       Serial.println("[Sync] Incomplete frame received! Refresh aborted.");
     }
@@ -1454,6 +1489,34 @@ void processSerialLine(const String& line) {
       s_menuSelection = 0;
       s_menuOpenMillis = millis();
       showSystemMenu(0, false);
+    } else if (line == "ota_status" || line == "ota") {
+      OtaState st;
+      ota_get_state(&st);
+      Serial.printf("{\"status\":\"ok\",\"v\":1,\"running\":\"%s\",\"next\":\"%s\",\"rollback_possible\":%s,\"pending_verify\":%s,\"ota_status\":%d}\n",
+                    st.running_partition ? st.running_partition : "unknown",
+                    st.next_partition ? st.next_partition : "unknown",
+                    st.is_rollback_possible ? "true" : "false",
+                    st.is_pending_verification ? "true" : "false",
+                    (int)st.status);
+    } else if (line == "rollback") {
+      ota_rollback_and_reboot();
+    } else if (line.startsWith("update ") || line.startsWith("ota ")) {
+      int firstSpace = line.indexOf(' ');
+      String rest = line.substring(firstSpace + 1);
+      rest.trim();
+      String url = rest;
+      String sha = "";
+      int secondSpace = rest.indexOf(' ');
+      if (secondSpace > 0) {
+        url = rest.substring(0, secondSpace);
+        sha = rest.substring(secondSpace + 1);
+        sha.trim();
+      }
+      if (url.startsWith("/")) {
+        url = g_serverUrl + url;
+      }
+      showOtaUpdateScreen("Updating Firmware...", s_currentLang);
+      ota_perform_update(url.c_str(), sha.length() > 0 ? sha.c_str() : nullptr);
     }
     return;
   }
@@ -1518,6 +1581,30 @@ void processSerialLine(const String& line) {
   } else if (strcmp(cmd, "upload_logs") == 0) {
     bool ok = uploadLogsToServer();
     Serial.printf("{\"status\":\"%s\",\"v\":1}\n", ok ? "ok" : "error");
+  } else if (strcmp(cmd, "ota_status") == 0) {
+    OtaState st;
+    ota_get_state(&st);
+    Serial.printf("{\"status\":\"ok\",\"v\":1,\"running\":\"%s\",\"next\":\"%s\",\"rollback_possible\":%s,\"pending_verify\":%s,\"ota_status\":%d}\n",
+                  st.running_partition ? st.running_partition : "unknown",
+                  st.next_partition ? st.next_partition : "unknown",
+                  st.is_rollback_possible ? "true" : "false",
+                  st.is_pending_verification ? "true" : "false",
+                  (int)st.status);
+  } else if (strcmp(cmd, "rollback") == 0) {
+    ota_rollback_and_reboot();
+  } else if (strcmp(cmd, "update") == 0 || strcmp(cmd, "ota") == 0) {
+    String url = doc["url"] | "";
+    String sha = doc["sha256"] | "";
+    if (url.length() > 0) {
+      if (url.startsWith("/")) {
+        url = g_serverUrl + url;
+      }
+      showOtaUpdateScreen("Updating Firmware...", s_currentLang);
+      bool ok = ota_perform_update(url.c_str(), sha.length() > 0 ? sha.c_str() : nullptr);
+      Serial.printf("{\"status\":\"%s\",\"v\":1}\n", ok ? "ok" : "error");
+    } else {
+      Serial.println("{\"status\":\"error\",\"v\":1,\"message\":\"Missing required field: url\"}");
+    }
   } else if (strcmp(cmd, "set_orientation") == 0 || strcmp(cmd, "orientation") == 0) {
     if (!doc["mode"].isNull()) {
       const char* m = doc["mode"].as<const char*>();
@@ -1589,6 +1676,7 @@ void setup() {
 
   diag_log_init();
   diag_log_printf(DIAG_LOG_INFO, "Boot", "ScreenTinker MCU v%s (%s) booting...", FIRMWARE_VERSION, DEVICE_PROFILE_NAME);
+  ota_init();
 
   esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
 

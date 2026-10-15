@@ -684,14 +684,19 @@ void scheduleNextSync(uint32_t sleepSeconds) {
   enterDeepSleepWithWakeup(sleepSeconds);
 }
 
-void powerOffDevice() {
+void powerOffDevice(bool batteryDepleted = false) {
   Serial.println("\n=============================================");
-  Serial.println("  [Power] RENDERING SHUTDOWN SCREEN & POWERING OFF");
+  if (batteryDepleted) {
+    Serial.println("  [Power] CRITICAL: BATTERY DEPLETED (<= 1%)");
+    Serial.println("  [Power] RENDERING SHUTDOWN SCREEN & CUTTING POWER");
+  } else {
+    Serial.println("  [Power] RENDERING SHUTDOWN SCREEN & POWERING OFF");
+  }
   Serial.println("=============================================");
   
-  // Render dedicated Power Off screen on E-Paper so user knows the device is off
+  // Render dedicated Power Off / Battery Depleted screen on E-Paper so user knows the device is off
   if (s_rawBuffer && s_rotatedBuffer) {
-    renderPowerOffScreen(s_rawBuffer, s_currentLang);
+    renderPowerOffScreen(s_rawBuffer, s_currentLang, batteryDepleted);
     rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
     renderRotatedBuffer(s_rotatedBuffer);
   }
@@ -729,14 +734,30 @@ void powerOffDevice() {
   digitalWrite(PIN_PWR_LOCK, LOW);
 #endif
   
-  // Set wakeup on OK button (GPIO 4 is active LOW)
+  // If battery is depleted, do NOT enable OK button wakeup because waking with 0% battery drains the cell further
+  // Only wake up when plugged into USB or external power!
+  if (!batteryDepleted) {
 #ifdef PIN_BTN_OK
-  esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_BTN_OK, 0);
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_BTN_OK, 0);
 #endif
+    Serial.println("[Power] Power latch released. Entering Deep Sleep (Press OK to wake)...");
+  } else {
+    Serial.println("[Power] Power latch released. Entering Deep Sleep (Connect USB-C to charge & wake)...");
+  }
   
-  Serial.println("[Power] Power latch released. Entering Deep Sleep (Press OK to wake)...");
   delay(100);
   esp_deep_sleep_start();
+}
+
+static bool checkCriticalBatteryAndShutdown() {
+  if (isUsbPowerConnected()) return false;
+  int batt = readBatteryPercent();
+  if (batt >= 0 && batt <= 1) {
+    Serial.printf("\n[Power] CRITICAL: Battery depleted (%d%% <= 1%%) and no USB power! Triggering shutdown...\n", batt);
+    powerOffDevice(true);
+    return true;
+  }
+  return false;
 }
 
 bool registerAndStartPairing();
@@ -1148,6 +1169,8 @@ bool uploadLogsToServer() {
 
 // ─── Fetch & Render (with PSRAM Caching) ──────────────────────────────────────
 void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
+  if (checkCriticalBatteryAndShutdown()) return;
+
   int targetIndex = (requestedItemIndex >= 0) ? requestedItemIndex : s_currentItemIndex;
 
   // 1. Fetch or re-validate from server over Wi-Fi
@@ -1851,6 +1874,10 @@ void setup() {
 
   loadConfigFromNVS();
 
+  if (checkCriticalBatteryAndShutdown()) {
+    return;
+  }
+
   if (s_hasImu && (s_orientationMode == ORIENT_MODE_AUTO || s_imuDebugScreen)) {
     int detected = imu_detect_orientation(s_activeOrientation);
     if (detected >= 0) {
@@ -1950,6 +1977,8 @@ void setup() {
 }
 
 void loop() {
+  if (checkCriticalBatteryAndShutdown()) return;
+
   if (!s_apModeActive) {
     OtaState otaCheck;
     ota_get_state(&otaCheck);

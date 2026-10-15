@@ -898,8 +898,66 @@ void renderOnboardingScreen(uint8_t* buffer, Language lang) {
   }
 }
 
-// ─── 7. Power Off Screen ─────────────────────────────────────────────────────
-void renderPowerOffScreen(uint8_t* buffer, Language lang) {
+// ─── 7. Power Off & Battery Depleted Screen ──────────────────────────────────
+void renderBatteryDepletedScreen(uint8_t* buffer, Language lang) {
+  gfx_fill(buffer, 1);
+
+  // Header Banner
+  gfx_fill_rect(buffer, 0, 0, s_epd_width, 54, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 140, 16, "ScreenTinker — Akku leer (Shutdown)", 1, 3);
+  } else {
+    gfx_draw_string(buffer, 140, 16, "ScreenTinker — Battery Depleted", 1, 3);
+  }
+
+  // Large Battery Icon Graphic on the left
+  int bx = 70;
+  int by = 130;
+  int bw = 200;
+  int bh = 110;
+  gfx_draw_rect(buffer, bx, by, bw, bh, 0);
+  gfx_draw_rect(buffer, bx + 1, by + 1, bw - 2, bh - 2, 0); // 2px outer border
+  gfx_fill_rect(buffer, bx + bw, by + 35, 18, 40, 0);       // Positive terminal nipple
+
+  // Critical sliver on left inside battery (14px wide)
+  gfx_fill_rect(buffer, bx + 8, by + 8, 14, bh - 16, 0);
+
+  // Prominent Exclamation mark inside battery center
+  gfx_draw_string(buffer, bx + 85, by + 23, "!", 0, 8);
+
+  // Details
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 340, 100, "AKKU LEER — SHUTDOWN", 0, 3);
+    gfx_draw_string(buffer, 340, 150, "Der Akku ist vollstaendig entladen (<= 1%).", 0, 2);
+    gfx_draw_string(buffer, 340, 180, "Das Geraet wurde zum Schutz abgeschaltet.", 0, 2);
+
+    gfx_fill_rect(buffer, 340, 225, 420, 85, 0);
+    gfx_draw_string(buffer, 360, 245, "Bitte USB-C Ladegeraet anschliessen,", 1, 2);
+    gfx_draw_string(buffer, 360, 275, "um das Geraet wieder aufzuladen!", 1, 2);
+  } else {
+    gfx_draw_string(buffer, 340, 100, "BATTERY DEPLETED", 0, 3);
+    gfx_draw_string(buffer, 340, 150, "The battery is completely depleted (<= 1%).", 0, 2);
+    gfx_draw_string(buffer, 340, 180, "Device was shut down to protect the battery.", 0, 2);
+
+    gfx_fill_rect(buffer, 340, 225, 420, 85, 0);
+    gfx_draw_string(buffer, 360, 245, "Please connect a USB-C power source", 1, 2);
+    gfx_draw_string(buffer, 360, 275, "to recharge and power on!", 1, 2);
+  }
+
+  // Footer Navigation Hint
+  gfx_fill_rect(buffer, 0, s_epd_height - 56, s_epd_width, 56, 0);
+  if (lang == LANG_DE) {
+    gfx_draw_string(buffer, 120, s_epd_height - 38, "[ USB-C ]: Kabel verbinden zum Einschalten & Laden", 1, 2);
+  } else {
+    gfx_draw_string(buffer, 120, s_epd_height - 38, "[ USB-C ]: Connect power cable to charge & turn on", 1, 2);
+  }
+}
+
+void renderPowerOffScreen(uint8_t* buffer, Language lang, bool isBatteryDepleted) {
+  if (isBatteryDepleted) {
+    renderBatteryDepletedScreen(buffer, lang);
+    return;
+  }
   gfx_fill(buffer, 1);
 
   // Header Banner

@@ -671,6 +671,50 @@ class TestScreenTinkerSimulator(unittest.TestCase):
         r_norm, g_norm, b_norm = get_bmp_pixel(snap_normal, 743, 15)
         self.assertGreater(r_norm, 240, f"Expected white at (743, 15) with normal battery, got {r_norm}")
 
+    def test_21_critical_battery_shutdown(self):
+        """Tests that critical battery (<= 1%) without USB power renders shutdown screen and powers off."""
+        # Case 1: Battery at 1% on battery power -> Immediate shutdown screen and power off
+        snap_depleted = os.path.join(self.temp_dir.name, "snap_depleted.bmp")
+        args_depleted = [
+            "--token", "test-token",
+            "--device", "dev-depleted-batt",
+            "--battery", "1",
+            "--power", "battery",
+            "--snapshot", snap_depleted,
+        ]
+        res_depleted = self.run_simulator(args_depleted)
+        self.assertEqual(res_depleted.returncode, 0)
+        self.assertIn("CRITICAL: Battery depleted (1% <= 1%)!", res_depleted.stdout)
+        self.assertIn("RENDERING BATTERY DEPLETED SHUTDOWN SCREEN & POWERING OFF", res_depleted.stdout)
+        self.assertIn("Device powered off due to depleted battery. Exiting.", res_depleted.stdout)
+        self.assertTrue(os.path.exists(snap_depleted), "Shutdown snapshot BMP was not generated")
+
+        # Verify shutdown screen graphics:
+        # 1. Top header bar (y=20) is solid black (< 35)
+        r_hdr, g_hdr, b_hdr = get_bmp_pixel(snap_depleted, 100, 20)
+        self.assertLess(r_hdr, 35, f"Header pixel expected black, got {r_hdr}")
+        # 2. Large battery icon outer border at (70, 130) is black (< 35)
+        r_batt, g_batt, b_batt = get_bmp_pixel(snap_depleted, 70, 130)
+        self.assertLess(r_batt, 35, f"Battery border pixel expected black, got {r_batt}")
+
+        # Ensure server render endpoint was never polled due to early shutdown
+        self.assertEqual(len(self.mock_server.state.requests_log), 0)
+
+        # Case 2: Battery at 1% but connected to USB power -> no shutdown, regular sync proceeds
+        snap_usb = os.path.join(self.temp_dir.name, "snap_usb_ok.bmp")
+        args_usb = [
+            "--token", "test-token",
+            "--device", "dev-usb-ok",
+            "--battery", "1",
+            "--usb",
+            "--snapshot", snap_usb,
+        ]
+        res_usb = self.run_simulator(args_usb)
+        self.assertEqual(res_usb.returncode, 0)
+        self.assertNotIn("CRITICAL: Battery depleted", res_usb.stdout)
+        self.assertIn("[Sync] Server response status: 200", res_usb.stdout)
+        self.assertTrue(os.path.exists(snap_usb))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

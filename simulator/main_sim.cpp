@@ -184,6 +184,20 @@ int main(int argc, char** argv) {
   std::vector<uint8_t> frameBuffer(cfg.bufferSize(), 0xFF);
   std::vector<uint8_t> monoBuffer(gfx_get_buffer_size(), 0xFF);
 
+  // Check critical battery depletion before any network or flow operations
+  if (cfg.powerSource != "usb" && !cfg.isCharging && cfg.batteryPercent >= 0 && cfg.batteryPercent <= 1) {
+    std::cout << "\n=============================================\n";
+    std::cout << "  [Power] CRITICAL: Battery depleted (" << cfg.batteryPercent << "% <= 1%)!\n";
+    std::cout << "  [Power] RENDERING BATTERY DEPLETED SHUTDOWN SCREEN & POWERING OFF\n";
+    std::cout << "=============================================\n";
+    renderBatteryDepletedScreen(monoBuffer.data(), LANG_EN);
+    monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+    display.renderBuffer(frameBuffer.data());
+    display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
+    std::cout << "[Simulator] Device powered off due to depleted battery. Exiting.\n";
+    return 0;
+  }
+
   // Check if Pairing flow is required
   if (cfg.pairMode || cfg.deviceToken.empty()) {
     if (!runPairingFlow(cfg, http, display, frameBuffer)) {
@@ -213,6 +227,19 @@ int main(int argc, char** argv) {
   int cycleCount = 0;
 
   while (running) {
+    if (cfg.powerSource != "usb" && !cfg.isCharging && cfg.batteryPercent >= 0 && cfg.batteryPercent <= 1) {
+      std::cout << "\n=============================================\n";
+      std::cout << "  [Power] CRITICAL: Battery depleted (" << cfg.batteryPercent << "% <= 1%)!\n";
+      std::cout << "  [Power] RENDERING BATTERY DEPLETED SHUTDOWN SCREEN & POWERING OFF\n";
+      std::cout << "=============================================\n";
+      renderBatteryDepletedScreen(monoBuffer.data(), LANG_EN);
+      monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+      display.renderBuffer(frameBuffer.data());
+      display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
+      std::cout << "[Simulator] Device powered off due to depleted battery. Exiting.\n";
+      return 0;
+    }
+
     std::string url = cfg.serverUrl + "/api/embedded/render?device_id=" + cfg.deviceId;
     if (!cfg.orientation.empty()) {
       url += "&orientation=" + cfg.orientation;
@@ -461,7 +488,7 @@ int main(int argc, char** argv) {
       }
 
       if (batteryDelta == 999) {
-        cfg.batteryPercent = (cfg.batteryPercent > 20) ? 8 : 100;
+        cfg.batteryPercent = (cfg.batteryPercent > 20) ? 8 : ((cfg.batteryPercent == 8) ? 1 : 100);
         std::cout << "[Simulator] Battery level toggled to " << cfg.batteryPercent << "%\n";
         wakeRequested = true;
       } else if (batteryDelta != 0) {

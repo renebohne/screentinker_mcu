@@ -393,6 +393,7 @@ static bool initDisplayPanel() {
 
   s_epdInitialized = true;
   Serial.printf("[EPD] Display panel initialized (%s, model %d).\n", DEVICE_PROFILE_NAME, (int)DEVICE_PANEL_MODEL);
+  return true;
 }
 
 static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = false) {

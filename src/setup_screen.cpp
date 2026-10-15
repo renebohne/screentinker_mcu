@@ -468,16 +468,31 @@ void renderPairingCodeScreen(uint8_t* buffer, const char* code, const char* serv
 }
 
 // ─── 3. Settings Menu (8 Items with Orientation, Wi-Fi Power & Language) ─────
-void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t wifiTxLevel, uint8_t orientMode, bool hasImu) {
+void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t wifiTxLevel, uint8_t orientMode, bool hasImu, int batteryPct, bool isCharging, bool isUsbPower) {
   gfx_fill(buffer, 1);
 
   // Header Banner
   gfx_fill_rect(buffer, 0, 0, s_epd_width, 54, 0);
   gfx_draw_screentinker_logo(buffer, 20, 12, 1);
+  int titleScale = (batteryPct >= 0 && s_epd_width <= 800) ? 2 : 3;
+  int titleY = (titleScale == 2) ? 19 : 16;
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 56, 16, "ScreenTinker — Einstellungen", 1, 3);
+    gfx_draw_string(buffer, 56, titleY, "ScreenTinker — Einstellungen", 1, titleScale);
   } else {
-    gfx_draw_string(buffer, 56, 16, "ScreenTinker — Settings", 1, 3);
+    gfx_draw_string(buffer, 56, titleY, "ScreenTinker — Settings", 1, titleScale);
+  }
+
+  if (batteryPct >= 0) {
+    char battBadge[32];
+    if (isCharging) {
+      snprintf(battBadge, sizeof(battBadge), "[ %d%% CHG ]", batteryPct);
+    } else if (isUsbPower) {
+      snprintf(battBadge, sizeof(battBadge), "[ %d%% USB ]", batteryPct);
+    } else {
+      snprintf(battBadge, sizeof(battBadge), "[ %d%% ]", batteryPct);
+    }
+    int bLen = strlen(battBadge);
+    gfx_draw_string(buffer, s_epd_width - (bLen * 16) - 20, 18, battBadge, 1, 2);
   }
 
   char orientDE[64];
@@ -572,51 +587,66 @@ void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t
   }
 }
 
-// ─── 4. Status & Diagnostic Info Screen (5 Full-Width Spacious Rows) ─────────
-void renderStatusInfoScreen(uint8_t* buffer, const char* ip, const char* ssid, int rssi, const char* serverUrl, const char* devId, const char* version, Language lang, float tempC, float humidityPct) {
+// ─── 4. Status & Diagnostic Info Screen (6 Spacious Rows with Battery) ───────
+void renderStatusInfoScreen(uint8_t* buffer, const char* ip, const char* ssid, int rssi, const char* serverUrl, const char* devId, const char* version, Language lang, float tempC, float humidityPct, int batteryPct, bool isCharging, bool isUsbPower) {
   gfx_fill(buffer, 1);
 
   // Header Banner
   gfx_fill_rect(buffer, 0, 0, s_epd_width, 52, 0);
-  gfx_draw_string(buffer, 20, 15, "ScreenTinker — Status & Info", 1, 3);
+  int titleScale = (batteryPct >= 0 && s_epd_width <= 800) ? 2 : 3;
+  int titleY = (titleScale == 2) ? 19 : 15;
+  gfx_draw_string(buffer, 20, titleY, "ScreenTinker — Status & Info", 1, titleScale);
 
-  int y = 64;
-  int rowH = 54;
-  int rowGap = 12;
+  if (batteryPct >= 0) {
+    char battBadge[32];
+    if (isCharging) {
+      snprintf(battBadge, sizeof(battBadge), "[ %d%% CHG ]", batteryPct);
+    } else if (isUsbPower) {
+      snprintf(battBadge, sizeof(battBadge), "[ %d%% USB ]", batteryPct);
+    } else {
+      snprintf(battBadge, sizeof(battBadge), "[ %d%% ]", batteryPct);
+    }
+    int bLen = strlen(battBadge);
+    gfx_draw_string(buffer, s_epd_width - (bLen * 16) - 20, 18, battBadge, 1, 2);
+  }
+
+  int y = 58;
+  int rowH = 48;
+  int rowGap = 10;
   int boxW = s_epd_width - 20; // x = 10 to (s_epd_width - 10)
   int boxX = 10;
   int labelX = boxX + 10;   // x = 20
-  int valueX = 212;         // x = 212 (guarantees a full space after "IP Address:" and "Server URL:")
+  int valueX = 212;         // x = 212
 
   // Row 1: IP Address
   gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
-  gfx_draw_string(buffer, labelX, y + 18, (lang == LANG_DE) ? "IP-Adresse:" : "IP Address:", 0, 2);
+  gfx_draw_string(buffer, labelX, y + 16, (lang == LANG_DE) ? "IP-Adresse:" : "IP Address:", 0, 2);
   const char* defIp = (lang == LANG_DE) ? "Standby (Power Save)" : "Standby (Power Save)";
   const char* ipDisplay = (ip && strlen(ip) > 0 && strcmp(ip, "0.0.0.0") != 0) ? ip : defIp;
-  gfx_draw_string(buffer, valueX, y + 18, ipDisplay, 0, 2);
+  gfx_draw_string(buffer, valueX, y + 16, ipDisplay, 0, 2);
 
   // Row 2: Wi-Fi SSID & RSSI
   y += rowH + rowGap;
   gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
-  gfx_draw_string(buffer, labelX, y + 18, (lang == LANG_DE) ? "WLAN-Netz:" : "Wi-Fi:", 0, 2);
+  gfx_draw_string(buffer, labelX, y + 16, (lang == LANG_DE) ? "WLAN-Netz:" : "Wi-Fi:", 0, 2);
   char wifiStr[64];
   if (rssi != 0) {
     snprintf(wifiStr, sizeof(wifiStr), "%s (%d dBm)", (ssid && strlen(ssid) > 0) ? ssid : "-", rssi);
   } else {
     snprintf(wifiStr, sizeof(wifiStr), "%s", (ssid && strlen(ssid) > 0) ? ssid : "-");
   }
-  gfx_draw_string(buffer, valueX, y + 18, wifiStr, 0, 2);
+  gfx_draw_string(buffer, valueX, y + 16, wifiStr, 0, 2);
 
   // Row 3: Server URL
   y += rowH + rowGap;
   gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
-  gfx_draw_string(buffer, labelX, y + 18, (lang == LANG_DE) ? "Server-URL:" : "Server URL:", 0, 2);
-  gfx_draw_string(buffer, valueX, y + 18, (serverUrl && strlen(serverUrl) > 0) ? serverUrl : "-", 0, 2);
+  gfx_draw_string(buffer, labelX, y + 16, (lang == LANG_DE) ? "Server-URL:" : "Server URL:", 0, 2);
+  gfx_draw_string(buffer, valueX, y + 16, (serverUrl && strlen(serverUrl) > 0) ? serverUrl : "-", 0, 2);
 
   // Row 4: Firmware Version & Ambient Environment
   y += rowH + rowGap;
   gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
-  gfx_draw_string(buffer, labelX, y + 18, "Firmware:", 0, 2);
+  gfx_draw_string(buffer, labelX, y + 16, "Firmware:", 0, 2);
   char verStr[64];
   if (tempC > -90.0f && humidityPct >= 0.0f && humidityPct <= 100.0f) {
     snprintf(verStr, sizeof(verStr), "v%s (%s) · %.1f C / %.0f%% RH",
@@ -625,13 +655,35 @@ void renderStatusInfoScreen(uint8_t* buffer, const char* ip, const char* ssid, i
     snprintf(verStr, sizeof(verStr), "v%s (%s)",
              version ? version : FIRMWARE_VERSION, DEVICE_PROFILE_NAME);
   }
-  gfx_draw_string(buffer, valueX, y + 18, verStr, 0, 2);
+  gfx_draw_string(buffer, valueX, y + 16, verStr, 0, 2);
 
-  // Row 5: Device ID
+  // Row 5: Battery / Power Status
   y += rowH + rowGap;
   gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
-  gfx_draw_string(buffer, labelX, y + 18, (lang == LANG_DE) ? "Device-ID:" : "Device ID:", 0, 2);
-  gfx_draw_string(buffer, valueX, y + 18, (devId && strlen(devId) > 0) ? devId : "-", 0, 2);
+  gfx_draw_string(buffer, labelX, y + 16, (lang == LANG_DE) ? "Akku / Strom:" : "Battery / Power:", 0, 2);
+  char battStr[64];
+  if (batteryPct >= 0) {
+    if (isCharging) {
+      snprintf(battStr, sizeof(battStr), (lang == LANG_DE) ? "%d%% (Wird geladen)" : "%d%% (Charging)", batteryPct);
+    } else if (isUsbPower) {
+      snprintf(battStr, sizeof(battStr), (lang == LANG_DE) ? "%d%% (USB verbunden)" : "%d%% (USB Connected)", batteryPct);
+    } else {
+      snprintf(battStr, sizeof(battStr), (lang == LANG_DE) ? "%d%% (Batteriebetrieb)" : "%d%% (Discharging)", batteryPct);
+    }
+  } else {
+    if (isUsbPower) {
+      snprintf(battStr, sizeof(battStr), (lang == LANG_DE) ? "USB-Netzteil (Kein Akku)" : "USB Power (No Battery)");
+    } else {
+      snprintf(battStr, sizeof(battStr), (lang == LANG_DE) ? "Nicht verfuegbar" : "Not available");
+    }
+  }
+  gfx_draw_string(buffer, valueX, y + 16, battStr, 0, 2);
+
+  // Row 6: Device ID
+  y += rowH + rowGap;
+  gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
+  gfx_draw_string(buffer, labelX, y + 16, (lang == LANG_DE) ? "Device-ID:" : "Device ID:", 0, 2);
+  gfx_draw_string(buffer, valueX, y + 16, (devId && strlen(devId) > 0) ? devId : "-", 0, 2);
 
   // Footer Navigation Hint
   gfx_fill_rect(buffer, 0, s_epd_height - 56, s_epd_width, 56, 0);
@@ -894,6 +946,106 @@ void gfx_draw_offline_badge(uint8_t* buffer) {
   gfx_fill_rect(buffer, s_epd_width - 158, 14, 142, 30, 0);
   gfx_draw_rect(buffer, s_epd_width - 156, 16, 138, 26, 1);
   gfx_draw_string(buffer, s_epd_width - 140, 22, "OFFLINE", 1, 2);
+}
+
+// ─── Native Buffer Pixel Helpers for Multi-Panel Color Modes ─────────────────
+static void set_native_pixel(uint8_t* buf, int w, int h, int colorMode, int x, int y, uint8_t colorVal) {
+  if (!buf || x < 0 || x >= w || y < 0 || y >= h) return;
+  if (colorMode == COLOR_MODE_1BPP_MONO) {
+    size_t byte_idx = ((size_t)y * (w / 8)) + (x / 8);
+    uint8_t bit_mask = 0x80 >> (x & 7);
+    if (colorVal) {
+      buf[byte_idx] |= bit_mask;
+    } else {
+      buf[byte_idx] &= ~bit_mask;
+    }
+  } else if (colorMode == COLOR_MODE_SPECTRA6 || colorMode == COLOR_MODE_GRAY16) {
+    size_t stride = (w + 1) / 2;
+    size_t byte_idx = (size_t)y * stride + (x >> 1);
+    if (x & 1) {
+      buf[byte_idx] = (buf[byte_idx] & 0xF0) | (colorVal & 0x0F);
+    } else {
+      buf[byte_idx] = (buf[byte_idx] & 0x0F) | ((colorVal & 0x0F) << 4);
+    }
+  } else if (colorMode == COLOR_MODE_GRAY4) {
+    size_t stride = (w + 3) / 4;
+    size_t byte_idx = (size_t)y * stride + (x >> 2);
+    uint8_t shift = 6 - 2 * (x & 3);
+    buf[byte_idx] = (buf[byte_idx] & ~(0x03 << shift)) | ((colorVal & 0x03) << shift);
+  }
+}
+
+static void fill_native_rect(uint8_t* buf, int w, int h, int colorMode, int rx, int ry, int rw, int rh, uint8_t colorVal) {
+  for (int j = 0; j < rh; j++) {
+    for (int i = 0; i < rw; i++) {
+      set_native_pixel(buf, w, h, colorMode, rx + i, ry + j, colorVal);
+    }
+  }
+}
+
+static void draw_native_rect(uint8_t* buf, int w, int h, int colorMode, int rx, int ry, int rw, int rh, uint8_t colorVal) {
+  for (int i = 0; i < rw; i++) {
+    set_native_pixel(buf, w, h, colorMode, rx + i, ry, colorVal);
+    set_native_pixel(buf, w, h, colorMode, rx + i, ry + rh - 1, colorVal);
+  }
+  for (int j = 0; j < rh; j++) {
+    set_native_pixel(buf, w, h, colorMode, rx, ry + j, colorVal);
+    set_native_pixel(buf, w, h, colorMode, rx + rw - 1, ry + j, colorVal);
+  }
+}
+
+// ─── Low Battery Badge Icon Overlay (< 10%) ──────────────────────────────────
+void gfx_draw_low_battery_icon_native(uint8_t* buffer, int width, int height, int colorMode, int x, int y, int batteryPct) {
+  if (!buffer) return;
+  if (width <= 0) width = s_epd_width;
+  if (height <= 0) height = s_epd_height;
+
+  int boxW = 44;
+  int boxH = 22;
+
+  if (x < 0) x = width - boxW - 14;
+  if (y < 0) y = 14;
+
+  uint8_t blackVal = 0x00;
+  uint8_t whiteVal = (colorMode == COLOR_MODE_SPECTRA6) ? 0x01 :
+                     ((colorMode == COLOR_MODE_GRAY16) ? 0x0F :
+                     ((colorMode == COLOR_MODE_GRAY4) ? 0x03 : 1));
+  uint8_t alertVal = (colorMode == COLOR_MODE_SPECTRA6) ? 0x03 : whiteVal; // Red on Spectra 6, else White
+
+  // 1. High-contrast solid black background box
+  fill_native_rect(buffer, width, height, colorMode, x, y, boxW, boxH, blackVal);
+
+  // 2. 1px white border around the badge box
+  draw_native_rect(buffer, width, height, colorMode, x, y, boxW, boxH, whiteVal);
+
+  // 3. Battery body shell (white outline)
+  int bx = x + 5;
+  int by = y + 4;
+  int bw = 28;
+  int bh = 14;
+  draw_native_rect(buffer, width, height, colorMode, bx, by, bw, bh, whiteVal);
+
+  // 4. Positive terminal nipple on the right (white filled)
+  fill_native_rect(buffer, width, height, colorMode, bx + bw, by + 3, 3, 8, whiteVal);
+
+  // 5. Critical level sliver on the left inside battery shell (3px wide)
+  fill_native_rect(buffer, width, height, colorMode, bx + 2, by + 2, 3, bh - 4, alertVal);
+
+  // 6. Exclamation mark in the center of the battery shell
+  int exX = bx + 14;
+  fill_native_rect(buffer, width, height, colorMode, exX, by + 2, 2, 6, alertVal); // Stem
+  fill_native_rect(buffer, width, height, colorMode, exX, by + 9, 2, 2, alertVal); // Dot
+}
+
+void gfx_draw_low_battery_icon(uint8_t* buffer, int x, int y, int batteryPct) {
+  if (!buffer) return;
+  if (x < 0) x = s_epd_width - 58;
+  if (y < 0) y = 14;
+#ifdef DEVICE_COLOR_MODE
+  gfx_draw_low_battery_icon_native(buffer, s_epd_width, s_epd_height, DEVICE_COLOR_MODE, x, y, batteryPct);
+#else
+  gfx_draw_low_battery_icon_native(buffer, s_epd_width, s_epd_height, COLOR_MODE_1BPP_MONO, x, y, batteryPct);
+#endif
 }
 
 // ─── Unsupported Content (501 / Missing Browser) Screen ─────────────────────

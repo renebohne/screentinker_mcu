@@ -341,6 +341,10 @@ int main(int argc, char** argv) {
 
       if (res.body.size() == cfg.bufferSize()) {
         std::memcpy(frameBuffer.data(), res.body.data(), cfg.bufferSize());
+        if (cfg.batteryPercent >= 0 && cfg.batteryPercent < 10 && !cfg.isCharging && cfg.powerSource != "usb") {
+          std::cout << "[Power] Low battery warning (" << cfg.batteryPercent << "%)! Drawing low battery icon.\n";
+          gfx_draw_low_battery_icon_native(frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode, -1, -1, cfg.batteryPercent);
+        }
         std::cout << "[Sync] 200 OK — Downloaded new frame (" << cfg.bufferSize() << " bytes). Updating display.\n";
         display.renderBuffer(frameBuffer.data());
         display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
@@ -369,6 +373,9 @@ int main(int argc, char** argv) {
 
       renderEmptyPlaylistScreen(monoBuffer.data(), deviceName.c_str(), cfg.serverUrl.c_str(), LANG_EN);
       monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+      if (cfg.batteryPercent >= 0 && cfg.batteryPercent < 10 && !cfg.isCharging && cfg.powerSource != "usb") {
+        gfx_draw_low_battery_icon_native(frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode, -1, -1, cfg.batteryPercent);
+      }
       display.renderBuffer(frameBuffer.data());
       display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
       ota_confirm_running_partition();
@@ -388,6 +395,9 @@ int main(int argc, char** argv) {
       std::cout << "[Sync] 501 Unsupported Content — " << detail << "\n";
       renderUnsupportedContentScreen(monoBuffer.data(), detail.c_str(), LANG_EN);
       monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+      if (cfg.batteryPercent >= 0 && cfg.batteryPercent < 10 && !cfg.isCharging && cfg.powerSource != "usb") {
+        gfx_draw_low_battery_icon_native(frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode, -1, -1, cfg.batteryPercent);
+      }
       display.renderBuffer(frameBuffer.data());
       display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
       ota_confirm_running_partition();
@@ -396,6 +406,9 @@ int main(int argc, char** argv) {
       std::cerr << "[Sync] Connection failed (code " << res.statusCode << "). Rendering No Wi-Fi / Offline warning...\n";
       renderNoWifiScreen(monoBuffer.data(), "ScreenTinker Server", LANG_EN);
       monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+      if (cfg.batteryPercent >= 0 && cfg.batteryPercent < 10 && !cfg.isCharging && cfg.powerSource != "usb") {
+        gfx_draw_low_battery_icon_native(frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode, -1, -1, cfg.batteryPercent);
+      }
       display.renderBuffer(frameBuffer.data());
       display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
     }
@@ -448,11 +461,13 @@ int main(int argc, char** argv) {
       }
 
       if (batteryDelta == 999) {
-        cfg.batteryPercent = (cfg.batteryPercent > 20) ? 12 : 100;
+        cfg.batteryPercent = (cfg.batteryPercent > 20) ? 8 : 100;
         std::cout << "[Simulator] Battery level toggled to " << cfg.batteryPercent << "%\n";
+        wakeRequested = true;
       } else if (batteryDelta != 0) {
         cfg.batteryPercent = std::max(0, std::min(100, cfg.batteryPercent + batteryDelta));
         std::cout << "[Simulator] Battery adjusted to " << cfg.batteryPercent << "%\n";
+        wakeRequested = true;
       }
 
       auto elapsedSec = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - sleepStart).count();

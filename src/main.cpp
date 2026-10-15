@@ -569,9 +569,12 @@ static uint32_t s_menuOpenMillis = 0;
 
 void showSystemMenu(int selectedIndex, bool fastPartial = false) {
   if (!s_rawBuffer || !s_rotatedBuffer) return;
-  Serial.printf("[Display] Rendering System Menu (Item: %d, Fast: %d, Lang: %s, TxPwr: %d, OrientMode: %d)...\n",
-                selectedIndex, fastPartial ? 1 : 0, (s_currentLang == LANG_DE) ? "DE" : "EN", s_wifiTxPowerLevel, (int)s_orientationMode);
-  renderSystemMenu(s_rawBuffer, selectedIndex, s_currentLang, s_wifiTxPowerLevel, (uint8_t)s_orientationMode, s_hasImu);
+  int battPct = readBatteryPercent();
+  bool charging = isBatteryCharging();
+  bool usb = isUsbPowerConnected();
+  Serial.printf("[Display] Rendering System Menu (Item: %d, Fast: %d, Lang: %s, TxPwr: %d, OrientMode: %d, Batt: %d%%)...\n",
+                selectedIndex, fastPartial ? 1 : 0, (s_currentLang == LANG_DE) ? "DE" : "EN", s_wifiTxPowerLevel, (int)s_orientationMode, battPct);
+  renderSystemMenu(s_rawBuffer, selectedIndex, s_currentLang, s_wifiTxPowerLevel, (uint8_t)s_orientationMode, s_hasImu, battPct, charging, usb);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, fastPartial);
 }
@@ -591,6 +594,9 @@ void showStatusInfoScreen() {
   float curT = -999.0f;
   float curH = -1.0f;
   sht40_read(&curT, &curH);
+  int battPct = readBatteryPercent();
+  bool charging = isBatteryCharging();
+  bool usb = isUsbPowerConnected();
 
   renderStatusInfoScreen(
     s_rawBuffer,
@@ -602,7 +608,10 @@ void showStatusInfoScreen() {
     FIRMWARE_VERSION,
     s_currentLang,
     curT,
-    curH
+    curH,
+    battPct,
+    charging,
+    usb
   );
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, false);
@@ -1155,6 +1164,12 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
         Serial.printf("[Sync] Offline mode: Displaying cached item %d with Offline Badge...\n", offlineTarget);
         rotate_buffer_180(s_rotatedBuffer, s_rawBuffer, EPD_WIDTH, EPD_HEIGHT);
         gfx_draw_offline_badge(s_rawBuffer);
+        int battPct = readBatteryPercent();
+        bool charging = isBatteryCharging();
+        bool usb = isUsbPowerConnected();
+        if (battPct >= 0 && battPct < 10 && !charging && !usb) {
+          gfx_draw_low_battery_icon(s_rawBuffer, EPD_WIDTH - 210, 14, battPct);
+        }
         rotate_buffer_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
         renderRotatedBuffer(s_rotatedBuffer);
       }
@@ -1359,6 +1374,14 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
       s_currentItemIndex = resolvedIndex;
       rtc_currentItemIndex = resolvedIndex;
       Serial.printf("[Sync] Switched display to cached item %d.\n", resolvedIndex);
+      int battPct = readBatteryPercent();
+      bool charging = isBatteryCharging();
+      bool usb = isUsbPowerConnected();
+      if (battPct >= 0 && battPct < 10 && !charging && !usb) {
+        rotate_buffer_180(s_rotatedBuffer, s_rawBuffer, EPD_WIDTH, EPD_HEIGHT);
+        gfx_draw_low_battery_icon(s_rawBuffer, -1, -1, battPct);
+        rotate_buffer_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
+      }
       renderRotatedBuffer(s_rotatedBuffer);
     }
     return;
@@ -1407,6 +1430,14 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
       uint16_t src_h = (serverH > 0) ? (uint16_t)serverH : (uint16_t)(isPortraitFrame ? EPD_WIDTH : EPD_HEIGHT);
 
       bool flip = false; // Fixed transpose; server handles 180 deg inversion for 270 deg
+
+      int battPct = readBatteryPercent();
+      bool charging = isBatteryCharging();
+      bool usb = isUsbPowerConnected();
+      if (battPct >= 0 && battPct < 10 && !charging && !usb) {
+        Serial.printf("[Power] Low battery warning (%d%%)! Drawing low battery icon.\n", battPct);
+        gfx_draw_low_battery_icon_native(s_rawBuffer, src_w, src_h, DEVICE_COLOR_MODE, -1, -1, battPct);
+      }
 
       if (isSwapped) {
 #if (DEVICE_COLOR_MODE == COLOR_MODE_1BPP_MONO)

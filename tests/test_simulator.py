@@ -617,6 +617,60 @@ class TestScreenTinkerSimulator(unittest.TestCase):
         r_black, g_black, b_black = get_bmp_pixel(snapshot_path, 1, 0)
         self.assertLess(r_black, 35, f"Pixel (1,0) not black: {r_black}")
 
+    def test_20_low_battery_icon_rendering(self):
+        """Tests that low battery (< 10%) on battery power triggers warning log and renders icon badge."""
+        self.mock_server.state.frame_pattern = "solid_white"
+
+        # Case 1: Low battery (< 10%) discharging on battery power -> should warn and draw badge
+        snap_low = os.path.join(self.temp_dir.name, "snap_low_batt.bmp")
+        args_low = [
+            "--token", "test-token",
+            "--device", "dev-low-batt",
+            "--battery", "8",
+            "--power", "battery",
+            "--snapshot", snap_low,
+        ]
+        res_low = self.run_simulator(args_low)
+        self.assertIn("[Power] Low battery warning (8%)!", res_low.stdout)
+        self.assertTrue(os.path.exists(snap_low))
+        # Badge is at x = width - 58 = 742, y = 14, size 44x22.
+        # Inside the solid black box at (743, 15), pixel should be black (< 35)
+        r_box, g_box, b_box = get_bmp_pixel(snap_low, 743, 15)
+        self.assertLess(r_box, 35, f"Expected black badge pixel at (743, 15), got {r_box}")
+        # Outside badge area at (700, 15), pixel should remain solid white (> 240)
+        r_bg, g_bg, b_bg = get_bmp_pixel(snap_low, 700, 15)
+        self.assertGreater(r_bg, 240, f"Expected white background at (700, 15), got {r_bg}")
+
+        # Case 2: Battery at 8% but plugged into USB power -> no warning, no badge
+        snap_usb = os.path.join(self.temp_dir.name, "snap_usb_batt.bmp")
+        args_usb = [
+            "--token", "test-token",
+            "--device", "dev-usb-batt",
+            "--battery", "8",
+            "--usb",
+            "--snapshot", snap_usb,
+        ]
+        res_usb = self.run_simulator(args_usb)
+        self.assertNotIn("Low battery warning", res_usb.stdout)
+        self.assertTrue(os.path.exists(snap_usb))
+        r_nobadge, g_nobadge, b_nobadge = get_bmp_pixel(snap_usb, 743, 15)
+        self.assertGreater(r_nobadge, 240, f"Expected white at (743, 15) when on USB, got {r_nobadge}")
+
+        # Case 3: Battery at 50% on battery power -> no warning, no badge
+        snap_normal = os.path.join(self.temp_dir.name, "snap_normal_batt.bmp")
+        args_normal = [
+            "--token", "test-token",
+            "--device", "dev-normal-batt",
+            "--battery", "50",
+            "--power", "battery",
+            "--snapshot", snap_normal,
+        ]
+        res_normal = self.run_simulator(args_normal)
+        self.assertNotIn("Low battery warning", res_normal.stdout)
+        self.assertTrue(os.path.exists(snap_normal))
+        r_norm, g_norm, b_norm = get_bmp_pixel(snap_normal, 743, 15)
+        self.assertGreater(r_norm, 240, f"Expected white at (743, 15) with normal battery, got {r_norm}")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

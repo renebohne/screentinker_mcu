@@ -657,10 +657,10 @@ void renderStatusInfoScreen(uint8_t* buffer, const char* ip, const char* ssid, i
   }
   gfx_draw_string(buffer, valueX, y + 16, verStr, 0, 2);
 
-  // Row 5: Battery / Power Status
+  // Row 5: Power Status
   y += rowH + rowGap;
   gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
-  gfx_draw_string(buffer, labelX, y + 16, (lang == LANG_DE) ? "Akku / Strom:" : "Battery / Power:", 0, 2);
+  gfx_draw_string(buffer, labelX, y + 16, (lang == LANG_DE) ? "Strom:" : "Power:", 0, 2);
   char battStr[64];
   if (batteryPct >= 0) {
     if (isCharging) {

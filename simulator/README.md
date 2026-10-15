@@ -1,7 +1,7 @@
 # ScreenTinker MCU Host Simulator (Linux, NixOS & macOS)
 
-A native cross-platform simulator for the Seeed Studio reTerminal Sticky e-paper firmware.
-It compiles the firmware's graphics rendering engine (`setup_screen.cpp`) and HTTP client logic natively, allowing you to test screens, layouts, power schedules, and telemetry without flashing physical hardware.
+A native cross-platform simulator for the Seeed Studio reTerminal Sticky and reTerminal E-Series (E1001, E1002, E1003, E1004) e-paper firmware.
+It compiles the firmware's graphics rendering engine (`setup_screen.cpp`), sensor/IMU drivers, diagnostic log ring buffer, OTA state engine, and HTTP client logic natively, allowing you to test screens, layouts, power schedules, and telemetry without flashing physical hardware.
 
 ---
 
@@ -17,9 +17,9 @@ It compiles the firmware's graphics rendering engine (`setup_screen.cpp`) and HT
 - **Dynamic Server-Driven Adaptation:** Automatically detects server response headers (`X-ST-Screen-Width`, `X-ST-Screen-Height`, `X-ST-Orientation`, `X-ST-Rotation`) and live-resizes window and framebuffers.
 - **Window Scaling (`--scale 2`):** Crisp nearest-neighbor integer scaling (1x–4x) for High-DPI Linux / macOS monitors.
 - **Snapshot Export:** Automatically dumps rendered frames to BMP (`sim_output.bmp`) matching active model dimensions.
-- **Real Server Polling:** Connects to any ScreenTinker server (local or remote) via `libcurl`, sending telemetry headers (`X-ST-Firmware-Version`, `X-ST-Device-Battery`, `X-ST-Device-RSSI`, `X-ST-Power-Source`, `X-ST-Charging`, `If-None-Match`).
-- **Telemetry & State Simulation:** Test battery levels (e.g. low battery 12% vs 100%), power sources (USB mains vs battery), Wi-Fi RSSI, empty playlists (404), unsupported widgets (501), cache hits (304), and sleep durations.
-- **Interactive Hotkeys:** Trigger immediate wake-ups, cycle orientation (`R`), toggle power source, adjust battery, and save snapshots in real time.
+- **Real Server Polling:** Connects to any ScreenTinker server (local or remote) via `libcurl`, sending full telemetry headers (`X-ST-Firmware-Version`, `X-ST-Device-Battery`, `X-ST-Device-RSSI`, `X-ST-Device-Temperature`, `X-ST-Device-Humidity`, `X-ST-Device-Orientation`, `X-ST-Device-Rotation`, `X-ST-Power-Source`, `X-ST-Charging`, `If-None-Match`).
+- **Telemetry, Battery & State Simulation:** Test battery levels (including `< 10%` low-battery warning badge and `<= 1%` critical battery shutdown screen), power sources (USB mains vs battery), ambient SHT40 temperature & humidity, Wi-Fi RSSI, empty playlists (404), unsupported widgets (501), cache hits (304), remote diagnostic log uploads (`upload_logs`), and OTA update commands (`update <url> [sha256]`).
+- **Interactive Hotkeys:** Trigger immediate wake-ups, cycle orientation (`R`), toggle power source (`P`), adjust battery (`Up`/`Down`/`B`), and save snapshots in real time.
 - **Headless Mode:** Run in CI or shell scripts with `--headless --oneshot` for automated visual regression tests without a display server.
 
 ---

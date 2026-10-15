@@ -1,52 +1,58 @@
-# ScreenTinker Firmware for Seeed Studio reTerminal Sticky
+# ScreenTinker Firmware for Seeed Studio reTerminal & reTerminal E-Series
 
-Ultra-low-power, high-performance C++ firmware for the **[Seeed Studio reTerminal Sticky](https://www.seeedstudio.com/reTerminal-Sticky-p-6861.html)** (ESP32-S3R8 with 8MB Flash, 8MB PSRAM, 3.97" 800×480 B/W E-Paper & SSD1677 driver) targeting the **ScreenTinker Digital Signage Server**.
+Ultra-low-power, high-performance C++ firmware for the **[Seeed Studio reTerminal Sticky](https://www.seeedstudio.com/reTerminal-Sticky-p-6861.html)** and the entire **[reTerminal E-Series](https://www.seeedstudio.com/)** (E1001, E1002, E1003, E1004) targeting the **ScreenTinker Digital Signage Server**.
 
 ---
 
 ## Key Features
 
+- **Multi-Device E-Series Platform Support:**
+  - **reTerminal Sticky**: 3.97" 800×480 Monochrome E-Paper (SSD1677 driver, 1bpp).
+  - **reTerminal E1001**: 7.5" 800×480 Monochrome / 4-Level Grayscale (UC8179 driver).
+  - **reTerminal E1002**: 7.3" 800×480 6-Color Spectra 6 (ED2208 driver, 4bpp).
+  - **reTerminal E1003**: 10.3" 1872×1404 16-Level Grayscale (IT8951 controller with touch, 4bpp).
+  - **reTerminal E1004**: 13.3" 1200×1600 6-Color Spectra 6 (T133A01 dual-controller, 4bpp).
+- **Dynamic Display Orientation & IMU Auto-Rotation:**
+  - STMicroelectronics LSM6DS3TR-C 6-axis IMU automatically detects gravity orientation and rotates display buffers in real time (Landscape 0°/180°, Portrait 90°/270°) with 350ms hysteresis debouncing.
+  - Selectable orientation modes (`Auto (IMU)`, `Landscape`, `Portrait`) configurable via On-Device System Menu, serial CLI, or ScreenTinker server.
+  - Dedicated IMU calibration screen mode for physical orientation validation.
+- **Sensirion SHT40 Environmental Telemetry:**
+  - Reads ambient temperature and relative humidity via I2C.
+  - Transmits live environmental metrics on every poll via `X-ST-Device-Temperature` and `X-ST-Device-Humidity` headers.
+  - Displays live temperature and humidity directly on the on-device Status Screen.
+- **Dual-Partition Over-The-Air (OTA) Updates & Rollback Safety:**
+  - A/B partition flashing via HTTP with on-the-fly hardware mbedTLS SHA-256 verification.
+  - Automated boot rollback protection: new builds must successfully sync with ScreenTinker before promotion to `VALID`.
+  - Triggerable remotely from ScreenTinker web dashboard or via serial CLI.
+- **In-Memory Rolling Diagnostic Logs:**
+  - Circular 100-entry ring buffer captures boot events and network diagnostics.
+  - Uploadable on demand to the server via `X-ST-Command: upload_logs` or serial CLI without requiring USB debug probes.
 - **Seamless 6-Digit PIN Pairing:**
-  - On first boot or after factory reset, the device generates a 6-digit pairing code (e.g. `545 658`) and displays it on the E-Paper screen.
-  - Simply enter this 6-digit code in the ScreenTinker web dashboard under **"Add Display"** — the device claims itself, receives its permanent token, and starts playback automatically.
+  - Displays a clean 6-digit code (e.g. `545 658`) on first boot; simply claim the code in the ScreenTinker web UI.
 - **8 MB PSRAM In-Memory Frame Cache (Up to 32 Frames):**
   - Instant frame switching (< 2 sec) when pressing side buttons (`UP` / `DOWN`) without waiting for Wi-Fi downloads.
-  - No internal SRAM heap fragmentation; dedicated static buffers in Octal-SPI PSRAM.
-- **Ultra-Low-Power Wi-Fi Management:**
-  - Wi-Fi radio powers off automatically (`WIFI_OFF`) between sync intervals.
-  - HTTP 304 (ETag) support skips unnecessary E-Paper refreshes and SPI writes when content is unchanged.
-  - Server-coordinated sleep intervals using `X-ST-Expires-In`.
-- **Bilingual Onboarding & Setup Engine (English / German):**
+- **Ultra-Low-Power Wi-Fi & Sleep Management:**
+  - Wi-Fi radio powers off (`WIFI_OFF`) during sleep intervals.
+  - HTTP 304 (ETag) caching skips unnecessary E-Paper refreshes and SPI writes when content is unchanged.
+  - Synchronized sleep intervals via `X-ST-Expires-In` and Display Power Schedules (`X-ST-Power-State`).
 - **Dual Onboarding / Provisioning:**
-  - **Option A (Wi-Fi Captive Portal):** Out of the box, the device broadcasts a `ScreenTinker-Setup` Wi-Fi hotspot. Connect with any smartphone or laptop to configure Wi-Fi and Server URL via an automatic pop-up web interface (`192.168.4.1`).
-  - **Option B (1-Click WebSerial Installer):** Plug into PC/Mac via USB-C and flash/configure directly in Chrome or Edge using the **[Live Web Installer](https://www.rene-bohne.de/screentinker_mcu/tools/sticky-installer.html)** (or local [`tools/sticky-installer.html`](tools/sticky-installer.html)).
-- **Bilingual Onboarding (German & English):**
-  - Standalone, lightweight 1-bit monochrome graphics engine with embedded ASCII font (no bulky external GFX dependencies).
-  - Dynamically switch between English (default) and German using the hardware buttons (`UP` = Deutsch, `DOWN` = English).
+  - **Option A (Wi-Fi Captive Portal):** Broadcasts `ScreenTinker-Setup` Wi-Fi hotspot (`192.168.4.1`).
+  - **Option B (1-Click WebSerial Installer):** Flash and configure directly in Chrome/Edge via [Web Installer](https://www.rene-bohne.de/screentinker_mcu/tools/sticky-installer.html).
 - **Multi-Zone & Fullscreen Layout Rendering:**
-  - Switch between standard Fullscreen slides/widgets and multi-zone layout rendering directly from the On-Device System Menu, Captive Portal, or WebSerial commands.
-  - Automatically queries `/api/embedded/render-layout` to render complex screen layouts divided into multiple independent zones.
-- **On-Device System Menu & Power Management:**
-  - Hold the `OK` button for 1.5 seconds to access the on-screen System Menu:
-    1. `BACK / ZURÜCK` (Dismiss menu)
-    2. `LAYOUT-MODUS: [ MULTI-ZONE / STANDARD ]` (Toggle rendering engine)
-    3. `POWER OFF / AUSSCHALTEN` (Enter deep sleep with QR-code shutdown screen)
-    4. `FACTORY RESET / WERKSEINSTELLUNGEN` (Wipe NVS and restart)
-- **Offline Reliability & Visual Indicators:**
-  - When Wi-Fi is unavailable but frames are cached, images rotate offline seamlessly with a discreet top-right `[! NO WI-FI]` badge.
-  - If Wi-Fi fails on an empty cache, an informative full-screen troubleshooting diagnostic is rendered.
+  - Supports standard fullscreen slides as well as server-composited multi-zone layouts.
 
 ---
 
-## Hardware Specifications & Pinout
+## Hardware Specification Matrix
 
-| Component / Function | Specification | Pin / GPIO |
-| :--- | :--- | :--- |
-| **Microcontroller** | ESP32-S3R8 (Dual-core 240MHz, 8MB Octal Flash, 8MB Octal PSRAM) | — |
-| **E-Paper Panel** | 3.97" 800×480 Monochrome E-Paper (SSD1677 Controller) | SPI (SCK: 13, MOSI: 14, MISO: 12) |
-| **Display Control** | EPD CS: 11, EPD DC: 10, EPD RST: 9, EPD BUSY: 8 | GPIO 11, 10, 9, 8 |
-| **Power Latches** | Power Hold (`PIN_PWR_HOLD`), Power Lock (`PIN_PWR_LOCK`) | GPIO 45, GPIO 46 |
-| **Navigation Buttons**| OK (GPIO 4), UP (GPIO 5), DOWN (GPIO 6) | Active LOW |
+| Model | Display Panel | Resolution | Color Depth | Controller IC | Special Hardware |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **reTerminal Sticky** | 3.97" E-Paper | 800×480 | 1bpp Mono | SSD1677 | SHT40, LSM6DS3TR-C IMU, BQ27220, 3 Buttons |
+| **reTerminal E1001** | 7.5" E-Paper | 800×480 | 1bpp / Gray4 | UC8179 | SHT40, RTC PCF8563, MicroSD |
+| **reTerminal E1002** | 7.3" E-Paper | 800×480 | 4bpp Spectra 6 | ED2208 | SHT40, RTC PCF8563, MicroSD |
+| **reTerminal E1003** | 10.3" E-Paper | 1872×1404 | 4bpp Gray16 | IT8951 | SHT40, Touchscreen, RTC, MicroSD |
+| **reTerminal E1004** | 13.3" E-Paper | 1200×1600 | 4bpp Spectra 6 | T133A01 | SHT40, RTC PCF8563, MicroSD |
+
 
 ---
 
@@ -87,17 +93,42 @@ Ultra-low-power, high-performance C++ firmware for the **[Seeed Studio reTermina
 ### Prerequisites
 - [PlatformIO Core (CLI)](https://platformio.org/) or PlatformIO IDE extension for VS Code.
 
-### Build & Flash Firmware
+### Multi-Target Build Environments
+Compile and flash for your specific reTerminal hardware target:
+
+| Target Model | PlatformIO Environment Command |
+| :--- | :--- |
+| **reTerminal Sticky** (3.97" Mono) | `pio run -e seeed_reterminal_sticky -t upload` |
+| **reTerminal E1001** (7.5" Mono/Gray4) | `pio run -e seeed_reterminal_e1001 -t upload` |
+| **reTerminal E1002** (7.3" Spectra 6) | `pio run -e seeed_reterminal_e1002 -t upload` |
+| **reTerminal E1003** (10.3" Gray16) | `pio run -e seeed_reterminal_e1003 -t upload` |
+| **reTerminal E1004** (13.3" Spectra 6) | `pio run -e seeed_reterminal_e1004 -t upload` |
+| **Desktop Simulator** (Linux/macOS) | `pio run -e simulator` |
+
 ```bash
-# Build firmware
-pio run
-
-# Flash to device via USB
-pio run --target upload
-
 # Monitor serial output (115200 Baud)
 pio device monitor -b 115200
 ```
+
+---
+
+## Serial CLI & Diagnostics Interface
+
+When connected via USB-C Serial (`115200 Baud`), the firmware accepts plaintext or JSON commands:
+
+| Command | Description |
+| :--- | :--- |
+| `status` | Output JSON status (version, IP, RSSI, temperature, humidity, battery, orientation). |
+| `imu` | Print live LSM6DS3TR-C accelerometer axes and detected orientation. |
+| `imu_debug` | Toggle visual IMU calibration card on display (cards A, B, C, D). |
+| `set_orientation <auto\|portrait\|landscape>` | Override active orientation mode. |
+| `logs` | Dump rolling 100-entry in-memory diagnostic log ring buffer. |
+| `update <url> [sha256]` | Initiate Over-The-Air dual-partition firmware update. |
+| `rollback` | Trigger immediate partition rollback and reboot. |
+| `reboot` | Restart the microcontroller. |
+| `factory_reset` | Wipe NVS credentials and reboot into pairing mode. |
+
+---
 
 ### Precompiled Binaries
 Ready-to-flash binaries for ESP Web Tools / WebSerial are maintained in [tools/](tools/):
@@ -107,6 +138,7 @@ Ready-to-flash binaries for ESP Web Tools / WebSerial are maintained in [tools/]
 - `tools/manifest.json` (ESP Web Tools manifest)
 
 ---
+
 
 ## Device Simulator (Linux, NixOS & macOS)
 

@@ -511,6 +511,112 @@ class TestScreenTinkerSimulator(unittest.TestCase):
                 r_bg, g_bg, b_bg = get_bmp_pixel(snap_path, 10, 100)
                 self.assertGreater(r_bg, 240, f"Background pixel not white on {model_name}: ({r_bg},{g_bg},{b_bg})")
 
+    def test_16_sht40_temperature_and_humidity_telemetry(self):
+        """Tests that simulator reports SHT40 temperature and humidity headers."""
+        args = [
+            "--token", "test-token",
+            "--device", "dev-sht40-test",
+            "--mock-temp", "24.5",
+            "--mock-humidity", "55.0",
+        ]
+        res = self.run_simulator(args)
+        self.assertIn("Ambient SHT40=24.5°C / 55% RH", res.stdout)
+
+        last = self.mock_server.state.last_telemetry
+        headers = {k.lower(): v for k, v in last["headers"].items()}
+        self.assertEqual(headers.get("x-st-device-temperature"), "24.5")
+        self.assertEqual(headers.get("x-st-device-humidity"), "55.0")
+
+        # Test --no-sht40 disables sensor telemetry
+        args_no = [
+            "--token", "test-token",
+            "--device", "dev-no-sht40-test",
+            "--no-sht40",
+        ]
+        self.run_simulator(args_no)
+        last_no = self.mock_server.state.last_telemetry
+        headers_no = {k.lower(): v for k, v in last_no["headers"].items()}
+        self.assertNotIn("x-st-device-temperature", headers_no)
+        self.assertNotIn("x-st-device-humidity", headers_no)
+
+    def test_17_remote_diagnostic_log_upload_command(self):
+        """Tests that server command 'upload_logs' triggers POST /api/embedded/logs."""
+        self.mock_server.state.scenario = "upload_logs"
+
+        args = [
+            "--token", "test-token",
+            "--device", "dev-diag-logs",
+        ]
+        res = self.run_simulator(args)
+
+        self.assertIn("Remote command received from server: upload_logs", res.stdout)
+        self.assertIn("Uploading diagnostic logs to server...", res.stdout)
+        self.assertIn("Logs successfully uploaded (HTTP 200)", res.stdout)
+
+        last_logs = self.mock_server.state.last_logs_upload
+        self.assertIsNotNone(last_logs, "Server did not receive uploaded diagnostic logs")
+        self.assertEqual(last_logs.get("device_id"), "dev-diag-logs")
+        self.assertIn("logs", last_logs)
+        self.assertGreater(len(last_logs["logs"]), 0)
+
+    def test_18_remote_ota_update_command(self):
+        """Tests that server command 'update <url>' triggers simulated OTA update and splash."""
+        # 1. Test hashless update command fails (M3 requirement)
+        self.mock_server.state.scenario = "normal"
+        self.mock_server.state.pending_cmd = "update /api/embedded/firmware/seeed-reterminal-sticky/latest.bin"
+        args_no_hash = [
+            "--token", "test-token",
+            "--device", "dev-ota-test-fail",
+        ]
+        res_fail = self.run_simulator(args_no_hash)
+        self.assertIn("Remote OTA update command received:", res_fail.stdout)
+        self.assertIn("Simulated OTA update failed!", res_fail.stderr + res_fail.stdout)
+        self.assertNotIn("Simulated OTA update complete.", res_fail.stdout)
+
+        # 2. Test valid OTA update command with SHA-256 succeeds
+        self.mock_server.state.scenario = "ota_update"
+        self.mock_server.state.pending_cmd = None
+        snapshot_path = os.path.join(self.temp_dir.name, "snap_ota.bmp")
+
+        args = [
+            "--token", "test-token",
+            "--device", "dev-ota-test",
+            "--snapshot", snapshot_path,
+        ]
+        res = self.run_simulator(args)
+
+        self.assertIn("Remote OTA update command received:", res.stdout)
+        self.assertIn("Simulated OTA update complete. Resetting state.", res.stdout)
+        self.assertTrue(os.path.exists(snapshot_path))
+        hdr = parse_bmp_header(snapshot_path)
+        self.assertEqual(hdr["width"], 800)
+        self.assertEqual(hdr["height"], 480)
+
+    def test_19_rotation_and_orientation_server_updates(self):
+        """Tests that simulator reacts to X-ST-Rotation and X-ST-Orientation response headers."""
+        self.mock_server.state.orientation = "portrait"
+        self.mock_server.state.rotation = 90
+
+        snapshot_path = os.path.join(self.temp_dir.name, "snap_portrait_90.bmp")
+        args = [
+            "--token", "test-token",
+            "--device", "dev-orient-test",
+            "--snapshot", snapshot_path,
+        ]
+        res = self.run_simulator(args)
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("Server updated dimensions to 480x800", res.stdout)
+        self.assertTrue(os.path.exists(snapshot_path), "Portrait snapshot not generated")
+        hdr = parse_bmp_header(snapshot_path)
+        self.assertEqual(hdr["width"], 480)
+        self.assertEqual(hdr["height"], 800)
+
+        # Verify pixel colors: checkerboard pattern contains ink (< 35) and paper (> 240)
+        r_white, g_white, b_white = get_bmp_pixel(snapshot_path, 0, 0)
+        self.assertGreater(r_white, 240, f"Pixel (0,0) not white: {r_white}")
+        r_black, g_black, b_black = get_bmp_pixel(snapshot_path, 1, 0)
+        self.assertLess(r_black, 35, f"Pixel (1,0) not black: {r_black}")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

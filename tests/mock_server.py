@@ -11,6 +11,7 @@ Serves mock endpoints matching ScreenTinker API v1.2.0:
 """
 
 import argparse
+import hashlib
 import json
 import sys
 import threading
@@ -37,9 +38,9 @@ def generate_mock_frame(pattern: str = "checkerboard", width: int = 800, height:
                 elif y < stripe_h * 2:
                     color = 3  # Red
                 elif y < stripe_h * 3:
-                    color = 4  # Blue
+                    color = 5  # Blue
                 else:
-                    color = 5  # Green
+                    color = 6  # Green
                 byte_val = (color << 4) | color
                 row_start = y * (width // 2)
                 for x in range(width // 2):
@@ -49,7 +50,7 @@ def generate_mock_frame(pattern: str = "checkerboard", width: int = 800, height:
                 data[i] = 0x33
         else:
             for i in range(frame_size):
-                data[i] = ((i % 6) << 4) | ((i + 1) % 6)
+                data[i] = ((i % 7) << 4) | ((i + 1) % 7)
         return bytes(data)
 
     elif color_mode == "gray16":
@@ -132,6 +133,11 @@ class MockServerState:
             self.last_pair_register = {}
             self.requests_log = []
             self.last_telemetry = {}
+            self.last_logs_upload = None
+            self.logs_uploads = []
+            self.pending_cmd = None
+            self.orientation = "landscape"
+            self.rotation = 0
 
     def log_request(self, method: str, path: str, headers: dict):
         with self.lock:
@@ -175,9 +181,46 @@ class MockRequestHandler(BaseHTTPRequestHandler):
             with self.state.lock:
                 self._send_json(200, {
                     "last_telemetry": self.state.last_telemetry,
-                    "requests_count": len(self.state.requests_log)
+                    "requests_count": len(self.state.requests_log),
+                    "last_logs_upload": self.state.last_logs_upload,
+                    "logs_uploads_count": len(self.state.logs_uploads)
                 })
             return
+
+        # ── Firmware Distribution Endpoints (/api/embedded/firmware/:preset/...) ──
+        if path.startswith("/api/embedded/firmware/"):
+            parts = [p for p in path.strip("/").split("/") if p]
+            if len(parts) >= 5:
+                preset = parts[3]
+                sub = parts[4]
+                fw_data = b"\x00" * 1024
+                fw_sha = hashlib.sha256(fw_data).hexdigest()
+                if sub == "version":
+                    self._send_json(200, {
+                        "version": "1.3.0",
+                        "preset": preset,
+                        "filename": f"{preset}-v1.3.0.bin",
+                        "sha256": fw_sha,
+                        "size": len(fw_data),
+                        "min_battery_percent": 30
+                    })
+                    return
+                elif sub == "manifest.json" or sub.endswith("/manifest.json"):
+                    self._send_json(200, {
+                        "version": "1.3.0",
+                        "url": f"/api/embedded/firmware/{preset}/latest.bin",
+                        "sha256": fw_sha,
+                        "size": len(fw_data),
+                        "min_battery_percent": 30
+                    })
+                    return
+                elif sub.endswith(".bin"):
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/octet-stream")
+                    self.send_header("Content-Length", str(len(fw_data)))
+                    self.end_headers()
+                    self.wfile.write(fw_data)
+                    return
 
         # ── Pairing Status Check ──
         if path == "/api/embedded/pair/status":
@@ -201,22 +244,52 @@ class MockRequestHandler(BaseHTTPRequestHandler):
                 dev_name = self.state.device_name
                 exp_sec = self.state.expires_in
                 p_state = self.state.power_state
+                orient = self.state.orientation
+                rot = self.state.rotation
+                pending_cmd = self.state.pending_cmd
+                if pending_cmd:
+                    self.state.pending_cmd = None
+
+            cmd_to_send = None
+            if scenario == "reboot":
+                cmd_to_send = "reboot"
+            elif scenario == "upload_logs":
+                cmd_to_send = "upload_logs"
+            elif scenario == "ota_update":
+                fw_data = b"\x00" * 1024
+                fw_sha = hashlib.sha256(fw_data).hexdigest()
+                cmd_to_send = f"update /api/embedded/firmware/seeed-reterminal-sticky/latest.bin {fw_sha}"
+            elif pending_cmd:
+                cmd_to_send = pending_cmd
 
             # Scenario: 404 Empty Playlist
             if scenario == "empty_playlist":
+                extra_headers = {"X-ST-Device-Name": dev_name}
+                if cmd_to_send:
+                    extra_headers["X-ST-Command"] = cmd_to_send
                 self._send_json(404, {
                     "device_name": dev_name,
                     "message": "No playlist assigned or no active items for this device"
-                }, extra_headers={"X-ST-Device-Name": dev_name})
+                }, extra_headers=extra_headers)
                 return
 
             # Scenario: 501 Unsupported Content
             if scenario == "unsupported":
+                extra_headers = {}
+                if cmd_to_send:
+                    extra_headers["X-ST-Command"] = cmd_to_send
                 self._send_json(501, {
                     "error": "Not Implemented",
                     "detail": "Widget rendering requires browser (set CHROME_PATH)"
-                })
+                }, extra_headers=extra_headers if extra_headers else None)
                 return
+
+            # Check rotation/orientation dimension swap
+            w = self.state.screen_width
+            h = self.state.screen_height
+            is_portrait = bool((orient and "portrait" in orient) or (rot in (90, 270)))
+            if is_portrait and w > h:
+                w, h = h, w
 
             # Conditional ETag revalidation (304 Not Modified)
             client_etag = self.headers.get("If-None-Match", "").strip('"')
@@ -225,21 +298,35 @@ class MockRequestHandler(BaseHTTPRequestHandler):
                 self.send_header("ETag", f'"{current_etag}"')
                 self.send_header("X-ST-Expires-In", str(exp_sec))
                 self.send_header("X-ST-Power-State", p_state)
+                self.send_header("X-ST-Screen-Width", str(w))
+                self.send_header("X-ST-Screen-Height", str(h))
+                if orient:
+                    self.send_header("X-ST-Orientation", orient)
+                if rot is not None:
+                    self.send_header("X-ST-Rotation", str(rot))
+                if cmd_to_send:
+                    self.send_header("X-ST-Command", cmd_to_send)
                 self.end_headers()
                 return
 
             # 200 OK Normal Frame Delivery
-            frame_bytes = generate_mock_frame(self.state.frame_pattern, self.state.screen_width, self.state.screen_height, self.state.color_mode)
+            frame_bytes = generate_mock_frame(self.state.frame_pattern, w, h, self.state.color_mode)
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(len(frame_bytes)))
             self.send_header("ETag", f'"{current_etag}"')
             self.send_header("X-ST-Expires-In", str(exp_sec))
             self.send_header("X-ST-Power-State", p_state)
+            self.send_header("X-ST-Screen-Width", str(w))
+            self.send_header("X-ST-Screen-Height", str(h))
+            if orient:
+                self.send_header("X-ST-Orientation", orient)
+            if rot is not None:
+                self.send_header("X-ST-Rotation", str(rot))
             if self.state.refresh_mode_header:
                 self.send_header("X-ST-Refresh-Mode", self.state.refresh_mode_header)
-            if scenario == "reboot":
-                self.send_header("X-ST-Command", "reboot")
+            if cmd_to_send:
+                self.send_header("X-ST-Command", cmd_to_send)
             self.end_headers()
             self.wfile.write(frame_bytes)
             return
@@ -270,12 +357,34 @@ class MockRequestHandler(BaseHTTPRequestHandler):
                     self.state.auto_claim = bool(payload["auto_claim"])
                 if "device_name" in payload:
                     self.state.device_name = payload["device_name"]
+                if "pending_cmd" in payload:
+                    self.state.pending_cmd = payload["pending_cmd"]
+                if "orientation" in payload:
+                    self.state.orientation = payload["orientation"]
+                if "rotation" in payload:
+                    self.state.rotation = int(payload["rotation"])
             self._send_json(200, {"status": "ok", "scenario": self.state.scenario})
             return
 
         if path == "/test/reset":
             self.state.reset()
             self._send_json(200, {"status": "reset"})
+            return
+
+        # ── Diagnostic Log Ingestion (/api/embedded/logs) ──
+        if path == "/api/embedded/logs":
+            try:
+                log_data = json.loads(body.decode("utf-8"))
+            except Exception:
+                log_data = {}
+            with self.state.lock:
+                self.state.last_logs_upload = log_data
+                self.state.logs_uploads.append(log_data)
+            self._send_json(200, {
+                "status": "ok",
+                "message": "Diagnostic logs accepted",
+                "entries_count": len(log_data.get("entries", []))
+            })
             return
 
         # ── 6-Digit Pairing Registration ──

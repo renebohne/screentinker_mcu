@@ -5,13 +5,14 @@
 #include <fstream>
 #include <vector>
 
-static const uint32_t s_spectra6_palette[6] = {
+static const uint32_t s_spectra6_palette[7] = {
   0xFF141414, // 0: Black (R:20, G:20, B:20)
   0xFFFBFBFB, // 1: White (R:251, G:251, B:251)
   0xFFF5DE00, // 2: Yellow (R:245, G:222, B:0)
   0xFFD71920, // 3: Red (R:215, G:25, B:32)
-  0xFF005BAC, // 4: Blue (R:0, G:91, B:172)
-  0xFF00873D  // 5: Green (R:0, G:135, B:61)
+  0xFFFFFFFF, // 4: Unused slot
+  0xFF005BAC, // 5: Blue (R:0, G:91, B:172)
+  0xFF00873D  // 6: Green (R:0, G:135, B:61)
 };
 
 SimDisplay::SimDisplay(bool headless, int width, int height, int scale, SimColorMode colorMode)
@@ -90,7 +91,7 @@ void SimDisplay::renderBuffer(const uint8_t* buffer) {
       for (int x = 0; x < m_width; ++x) {
         size_t byte_idx = ((size_t)y * (m_width / 2)) + (x / 2);
         uint8_t nibble = (x & 1) ? (buffer[byte_idx] & 0x0F) : ((buffer[byte_idx] >> 4) & 0x0F);
-        uint32_t color = (nibble < 6) ? s_spectra6_palette[nibble] : 0xFFFBFBFB;
+        uint32_t color = (nibble < 7) ? s_spectra6_palette[nibble] : 0xFFFBFBFB;
         m_pixelBuffer[y * m_width + x] = color;
       }
     }

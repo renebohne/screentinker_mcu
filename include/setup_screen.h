@@ -32,6 +32,7 @@ size_t gfx_get_buffer_size();
 
 void gfx_fill(uint8_t* buf, uint8_t color);
 void gfx_draw_pixel(uint8_t* buf, int x, int y, uint8_t color);
+uint8_t gfx_get_pixel(const uint8_t* buf, int x, int y);
 void gfx_draw_hline(uint8_t* buf, int x, int y, int w, uint8_t color);
 void gfx_draw_vline(uint8_t* buf, int x, int y, int h, uint8_t color);
 void gfx_draw_rect(uint8_t* buf, int x, int y, int w, int h, uint8_t color);
@@ -51,6 +52,15 @@ void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang = LANG_E
 void renderPowerOffScreen(uint8_t* buffer, Language lang = LANG_EN);
 void renderUnsupportedContentScreen(uint8_t* buffer, const char* reason = nullptr, Language lang = LANG_EN);
 void renderOtaUpdateScreen(uint8_t* buffer, const char* statusMsg = nullptr, Language lang = LANG_EN);
+void renderImuDebugScreen(uint8_t* buffer, int orient, int16_t ax, int16_t ay, int16_t az);
 void gfx_draw_offline_badge(uint8_t* buffer);
+
+// ─── Display Buffer Rotation Algorithms ──────────────────────────────────────
+void rotate_mono_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height);
+void rotate_nibble_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height);
+void rotate_mono_portrait(const uint8_t *src, uint8_t *dst, uint16_t src_w, uint16_t src_h, bool flip = false);
+void rotate_nibble_portrait(const uint8_t *src, uint8_t *dst, uint16_t src_w, uint16_t src_h, bool flip = false);
+void rotate_buffer_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height);
+
 
 

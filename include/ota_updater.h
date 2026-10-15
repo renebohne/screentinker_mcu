@@ -41,6 +41,9 @@ bool ota_perform_update(const char* url, const char* expected_sha256);
 // Query current OTA subsystem state
 void ota_get_state(OtaState* out_state);
 
+// Test double hook for verifying confirm semantics in simulator / native host
+void ota_set_pending_verification_for_test(bool pending);
+
 #ifdef __cplusplus
 }
 #endif

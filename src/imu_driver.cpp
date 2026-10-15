@@ -130,12 +130,14 @@ int imu_detect_orientation(int currentOrientation) {
   const int32_t HYSTERESIS = 2500;
 
   // Determine dominant axis
+  // On Seeed reTerminal Sticky:
+  // - Dominant X axis corresponds to Landscape (800x480)
+  // - Dominant Y axis corresponds to Portrait (480x800)
+  // Each orientation is rotated 90 degrees to the left relative to sensor PCB
   if (absX > absY + HYSTERESIS) {
-    // Dominant X axis -> Landscape normal or inverted
-    return (ax >= 0) ? ORIENTATION_LANDSCAPE_0 : ORIENTATION_LANDSCAPE_180;
+    return (ax >= 0) ? ORIENTATION_LANDSCAPE_180 : ORIENTATION_LANDSCAPE_0;
   } else if (absY > absX + HYSTERESIS) {
-    // Dominant Y axis -> Portrait normal or inverted
-    return (ay >= 0) ? ORIENTATION_PORTRAIT_90 : ORIENTATION_PORTRAIT_270;
+    return (ay >= 0) ? ORIENTATION_PORTRAIT_270 : ORIENTATION_PORTRAIT_90;
   }
 
   // Within hysteresis band: keep current orientation

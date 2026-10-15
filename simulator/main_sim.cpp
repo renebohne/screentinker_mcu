@@ -299,23 +299,43 @@ int main(int argc, char** argv) {
           std::cerr << "[Diag] Log upload failed (HTTP " << logRes.statusCode << ")\n";
         }
       } else if (cmd.rfind("update ", 0) == 0 || cmd.rfind("ota ", 0) == 0) {
-        std::string updateUrl = cmd.substr(cmd.find(' ') + 1);
+        std::string rest = cmd.substr(cmd.find(' ') + 1);
+        size_t firstNonSpace = rest.find_first_not_of(" \t");
+        if (firstNonSpace != std::string::npos) rest = rest.substr(firstNonSpace);
+        std::string updateUrl = rest;
+        std::string sha = "";
+        size_t secondSpace = rest.find(' ');
+        if (secondSpace != std::string::npos) {
+          updateUrl = rest.substr(0, secondSpace);
+          sha = rest.substr(secondSpace + 1);
+          size_t shaNonSpace = sha.find_first_not_of(" \t");
+          if (shaNonSpace != std::string::npos) {
+            sha = sha.substr(shaNonSpace);
+          } else {
+            sha = "";
+          }
+        }
         if (!updateUrl.empty() && updateUrl[0] == '/') {
           updateUrl = cfg.serverUrl + updateUrl;
         }
-        std::cout << "[Simulator] Remote OTA update command received: " << updateUrl << "\n";
+        std::cout << "[Simulator] Remote OTA update command received: " << updateUrl
+                  << (sha.empty() ? "" : (" (SHA: " + sha + ")")) << "\n";
         renderOtaUpdateScreen(monoBuffer.data(), "Updating Firmware...", LANG_EN);
         monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
         display.renderBuffer(frameBuffer.data());
         display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
-        ota_perform_update(updateUrl.c_str(), nullptr);
-        std::cout << "[Simulator] Simulated OTA update complete. Resetting state.\n";
-        lastEtag = "";
+
+        bool otaSuccess = ota_perform_update(updateUrl.c_str(), sha.empty() ? nullptr : sha.c_str());
+        if (otaSuccess) {
+          std::cout << "[Simulator] Simulated OTA update complete. Resetting state.\n";
+          lastEtag = "";
+        } else {
+          std::cerr << "[Simulator] Simulated OTA update failed!\n";
+        }
       }
     }
 
     if (res.statusCode == 200) {
-      ota_confirm_running_partition();
       std::string etag = res.getHeader("etag");
       if (!etag.empty()) lastEtag = etag;
 
@@ -324,13 +344,14 @@ int main(int argc, char** argv) {
         std::cout << "[Sync] 200 OK — Downloaded new frame (" << cfg.bufferSize() << " bytes). Updating display.\n";
         display.renderBuffer(frameBuffer.data());
         display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
+        ota_confirm_running_partition();
       } else {
         std::cerr << "[Sync] Warning: Received 200 OK but payload size is " << res.body.size()
                   << " bytes (expected " << cfg.bufferSize() << ")\n";
       }
     } else if (res.statusCode == 304) {
-      ota_confirm_running_partition();
       std::cout << "[Sync] 304 Not Modified — Cache valid (0 bytes downloaded). E-Paper image preserved.\n";
+      ota_confirm_running_partition();
     } else if (res.statusCode == 404) {
       std::string deviceName = res.getHeader("x-st-device-name");
       std::string bodyStr = res.bodyAsString();
@@ -350,6 +371,7 @@ int main(int argc, char** argv) {
       monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
       display.renderBuffer(frameBuffer.data());
       display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
+      ota_confirm_running_partition();
       lastEtag = ""; // Reset ETag on empty playlist
     } else if (res.statusCode == 501) {
       std::string detail = "Widget rendering requires a browser (set CHROME_PATH).";
@@ -368,6 +390,7 @@ int main(int argc, char** argv) {
       monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
       display.renderBuffer(frameBuffer.data());
       display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
+      ota_confirm_running_partition();
       lastEtag = "";
     } else {
       std::cerr << "[Sync] Connection failed (code " << res.statusCode << "). Rendering No Wi-Fi / Offline warning...\n";

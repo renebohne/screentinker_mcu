@@ -9,7 +9,7 @@ It compiles the firmware's graphics rendering engine (`setup_screen.cpp`) and HT
 
 - **reTerminal Series & Multi-Model Viewport:** Simulates the entire Seeed Studio reTerminal family:
   - `sticky`: 800×480 1bpp monochrome e-paper (fast partial refresh)
-  - `e1001`: 800×480 1bpp monochrome / 4-level grayscale
+  - `e1001`: 800×480 1bpp monochrome (fast partial refresh)
   - `e1002`: 800×480 6-color E-Ink Spectra 6
   - `e1003`: 1872×1404 16-level grayscale (touch supported)
   - `e1004`: 1200×1600 6-color E-Ink Spectra 6 (portrait native)

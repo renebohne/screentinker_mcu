@@ -23,8 +23,33 @@ if [ ! -f "screentinker_sim" ]; then
     fi
 fi
 
+LIVE_SERVER=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --live)
+            LIVE_SERVER="${2:-http://192.168.100.222:3001}"
+            if [[ $# -ge 2 && ! "$2" =~ ^-- ]]; then
+                shift 2
+            else
+                shift 1
+            fi
+            ;;
+        *)
+            echo "Unknown argument: $1"
+            echo "Usage: $0 [--live [SERVER_URL]]"
+            exit 1
+            ;;
+    esac
+done
+
 echo "[Test] Executing Python test suite against mock server..."
 python3 -m unittest discover -s tests -p "test_*.py" -v
+
+if [ -n "$LIVE_SERVER" ]; then
+    echo ""
+    echo "[Test] Executing live server smoke test against $LIVE_SERVER..."
+    python3 tests/test_live_server.py --server "$LIVE_SERVER"
+fi
 
 echo "=========================================================="
 echo " 🎉 All ScreenTinker Simulator Tests Passed Successfully!"

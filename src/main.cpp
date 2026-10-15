@@ -393,49 +393,6 @@ static bool initDisplayPanel() {
 
   s_epdInitialized = true;
   Serial.printf("[EPD] Display panel initialized (%s, model %d).\n", DEVICE_PROFILE_NAME, (int)DEVICE_PANEL_MODEL);
-  return true;
-}
-
-static void rotate_mono_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height) {
-  const size_t stride = width / 8U;
-  for (uint16_t y = 0; y < height; ++y) {
-    const size_t src_row = y * stride;
-    const size_t dst_row = (height - 1U - y) * stride;
-    for (size_t x = 0; x < stride; ++x) {
-      uint8_t b = source[src_row + (stride - 1U - x)];
-      b = ((b & 0xF0) >> 4) | ((b & 0x0F) << 4);
-      b = ((b & 0xCC) >> 2) | ((b & 0x33) << 2);
-      b = ((b & 0xAA) >> 1) | ((b & 0x55) << 1);
-      destination[dst_row + x] = b;
-    }
-  }
-}
-
-static void rotate_nibble_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height) {
-  if (!source || !destination) return;
-  const size_t stride = (width + 1) / 2;
-  memset(destination, 0, stride * height);
-  for (uint16_t y = 0; y < height; ++y) {
-    for (uint16_t x = 0; x < width; ++x) {
-      uint8_t src_byte = source[y * stride + (x >> 1)];
-      uint8_t nibble = (x & 1) ? (src_byte & 0x0F) : (src_byte >> 4);
-      uint16_t dx = width - 1 - x;
-      uint16_t dy = height - 1 - y;
-      if (dx & 1) {
-        destination[dy * stride + (dx >> 1)] |= (nibble & 0x0F);
-      } else {
-        destination[dy * stride + (dx >> 1)] |= (nibble << 4);
-      }
-    }
-  }
-}
-
-static void rotate_buffer_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height) {
-#if (DEVICE_COLOR_MODE == COLOR_MODE_SPECTRA6) || (DEVICE_COLOR_MODE == COLOR_MODE_GRAY16)
-  rotate_nibble_180(source, destination, width, height);
-#else
-  rotate_mono_180(source, destination, width, height);
-#endif
 }
 
 static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = false) {
@@ -486,11 +443,67 @@ static bool s_hasImu = true;
 static bool s_hasImu = false;
 #endif
 
+#if !DEVICE_SUPPORTS_IMU && (EPD_HEIGHT > EPD_WIDTH)
+static OrientationMode s_orientationMode = ORIENT_MODE_PORTRAIT;
+static int s_activeOrientation = ORIENTATION_PORTRAIT_90;
+#else
 static OrientationMode s_orientationMode = ORIENT_MODE_LANDSCAPE;
 static int s_activeOrientation = ORIENTATION_LANDSCAPE_0;
+#endif
 static int s_pendingOrientation = -1;
 static uint32_t s_pendingOrientationStart = 0;
 static uint32_t s_lastImuCheckMillis = 0;
+static bool s_imuDebugScreen = false;
+
+// ─── OTA Rollback & Verification Failure Tracking ────────────────────────────
+static int s_otaVerifyFailures = 0;
+static uint32_t s_bootMillis = 0;
+
+static void checkOtaVerificationFailure(const char* reason) {
+  OtaState st;
+  ota_get_state(&st);
+  if (!st.is_pending_verification) {
+    return;
+  }
+  s_otaVerifyFailures++;
+  uint32_t elapsed = (s_bootMillis > 0) ? (millis() - s_bootMillis) : 0;
+  Serial.printf("[OTA] Verification failure #%d: %s (elapsed %u ms)\n", s_otaVerifyFailures, reason, elapsed);
+  if (s_otaVerifyFailures >= 3 || elapsed > 90000) {
+    Serial.println("[OTA] Critical: Pending verification failed (>=3 consecutive failures or >90s elapsed). Rolling back...");
+    ota_rollback_and_reboot();
+  }
+}
+
+void showImuDebugLetterScreen(int orient) {
+  if (!s_rawBuffer || !s_rotatedBuffer) return;
+  int16_t ax = 0, ay = 0, az = 0;
+  imu_read_accel(&ax, &ay, &az);
+  char letter = 'A' + (orient >= 0 && orient <= 3 ? orient : 0);
+
+  Serial.println("\n************************************************************");
+  Serial.printf(">>> [IMU DEBUG] DISPLAYING DEBUG SCREEN LETTER '%c'\n", letter);
+  Serial.printf(">>> [IMU DEBUG] ID: %d, ax=%d, ay=%d, az=%d\n", orient, (int)ax, (int)ay, (int)az);
+  Serial.println("************************************************************\n");
+
+  // Sticky PCB axes / orientation mapping:
+  // - USB port to the left:  ORIENTATION_LANDSCAPE_0 (0°) -> Letter A (upright)
+  // - USB port pointing down: ORIENTATION_PORTRAIT_90 (90°) -> Letter B (upright)
+  // - USB port to the right: ORIENTATION_LANDSCAPE_180 (180°) -> Letter C (upright)
+  // - USB port pointing up:   ORIENTATION_PORTRAIT_270 (270°) -> Letter D (upright)
+  if (orient == ORIENTATION_PORTRAIT_90 || orient == ORIENTATION_PORTRAIT_270) {
+    gfx_set_screen_dimensions(EPD_HEIGHT, EPD_WIDTH); // 480 x 800
+    renderImuDebugScreen(s_rawBuffer, orient, ax, ay, az);
+    gfx_set_screen_dimensions(EPD_WIDTH, EPD_HEIGHT); // Restore 800 x 480
+    bool flip = (orient == ORIENTATION_PORTRAIT_270);
+    rotate_mono_portrait(s_rawBuffer, s_rotatedBuffer, EPD_HEIGHT, EPD_WIDTH, flip);
+  } else {
+    // Landscape 0 and Landscape 180 both use panel scan-direction rotation
+    renderImuDebugScreen(s_rawBuffer, orient, ax, ay, az);
+    rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
+  }
+
+  renderRotatedBuffer(s_rotatedBuffer, false);
+}
 
 void showSplashScreen(const char* version, const char* statusMsg) {
   if (!s_rawBuffer || !s_rotatedBuffer) return;
@@ -722,6 +735,10 @@ bool checkPairingStatus();
 void fetchAndRender(bool forceFreshFetch = false, int requestedItemIndex = -1);
 
 void redrawCurrentState() {
+  if (s_imuDebugScreen) {
+    showImuDebugLetterScreen(s_activeOrientation);
+    return;
+  }
   bool isConfigured = (g_wifiSsid.length() > 0 && g_wifiSsid != "Your-WiFi-SSID");
   bool isPaired = (isConfigured && g_deviceId.length() > 0 && g_deviceToken.length() > 0 && g_deviceId != "your-device-uuid");
   if (!isConfigured) {
@@ -746,10 +763,18 @@ void loadConfigFromNVS() {
   s_currentLang = (langCode == 1) ? LANG_DE : LANG_EN;
   s_wifiTxPowerLevel = s_prefs.getUChar("wifi_tx_pwr", 0);
   if (s_wifiTxPowerLevel > 2) s_wifiTxPowerLevel = 0;
+#if !DEVICE_SUPPORTS_IMU && (EPD_HEIGHT > EPD_WIDTH)
+  uint8_t defOrient = (uint8_t)ORIENT_MODE_PORTRAIT;
+#else
   uint8_t defOrient = s_hasImu ? (uint8_t)ORIENT_MODE_AUTO : (uint8_t)ORIENT_MODE_LANDSCAPE;
+#endif
   uint8_t savedOrient = s_prefs.getUChar("orient_mode", defOrient);
   if (!s_hasImu && savedOrient == ORIENT_MODE_AUTO) {
+#if (EPD_HEIGHT > EPD_WIDTH)
+    savedOrient = ORIENT_MODE_PORTRAIT;
+#else
     savedOrient = ORIENT_MODE_LANDSCAPE;
+#endif
   }
   if (savedOrient > 2) savedOrient = defOrient;
   s_orientationMode = (OrientationMode)savedOrient;
@@ -1118,6 +1143,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
 
   // 1. Fetch or re-validate from server over Wi-Fi
   if (!connectWiFi()) {
+    checkOtaVerificationFailure("WiFi connection failed");
     int validCount = cacheValidCount();
     if (validCount == 0) {
       Serial.println("[Sync] Wi-Fi offline and cache is empty -> Showing No Wi-Fi screen.");
@@ -1142,37 +1168,37 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     return;
   }
 
-  const char* orientStr = "landscape";
+  const char* reqOrientStr = "landscape";
   int rotDeg = 0;
   if (s_orientationMode == ORIENT_MODE_LANDSCAPE) {
-    orientStr = "landscape";
+    reqOrientStr = "landscape";
     rotDeg = 0;
   } else if (s_orientationMode == ORIENT_MODE_PORTRAIT) {
-    orientStr = "portrait";
+    reqOrientStr = "portrait";
     rotDeg = 90;
   } else if (s_orientationMode == ORIENT_MODE_AUTO) {
     if (s_activeOrientation == ORIENTATION_PORTRAIT_90) {
-      orientStr = "portrait";
+      reqOrientStr = "portrait";
       rotDeg = 90;
     } else if (s_activeOrientation == ORIENTATION_LANDSCAPE_180) {
-      orientStr = "landscape-flipped";
+      reqOrientStr = "landscape-flipped";
       rotDeg = 180;
     } else if (s_activeOrientation == ORIENTATION_PORTRAIT_270) {
-      orientStr = "portrait-flipped";
+      reqOrientStr = "portrait-flipped";
       rotDeg = 270;
     } else {
-      orientStr = "landscape";
+      reqOrientStr = "landscape";
       rotDeg = 0;
     }
   }
 
   String url = g_serverUrl + "/api/embedded/render?device_id=" + g_deviceId;
-  url += "&orientation=" + String(orientStr);
+  url += "&orientation=" + String(reqOrientStr);
   url += "&rotation=" + String(rotDeg);
   if (requestedItemIndex >= 0) {
     url += "&item=" + String(requestedItemIndex);
   }
-  Serial.printf("[Sync] Fetching %s (orient=%s, rot=%d)\n", url.c_str(), orientStr, rotDeg);
+  Serial.printf("[Sync] Fetching %s (orient=%s, rot=%d)\n", url.c_str(), reqOrientStr, rotDeg);
 
   HTTPClient http;
   http.begin(url);
@@ -1180,7 +1206,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   http.addHeader("Authorization", String("Bearer ") + g_deviceToken);
   http.addHeader("User-Agent", "ScreenTinker-Sticky/1.2 (ESP32-S3-PSRAM)");
   http.addHeader("X-ST-Firmware-Version", FIRMWARE_VERSION);
-  http.addHeader("X-ST-Device-Orientation", orientStr);
+  http.addHeader("X-ST-Device-Orientation", reqOrientStr);
   http.addHeader("X-ST-Device-Rotation", String(rotDeg));
 
   int curRssi = WiFi.RSSI();
@@ -1228,12 +1254,31 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   int httpCode = http.GET();
   Serial.printf("[Sync] HTTP Response: %d\n", httpCode);
 
+  int serverW = 0, serverH = 0, serverRot = -1;
+  String orientStr = "";
+  if (http.hasHeader("X-ST-Screen-Width")) {
+    serverW = http.header("X-ST-Screen-Width").toInt();
+  }
+  if (http.hasHeader("X-ST-Screen-Height")) {
+    serverH = http.header("X-ST-Screen-Height").toInt();
+  }
+  if (http.hasHeader("X-ST-Rotation")) {
+    serverRot = http.header("X-ST-Rotation").toInt();
+  }
   if (http.hasHeader("X-ST-Orientation")) {
-    Serial.printf("[Display] Server orientation: %s, rotation: %s deg (%sx%s)\n",
-                  http.header("X-ST-Orientation").c_str(),
-                  http.header("X-ST-Rotation").c_str(),
-                  http.header("X-ST-Screen-Width").c_str(),
-                  http.header("X-ST-Screen-Height").c_str());
+    orientStr = http.header("X-ST-Orientation");
+  }
+
+  bool isPortraitFrame = false;
+  if (orientStr.length() > 0) {
+    isPortraitFrame = orientStr.startsWith("portrait");
+    Serial.printf("[Display] Server orientation: %s, rotation: %d deg (%dx%d)\n",
+                  orientStr.c_str(),
+                  serverRot,
+                  serverW,
+                  serverH);
+  } else if (s_activeOrientation == ORIENTATION_PORTRAIT_90 || s_activeOrientation == ORIENTATION_PORTRAIT_270) {
+    isPortraitFrame = true;
   }
 
   if (http.hasHeader("X-ST-Command")) {
@@ -1269,6 +1314,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
         Serial.printf("[Sync] Remote update command received: url=%s\n", url.c_str());
         http.end();
         showOtaUpdateScreen("Updating Firmware...", s_currentLang);
+        rtc_lastEtag[0] = '\0';
         ota_perform_update(url.c_str(), sha.length() > 0 ? sha.c_str() : nullptr);
         return;
       }
@@ -1305,9 +1351,9 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     rtc_unchangedCycles++;
     Serial.printf("[Sync] 304 Not Modified — Content for item %d unchanged (0 bytes download, consecutive 304s: %d).\n",
                   resolvedIndex, rtc_unchangedCycles);
-    ota_confirm_running_partition();
     http.end();
     disconnectWiFiIfPowerSave();
+    ota_confirm_running_partition();
     // If playlist advanced to another item that is in cache, display it without re-downloading
     if (resolvedIndex != s_currentItemIndex && cacheGet(resolvedIndex, s_rotatedBuffer)) {
       s_currentItemIndex = resolvedIndex;
@@ -1355,12 +1401,33 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     Serial.printf("[Sync] Received %u / %u bytes.\n", totalReceived, EPD_BUFFER_SIZE);
 
     if (totalReceived == EPD_BUFFER_SIZE) {
-      rotate_buffer_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
+      bool isSwapped = (serverW > 0 && serverH > 0 && (serverW != EPD_WIDTH || serverH != EPD_HEIGHT))
+                       || (serverW == 0 && isPortraitFrame && EPD_WIDTH != EPD_HEIGHT);
+      uint16_t src_w = (serverW > 0) ? (uint16_t)serverW : (uint16_t)(isPortraitFrame ? EPD_HEIGHT : EPD_WIDTH);
+      uint16_t src_h = (serverH > 0) ? (uint16_t)serverH : (uint16_t)(isPortraitFrame ? EPD_WIDTH : EPD_HEIGHT);
+
+      bool flip = false; // Fixed transpose; server handles 180 deg inversion for 270 deg
+
+      if (isSwapped) {
+#if (DEVICE_COLOR_MODE == COLOR_MODE_1BPP_MONO)
+        rotate_mono_portrait(s_rawBuffer, s_rotatedBuffer, src_w, src_h, flip);
+#elif (DEVICE_COLOR_MODE == COLOR_MODE_SPECTRA6) || (DEVICE_COLOR_MODE == COLOR_MODE_GRAY16)
+        rotate_nibble_portrait(s_rawBuffer, s_rotatedBuffer, src_w, src_h, flip);
+#else
+        rotate_mono_portrait(s_rawBuffer, s_rotatedBuffer, src_w, src_h, flip);
+#endif
+      } else {
+        rotate_buffer_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
+      }
       cachePut(s_currentItemIndex, newEtag, s_rotatedBuffer);
-      renderRotatedBuffer(s_rotatedBuffer);
-      ota_confirm_running_partition();
+      if (renderRotatedBuffer(s_rotatedBuffer)) {
+        ota_confirm_running_partition();
+      } else {
+        checkOtaVerificationFailure("Display panel refresh failed");
+      }
     } else {
       Serial.println("[Sync] Incomplete frame received! Refresh aborted.");
+      checkOtaVerificationFailure("Incomplete frame received");
     }
 
     disconnectWiFiIfPowerSave();
@@ -1368,6 +1435,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   }
 
   if (httpCode == 401) {
+    checkOtaVerificationFailure("HTTP 401 Unauthorized");
     String errBody = http.getString();
     Serial.printf("[Sync] HTTP 401 Unauthorized (%s). Device unlinked from server.\n", errBody.c_str());
     Serial.println("[Sync] Resetting device pairing credentials and switching to Pairing Mode...");
@@ -1398,6 +1466,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     if (cacheValidCount() == 0) {
       showEmptyPlaylistScreen(devName.c_str(), s_currentLang);
     }
+    ota_confirm_running_partition();
     return;
   }
 
@@ -1420,11 +1489,13 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
       rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
       renderRotatedBuffer(s_rotatedBuffer);
     }
+    ota_confirm_running_partition();
     return;
   }
 
   String errBody = http.getString();
   Serial.printf("[Sync] HTTP Error %d: %s\n", httpCode, errBody.c_str());
+  checkOtaVerificationFailure(httpCode <= 0 ? "HTTP connection failed" : "HTTP error response");
   http.end();
   disconnectWiFiIfPowerSave();
 }
@@ -1481,6 +1552,23 @@ void processSerialLine(const String& line) {
       showNoWifiScreen(s_currentLang);
     } else if (line == "pair") {
       registerAndStartPairing();
+    } else if (line == "debug" || line == "imu_debug") {
+      s_imuDebugScreen = !s_imuDebugScreen;
+      Serial.printf("{\"status\":\"ok\",\"v\":1,\"imu_debug_screen\":%s,\"active_letter\":\"%c\",\"orient\":%d}\n",
+                    s_imuDebugScreen ? "true" : "false", 'A' + (s_activeOrientation >= 0 && s_activeOrientation <= 3 ? s_activeOrientation : 0), s_activeOrientation);
+      if (s_imuDebugScreen) {
+        showImuDebugLetterScreen(s_activeOrientation);
+      } else {
+        fetchAndRender(true);
+      }
+    } else if (line == "imu" || line == "accel") {
+      int16_t ax = 0, ay = 0, az = 0;
+      bool ok = imu_read_accel(&ax, &ay, &az);
+      int detected = imu_detect_orientation(s_activeOrientation);
+      char letter = 'A' + (s_activeOrientation >= 0 && s_activeOrientation <= 3 ? s_activeOrientation : 0);
+      char detLetter = 'A' + (detected >= 0 && detected <= 3 ? detected : 0);
+      Serial.printf("{\"status\":\"ok\",\"v\":1,\"sensor\":\"LSM6DS3\",\"ok\":%s,\"ax\":%d,\"ay\":%d,\"az\":%d,\"detected\":%d,\"detected_letter\":\"%c\",\"active\":%d,\"active_letter\":\"%c\",\"mode\":%d,\"debug_screen\":%s}\n",
+                    ok ? "true" : "false", ax, ay, az, detected, detLetter, s_activeOrientation, letter, (int)s_orientationMode, s_imuDebugScreen ? "true" : "false");
     } else if (line == "poweroff" || line == "shutdown" || line == "off") {
       powerOffDevice();
     } else if (line == "menu") {
@@ -1572,6 +1660,27 @@ void processSerialLine(const String& line) {
       Serial.printf("{\"status\":\"ok\",\"v\":1,\"sensor\":\"SHT40\",\"temp_c\":%.2f,\"humidity\":%.2f}\n", t, h);
     } else {
       Serial.println("{\"status\":\"error\",\"v\":1,\"message\":\"SHT40 read failed or sensor not available\"}");
+    }
+  } else if (strcmp(cmd, "imu") == 0 || strcmp(cmd, "accel") == 0) {
+    int16_t ax = 0, ay = 0, az = 0;
+    bool ok = imu_read_accel(&ax, &ay, &az);
+    int detected = imu_detect_orientation(s_activeOrientation);
+    char letter = 'A' + (s_activeOrientation >= 0 && s_activeOrientation <= 3 ? s_activeOrientation : 0);
+    char detLetter = 'A' + (detected >= 0 && detected <= 3 ? detected : 0);
+    Serial.printf("{\"status\":\"ok\",\"v\":1,\"sensor\":\"LSM6DS3\",\"ok\":%s,\"ax\":%d,\"ay\":%d,\"az\":%d,\"detected\":%d,\"detected_letter\":\"%c\",\"active\":%d,\"active_letter\":\"%c\",\"mode\":%d,\"debug_screen\":%s}\n",
+                  ok ? "true" : "false", ax, ay, az, detected, detLetter, s_activeOrientation, letter, (int)s_orientationMode, s_imuDebugScreen ? "true" : "false");
+  } else if (strcmp(cmd, "imu_debug") == 0 || strcmp(cmd, "debug") == 0) {
+    if (doc.containsKey("screen")) {
+      s_imuDebugScreen = doc["screen"].as<bool>();
+    } else {
+      s_imuDebugScreen = !s_imuDebugScreen;
+    }
+    Serial.printf("{\"status\":\"ok\",\"v\":1,\"imu_debug_screen\":%s,\"active_letter\":\"%c\",\"orient\":%d}\n",
+                  s_imuDebugScreen ? "true" : "false", 'A' + (s_activeOrientation >= 0 && s_activeOrientation <= 3 ? s_activeOrientation : 0), s_activeOrientation);
+    if (s_imuDebugScreen) {
+      showImuDebugLetterScreen(s_activeOrientation);
+    } else {
+      fetchAndRender(true);
     }
   } else if (strcmp(cmd, "logs") == 0 || strcmp(cmd, "dump_logs") == 0) {
     diag_log_dump_stdout();
@@ -1670,6 +1779,7 @@ void processSerialLine(const String& line) {
 
 // ─── Arduino Setup & Main Loop ────────────────────────────────────────────────
 void setup() {
+  s_bootMillis = millis();
   initBoardPowerAndPins();
   Serial.begin(115200);
   delay(100);
@@ -1677,6 +1787,13 @@ void setup() {
   diag_log_init();
   diag_log_printf(DIAG_LOG_INFO, "Boot", "ScreenTinker MCU v%s (%s) booting...", FIRMWARE_VERSION, DEVICE_PROFILE_NAME);
   ota_init();
+
+  OtaState otaState;
+  ota_get_state(&otaState);
+  if (otaState.is_pending_verification) {
+    rtc_lastEtag[0] = '\0';
+    Serial.println("[OTA] Firmware pending verification: cleared rtc_lastEtag to enforce full frame HTTP 200 refresh.");
+  }
 
   esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
 
@@ -1703,12 +1820,20 @@ void setup() {
 
   loadConfigFromNVS();
 
-  if (s_hasImu && s_orientationMode == ORIENT_MODE_AUTO) {
+  if (s_hasImu && (s_orientationMode == ORIENT_MODE_AUTO || s_imuDebugScreen)) {
     int detected = imu_detect_orientation(s_activeOrientation);
     if (detected >= 0) {
       s_activeOrientation = detected;
-      Serial.printf("[Orientation] Initial IMU orientation detected: %d\n", s_activeOrientation);
+      Serial.printf("[Orientation] Initial IMU orientation detected: %d ('%c')\n",
+                    s_activeOrientation, 'A' + (s_activeOrientation >= 0 && s_activeOrientation <= 3 ? s_activeOrientation : 0));
     }
+  }
+
+  if (s_imuDebugScreen) {
+    s_orientationMode = ORIENT_MODE_AUTO;
+    Serial.println("\n[IMU DEBUG] Debug Screen Mode ACTIVE — displaying Letter Screen (A, B, C, D)...");
+    showImuDebugLetterScreen(s_activeOrientation);
+    return;
   }
 
   bool isConfigured = (g_wifiSsid.length() > 0 && g_wifiSsid != "Your-WiFi-SSID");
@@ -1794,6 +1919,15 @@ void setup() {
 }
 
 void loop() {
+  if (!s_apModeActive) {
+    OtaState otaCheck;
+    ota_get_state(&otaCheck);
+    if (otaCheck.is_pending_verification && (s_otaVerifyFailures >= 3 || ((millis() - s_bootMillis > 90000) && s_otaVerifyFailures > 0))) {
+      Serial.println("[OTA] Critical: Pending verification failed (>=3 failures or >90s elapsed on USB). Rolling back...");
+      ota_rollback_and_reboot();
+    }
+  }
+
   // Handle Captive Portal DNS & Web requests in AP mode
   if (s_apModeActive) {
     s_dnsServer.processNextRequest();
@@ -1853,7 +1987,7 @@ void loop() {
   }
 
   // ─── USB Active Mains Mode: Background sync without deep sleep ───────────────
-  if (isUsbPowerConnected() && isConfigured && isPaired && !s_inSystemMenu && !s_inStatusScreen && !s_inInteractiveMode) {
+  if (!s_imuDebugScreen && isUsbPowerConnected() && isConfigured && isPaired && !s_inSystemMenu && !s_inStatusScreen && !s_inInteractiveMode) {
     if (s_nextSyncMillis > 0 && millis() >= s_nextSyncMillis) {
       Serial.println("\n>>> [Power] USB Connected: Triggering active periodic frame sync...");
       s_nextSyncMillis = 0;
@@ -1864,20 +1998,29 @@ void loop() {
   }
 
   // ─── IMU Orientation Debounced Auto-Detection ───────────────────────────────
-  if (s_hasImu && s_orientationMode == ORIENT_MODE_AUTO && !s_inSystemMenu && !s_inStatusScreen) {
-    if (millis() - s_lastImuCheckMillis >= 500) {
+  if (s_hasImu && (s_orientationMode == ORIENT_MODE_AUTO || s_imuDebugScreen) && !s_inSystemMenu && !s_inStatusScreen) {
+    if (millis() - s_lastImuCheckMillis >= 250) {
       s_lastImuCheckMillis = millis();
       int detected = imu_detect_orientation(s_activeOrientation);
       if (detected >= 0 && detected != s_activeOrientation) {
         if (s_pendingOrientation != detected) {
           s_pendingOrientation = detected;
           s_pendingOrientationStart = millis();
-        } else if (millis() - s_pendingOrientationStart >= 600) {
-          Serial.printf("\n>>> [IMU] Orientation change sustained (%d -> %d). Updating display...\n",
-                        s_activeOrientation, s_pendingOrientation);
+        } else if (millis() - s_pendingOrientationStart >= 350) {
           s_activeOrientation = s_pendingOrientation;
           s_pendingOrientation = -1;
-          if (isConfigured && isPaired) {
+
+          char letter = 'A' + (s_activeOrientation >= 0 && s_activeOrientation <= 3 ? s_activeOrientation : 0);
+          int16_t dax = 0, day = 0, daz = 0;
+          imu_read_accel(&dax, &day, &daz);
+          Serial.println("\n************************************************************");
+          Serial.printf(">>> [IMU DEBUG] ACTIVE ORIENTATION CHANGED -> LETTER '%c'\n", letter);
+          Serial.printf(">>> [IMU DEBUG] ID: %d, ax=%d, ay=%d, az=%d\n", s_activeOrientation, (int)dax, (int)day, (int)daz);
+          Serial.println("************************************************************\n");
+
+          if (s_imuDebugScreen) {
+            showImuDebugLetterScreen(s_activeOrientation);
+          } else if (isConfigured && isPaired) {
             fetchAndRender(true);
           }
         }
@@ -2082,7 +2225,7 @@ void loop() {
   }
 
   // Periodic Auto-Sync (Fallback if active in loop)
-  if (!s_inSystemMenu && !s_inStatusScreen && isPaired && (millis() - s_lastSyncMillis > s_syncIntervalMs)) {
+  if (!s_imuDebugScreen && !s_inSystemMenu && !s_inStatusScreen && isPaired && (millis() - s_lastSyncMillis > s_syncIntervalMs)) {
     s_lastSyncMillis = millis();
     Serial.println("\n[AutoSync] Periodic sync triggered...");
     fetchAndRender(false);

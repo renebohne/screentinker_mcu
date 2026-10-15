@@ -133,6 +133,13 @@ void gfx_draw_pixel(uint8_t* buf, int x, int y, uint8_t color) {
   }
 }
 
+uint8_t gfx_get_pixel(const uint8_t* buf, int x, int y) {
+  if (!buf || x < 0 || x >= s_epd_width || y < 0 || y >= s_epd_height) return 1;
+  size_t byte_idx = ((size_t)y * (s_epd_width / 8)) + (x / 8);
+  uint8_t bit_mask = 0x80 >> (x & 7);
+  return (buf[byte_idx] & bit_mask) ? 1 : 0;
+}
+
 void gfx_draw_hline(uint8_t* buf, int x, int y, int w, uint8_t color) {
   for (int i = 0; i < w; i++) {
     gfx_draw_pixel(buf, x + i, y, color);
@@ -1001,6 +1008,155 @@ void renderOtaUpdateScreen(uint8_t* buffer, const char* statusMsg, Language lang
     gfx_draw_string(buffer, 60, s_epd_height - 38, "Device will automatically restart when complete...", 1, 2);
   }
 }
+
+void renderImuDebugScreen(uint8_t* buffer, int orient, int16_t ax, int16_t ay, int16_t az) {
+  if (!buffer) return;
+  gfx_fill(buffer, 1); // White background
+
+  int w = gfx_get_width();
+  int h = gfx_get_height();
+
+  // Double border
+  gfx_draw_rect(buffer, 10, 10, w - 20, h - 20, 0);
+  gfx_draw_rect(buffer, 14, 14, w - 28, h - 28, 0);
+
+  // Header
+  gfx_draw_string(buffer, 40, 30, "SCREENTINKER IMU CALIBRATION", 0, 2);
+  gfx_draw_hline(buffer, 40, 55, w - 80, 0);
+
+  // Large Letter A, B, C, D in center
+  char letter = 'A' + (orient >= 0 && orient <= 3 ? orient : 0);
+
+  // Scale 22: 8 * 22 = 176 pixels wide and tall
+  int char_w = 8 * 22;
+  int char_x = (w - char_w) / 2;
+  int char_y = 75;
+
+  // Draw background box for letter
+  gfx_draw_rect(buffer, char_x - 20, char_y - 10, char_w + 40, char_w + 20, 0);
+  gfx_draw_rect(buffer, char_x - 18, char_y - 8, char_w + 36, char_w + 16, 0);
+  gfx_draw_char(buffer, char_x, char_y, letter, 0, 22);
+
+  // Caption below letter
+  char letterCaption[48];
+  snprintf(letterCaption, sizeof(letterCaption), "[ LETTER '%c' ]", letter);
+  gfx_draw_string(buffer, (w - (strlen(letterCaption) * 8 * 3)) / 2, char_y + char_w + 25, letterCaption, 0, 3);
+
+  // Orientation name
+  const char* orientNames[] = {
+    "ID 0: LANDSCAPE_0 (0 deg)",
+    "ID 1: PORTRAIT_90 (90 deg)",
+    "ID 2: LANDSCAPE_180 (180 deg)",
+    "ID 3: PORTRAIT_270 (270 deg)"
+  };
+  const char* name = (orient >= 0 && orient <= 3) ? orientNames[orient] : "UNKNOWN";
+  gfx_draw_string(buffer, 40, h - 90, name, 0, 2);
+
+  // Accel info
+  char accelInfo[96];
+  snprintf(accelInfo, sizeof(accelInfo), "Raw Accel: ax=%d, ay=%d, az=%d", (int)ax, (int)ay, (int)az);
+  gfx_draw_string(buffer, 40, h - 60, accelInfo, 0, 2);
+
+  gfx_draw_string(buffer, 40, h - 35, "Rotate device 90 deg to inspect all 4 orientations (A, B, C, D)", 0, 1);
+}
+
+// ─── Display Buffer Rotation Algorithms ──────────────────────────────────────
+void rotate_mono_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height) {
+  const size_t stride = width / 8U;
+  for (uint16_t y = 0; y < height; ++y) {
+    const size_t src_row = y * stride;
+    const size_t dst_row = (height - 1U - y) * stride;
+    for (size_t x = 0; x < stride; ++x) {
+      uint8_t b = source[src_row + (stride - 1U - x)];
+      b = ((b & 0xF0) >> 4) | ((b & 0x0F) << 4);
+      b = ((b & 0xCC) >> 2) | ((b & 0x33) << 2);
+      b = ((b & 0xAA) >> 1) | ((b & 0x55) << 1);
+      destination[dst_row + x] = b;
+    }
+  }
+}
+
+void rotate_nibble_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height) {
+  if (!source || !destination) return;
+  const size_t stride = (width + 1) / 2;
+  memset(destination, 0, stride * height);
+  for (uint16_t y = 0; y < height; ++y) {
+    for (uint16_t x = 0; x < width; ++x) {
+      uint8_t src_byte = source[y * stride + (x >> 1)];
+      uint8_t nibble = (x & 1) ? (src_byte & 0x0F) : (src_byte >> 4);
+      uint16_t dx = width - 1 - x;
+      uint16_t dy = height - 1 - y;
+      if (dx & 1) {
+        destination[dy * stride + (dx >> 1)] |= (nibble & 0x0F);
+      } else {
+        destination[dy * stride + (dx >> 1)] |= (nibble << 4);
+      }
+    }
+  }
+}
+
+void rotate_mono_portrait(const uint8_t *src, uint8_t *dst, uint16_t src_w, uint16_t src_h, bool flip) {
+  if (!src || !dst) return;
+  const size_t src_stride = src_w / 8U;
+  const size_t dst_stride = src_h / 8U;
+  memset(dst, 0xFF, dst_stride * src_w);
+
+  for (uint16_t sy = 0; sy < src_h; ++sy) {
+    const size_t src_row = sy * src_stride;
+    for (uint16_t sx = 0; sx < src_w; ++sx) {
+      uint8_t byte = src[src_row + (sx >> 3)];
+      uint8_t bit = (byte >> (7 - (sx & 7))) & 1;
+      if (!bit) {
+        uint16_t dx, dy;
+        if (!flip) {
+          dx = (src_h - 1U) - sy;
+          dy = sx;
+        } else {
+          dx = sy;
+          dy = (src_w - 1U) - sx;
+        }
+        dst[dy * dst_stride + (dx >> 3)] &= ~(1 << (7 - (dx & 7)));
+      }
+    }
+  }
+}
+
+void rotate_nibble_portrait(const uint8_t *src, uint8_t *dst, uint16_t src_w, uint16_t src_h, bool flip) {
+  if (!src || !dst) return;
+  const size_t src_stride = (src_w + 1) / 2;
+  const size_t dst_stride = (src_h + 1) / 2;
+  memset(dst, 0, dst_stride * src_w);
+
+  for (uint16_t sy = 0; sy < src_h; ++sy) {
+    const size_t src_row = sy * src_stride;
+    for (uint16_t sx = 0; sx < src_w; ++sx) {
+      uint8_t src_byte = src[src_row + (sx >> 1)];
+      uint8_t nibble = (sx & 1) ? (src_byte & 0x0F) : (src_byte >> 4);
+      uint16_t dx, dy;
+      if (!flip) {
+        dx = (src_h - 1U) - sy;
+        dy = sx;
+      } else {
+        dx = sy;
+        dy = (src_w - 1U) - sx;
+      }
+      if (dx & 1) {
+        dst[dy * dst_stride + (dx >> 1)] |= (nibble & 0x0F);
+      } else {
+        dst[dy * dst_stride + (dx >> 1)] |= (nibble << 4);
+      }
+    }
+  }
+}
+
+void rotate_buffer_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height) {
+#if (DEVICE_COLOR_MODE == COLOR_MODE_SPECTRA6) || (DEVICE_COLOR_MODE == COLOR_MODE_GRAY16)
+  rotate_nibble_180(source, destination, width, height);
+#else
+  rotate_mono_180(source, destination, width, height);
+#endif
+}
+
 
 
 

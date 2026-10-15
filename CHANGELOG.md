@@ -5,7 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-10-13
+
+### Added
+- **Seeed Studio reTerminal E-Series Multi-Device Platform**:
+  - Modular hardware abstraction and pinout definitions for reTerminal Sticky (3.97" 800×480 mono SSD1677), E1001 (7.5" 800×480 1bpp mono UC8179), E1002 (7.3" 800×480 6-color Spectra 6 ED2208), E1003 (10.3" 1872×1404 16-level grayscale IT8951), and E1004 (13.3" 1200×1600 6-color Spectra 6 T133A01) ([#18](https://github.com/renebohne/screentinker_mcu/pull/18), [#20](https://github.com/renebohne/screentinker_mcu/pull/20)).
+  - PlatformIO multi-target build environments in `platformio.ini` (`seeed_reterminal_sticky`, `seeed_reterminal_e1001`, `seeed_reterminal_e1002`, `seeed_reterminal_e1003`, `seeed_reterminal_e1004`) ([#19](https://github.com/renebohne/screentinker_mcu/pull/19)).
+  - Responsive setup, splash, pairing, and status screens adapting to all resolutions and color formats ([#17](https://github.com/renebohne/screentinker_mcu/pull/17)).
+  - Desktop simulator multi-device support with dynamic SDL2 window sizing and `--device <profile>` flag ([#16](https://github.com/renebohne/screentinker_mcu/pull/16)).
+- **Display Orientation Control & IMU Auto-Rotation**:
+  - STMicroelectronics LSM6DS3TR-C 6-axis IMU driver over I2C with hardware axis detection and 350ms hysteresis debouncing ([#21](https://github.com/renebohne/screentinker_mcu/commit/19a93bc)).
+  - On-device System Menu setting for Orientation mode: `Auto (IMU)`, `Landscape`, and `Portrait`.
+  - Serial commands and JSON API for orientation control (`set_orientation`, `orientation`, `imu`, `imu_debug`).
+  - Dedicated IMU calibration test screen mode with large orientation cards (A, B, C, D) and raw accelerometer readouts.
+- **Environmental Sensor Telemetry**:
+  - Sensirion SHT40 high-accuracy relative humidity and temperature sensor I2C driver ([#22](https://github.com/renebohne/screentinker_mcu/commit/2c7abdb)).
+  - Telemetry headers `X-ST-Device-Temperature` and `X-ST-Device-Humidity` reported on every server sync.
+  - SHT40 temperature and humidity metrics displayed on the on-device E-Paper Status Screen and in serial JSON status output.
+- **Dual-Partition Over-The-Air (OTA) Updates**:
+  - Robust A/B dual-partition HTTP firmware update engine (`ota_updater.h`, `ota_updater.cpp`) with SHA-256 chunked stream validation ([#8](https://github.com/renebohne/screentinker_mcu/commit/7af2c7f)).
+  - Automated boot rollback protection: new firmware is verified upon successful server connection and frame sync; failed boots or network drops trigger automatic rollback to the previous partition.
+  - Remote OTA update triggering via `X-ST-Command: update <url> [sha256]` or serial commands (`update`, `rollback`).
+  - On-screen bilingual "Updating Firmware..." E-Paper splash screen during transfer.
+- **Rolling Diagnostic Log Buffer**:
+  - In-memory 100-entry circular diagnostic log ring buffer with level filtering (`diag_logger.h`, `diag_logger.cpp`) ([#9](https://github.com/renebohne/screentinker_mcu/commit/4ab18bd)).
+  - Remote log buffer upload via `X-ST-Command: upload_logs` header dispatched to `POST /api/embedded/logs`.
+  - Serial CLI command `logs` and JSON export for troubleshooting without USB debugging.
+
+### Changed
+- Bumped firmware version from `1.2.0` to `1.3.0` across configuration headers, onboarding screens, and telemetry headers.
+- Fixed portrait display buffer stride and rotation mapping to align perfectly with server-rendered frames without double-inversion.
+
 ## [1.2.0] - 2026-10-10
+
 
 ### Added
 - **Cross-Platform Host Simulator & Emulator**:

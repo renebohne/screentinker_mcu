@@ -467,8 +467,8 @@ void renderPairingCodeScreen(uint8_t* buffer, const char* code, const char* serv
   }
 }
 
-// ─── 3. Settings Menu (8 Items with Orientation, Wi-Fi Power & Language) ─────
-void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t wifiTxLevel, uint8_t orientMode, bool hasImu, int batteryPct, bool isCharging, bool isUsbPower) {
+// ─── 3. Settings Menu (9 Items with Orientation, Refresh Mode, Wi-Fi Power & Language) ─────
+void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t wifiTxLevel, uint8_t orientMode, bool hasImu, int batteryPct, bool isCharging, bool isUsbPower, uint8_t refreshMode, bool supportsPartial) {
   gfx_fill(buffer, 1);
 
   // Header Banner
@@ -531,48 +531,65 @@ void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t
     snprintf(wifiPwrEN, sizeof(wifiPwrEN), "3. WI-FI POWER: MAX [19.5 dBm]");
   }
 
-  const char* menuItemsDE[8] = {
+  char refreshDE[64];
+  char refreshEN[64];
+  if (supportsPartial) {
+    if (refreshMode == 0) {
+      snprintf(refreshDE, sizeof(refreshDE), "4. BILD-REFRESH: PARTIELL [6:1]");
+      snprintf(refreshEN, sizeof(refreshEN), "4. REFRESH MODE: SMART PARTIAL [6:1]");
+    } else {
+      snprintf(refreshDE, sizeof(refreshDE), "4. BILD-REFRESH: IMMER VOLL");
+      snprintf(refreshEN, sizeof(refreshEN), "4. REFRESH MODE: ALWAYS FULL");
+    }
+  } else {
+    snprintf(refreshDE, sizeof(refreshDE), "4. BILD-REFRESH: NUR VOLL (SPECTRA 6)");
+    snprintf(refreshEN, sizeof(refreshEN), "4. REFRESH MODE: FULL ONLY (SPECTRA 6)");
+  }
+
+  const char* menuItemsDE[9] = {
     "1. STATUS & INFO",
     orientDE,
     wifiPwrDE,
-    "4. SPRACHE: DEUTSCH [DE]",
-    "5. GERAET ENTKOPPELN (UNPAIR)",
-    "6. AUSSCHALTEN / STANDBY",
-    "7. WERKSEINSTELLUNGEN (RESET)",
-    "8. ZURUECK / SCHLIESSEN"
+    refreshDE,
+    "5. SPRACHE: DEUTSCH [DE]",
+    "6. GERAET ENTKOPPELN (UNPAIR)",
+    "7. AUSSCHALTEN / STANDBY",
+    "8. WERKSEINSTELLUNGEN (RESET)",
+    "9. ZURUECK / SCHLIESSEN"
   };
 
-  const char* menuItemsEN[8] = {
+  const char* menuItemsEN[9] = {
     "1. STATUS & INFO",
     orientEN,
     wifiPwrEN,
-    "4. LANGUAGE: ENGLISH [EN]",
-    "5. UNPAIR DEVICE",
-    "6. POWER OFF / STANDBY",
-    "7. FACTORY RESET",
-    "8. BACK / CLOSE"
+    refreshEN,
+    "5. LANGUAGE: ENGLISH [EN]",
+    "6. UNPAIR DEVICE",
+    "7. POWER OFF / STANDBY",
+    "8. FACTORY RESET",
+    "9. BACK / CLOSE"
   };
 
   const char** menuItems = (lang == LANG_DE) ? menuItemsDE : menuItemsEN;
 
-  int startY = 60;
-  int itemH = 38;
+  int startY = 58;
+  int itemH = 35;
   int itemGap = 5;
   int itemW = s_epd_width - 60;
   int itemX = 30;
 
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < 9; i++) {
     int y = startY + i * (itemH + itemGap);
     if (i == selectedIndex) {
       gfx_fill_rect(buffer, itemX, y, itemW, itemH, 0);
       char selText[64];
       snprintf(selText, sizeof(selText), "> %s", menuItems[i]);
-      gfx_draw_string(buffer, itemX + 20, y + 11, selText, 1, 2);
+      gfx_draw_string(buffer, itemX + 20, y + 9, selText, 1, 2);
     } else {
       gfx_draw_rect(buffer, itemX, y, itemW, itemH, 0);
       char normText[64];
       snprintf(normText, sizeof(normText), "  %s", menuItems[i]);
-      gfx_draw_string(buffer, itemX + 20, y + 11, normText, 0, 2);
+      gfx_draw_string(buffer, itemX + 20, y + 9, normText, 0, 2);
     }
   }
 

@@ -212,12 +212,18 @@ void SimDisplay::updateDimensions(int width, int height) {
 }
 
 bool SimDisplay::pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerToggled, bool& rotateRequested) {
+  bool dummyForceFull = false;
+  return pollEvents(wakeRequested, batteryDelta, powerToggled, rotateRequested, dummyForceFull);
+}
+
+bool SimDisplay::pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerToggled, bool& rotateRequested, bool& forceFullRequested) {
   if (m_headless) return true;
 
   wakeRequested = false;
   batteryDelta = 0;
   powerToggled = false;
   rotateRequested = false;
+  forceFullRequested = false;
 
   SDL_Event event;
   while (SDL_PollEvent(&event)) {
@@ -233,6 +239,11 @@ bool SimDisplay::pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerT
         case SDLK_RETURN:
           wakeRequested = true;
           std::cout << "[Simulator] Manual wake-up triggered by keypress!\n";
+          break;
+        case SDLK_f:
+          forceFullRequested = true;
+          wakeRequested = true;
+          std::cout << "[Simulator] Force full refresh triggered by keypress ('F')!\n";
           break;
         case SDLK_r:
         case SDLK_o:

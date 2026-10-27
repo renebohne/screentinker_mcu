@@ -393,6 +393,7 @@ static bool initDisplayPanel() {
 
   s_epdInitialized = true;
   Serial.printf("[EPD] Display panel initialized (%s, model %d).\n", DEVICE_PROFILE_NAME, (int)DEVICE_PANEL_MODEL);
+  return true;
 }
 
 static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = false) {
@@ -562,6 +563,14 @@ void showPairingCodeScreen(const char* code, Language lang = LANG_EN) {
   renderRotatedBuffer(s_rotatedBuffer, false);
 }
 
+// ─── Refresh Mode Policy ──────────────────────────────────────────────────────
+#define REFRESH_MODE_SMART_PARTIAL 0
+#define REFRESH_MODE_ALWAYS_FULL   1
+
+static uint8_t s_refreshMode = REFRESH_MODE_SMART_PARTIAL;
+static uint8_t s_partialRefreshLimit = 6;
+RTC_DATA_ATTR int rtc_consecutivePartialCount = 0;
+
 static bool s_inSystemMenu = false;
 static bool s_inStatusScreen = false;
 static int s_menuSelection = 0;
@@ -572,9 +581,9 @@ void showSystemMenu(int selectedIndex, bool fastPartial = false) {
   int battPct = readBatteryPercent();
   bool charging = isBatteryCharging();
   bool usb = isUsbPowerConnected();
-  Serial.printf("[Display] Rendering System Menu (Item: %d, Fast: %d, Lang: %s, TxPwr: %d, OrientMode: %d, Batt: %d%%)...\n",
-                selectedIndex, fastPartial ? 1 : 0, (s_currentLang == LANG_DE) ? "DE" : "EN", s_wifiTxPowerLevel, (int)s_orientationMode, battPct);
-  renderSystemMenu(s_rawBuffer, selectedIndex, s_currentLang, s_wifiTxPowerLevel, (uint8_t)s_orientationMode, s_hasImu, battPct, charging, usb);
+  Serial.printf("[Display] Rendering System Menu (Item: %d, Fast: %d, Lang: %s, TxPwr: %d, OrientMode: %d, RefreshMode: %d, Batt: %d%%)...\n",
+                selectedIndex, fastPartial ? 1 : 0, (s_currentLang == LANG_DE) ? "DE" : "EN", s_wifiTxPowerLevel, (int)s_orientationMode, s_refreshMode, battPct);
+  renderSystemMenu(s_rawBuffer, selectedIndex, s_currentLang, s_wifiTxPowerLevel, (uint8_t)s_orientationMode, s_hasImu, battPct, charging, usb, s_refreshMode, DEVICE_SUPPORTS_PARTIAL_REFRESH);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, fastPartial);
 }
@@ -792,6 +801,10 @@ void loadConfigFromNVS() {
   } else if (s_orientationMode == ORIENT_MODE_PORTRAIT) {
     s_activeOrientation = ORIENTATION_PORTRAIT_90;
   }
+  s_refreshMode = s_prefs.getUChar("refresh_mode", REFRESH_MODE_SMART_PARTIAL);
+  if (s_refreshMode > 1) s_refreshMode = REFRESH_MODE_SMART_PARTIAL;
+  s_partialRefreshLimit = s_prefs.getUChar("part_limit", 6);
+  if (s_partialRefreshLimit == 0) s_partialRefreshLimit = 6;
   s_prefs.end();
 
   Serial.println("[Config] Loaded configuration from NVS/Defaults:");
@@ -802,6 +815,7 @@ void loadConfigFromNVS() {
   Serial.printf("  Multi-Zone:  %s\n", g_multiZone ? "ENABLED" : "DISABLED");
   Serial.printf("  Language:    %s\n", (s_currentLang == LANG_DE) ? "Deutsch (DE)" : "English (EN)");
   Serial.printf("  Wi-Fi TX:    %s\n", (s_wifiTxPowerLevel == 1) ? "15.0 dBm" : (s_wifiTxPowerLevel == 2) ? "11.0 dBm" : "19.5 dBm (MAX)");
+  Serial.printf("  Refresh:     %s (limit: %d)\n", (s_refreshMode == REFRESH_MODE_SMART_PARTIAL) ? "Smart Partial [6:1]" : "Always Full", s_partialRefreshLimit);
   Serial.printf("  Orientation: %s\n", (s_orientationMode == ORIENT_MODE_AUTO) ? "Auto (IMU)" : (s_orientationMode == ORIENT_MODE_PORTRAIT) ? "Portrait" : "Landscape");
 }
 
@@ -1262,9 +1276,10 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     "ETag", "X-ST-Expires-In", "X-ST-Item-Index", "X-ST-Total-Items",
     "X-ST-Total-Zones", "X-ST-Layout-Fallback", "X-ST-Device-Name",
     "X-ST-Command", "X-ST-Power-State", "X-ST-Screen-Width",
-    "X-ST-Screen-Height", "X-ST-Rotation", "X-ST-Orientation"
+    "X-ST-Screen-Height", "X-ST-Rotation", "X-ST-Orientation",
+    "X-ST-Refresh-Mode", "X-ST-Color-Mode"
   };
-  http.collectHeaders(headerKeys, 13);
+  http.collectHeaders(headerKeys, 15);
 
   int httpCode = http.GET();
   Serial.printf("[Sync] HTTP Response: %d\n", httpCode);
@@ -1362,6 +1377,41 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     }
   }
 
+  String serverRefreshMode = "";
+  if (http.hasHeader("X-ST-Refresh-Mode")) {
+    serverRefreshMode = http.header("X-ST-Refresh-Mode");
+    serverRefreshMode.toLowerCase();
+    serverRefreshMode.trim();
+  }
+
+  bool useFastPartial = false;
+  if (!DEVICE_SUPPORTS_PARTIAL_REFRESH) {
+    useFastPartial = false;
+    rtc_consecutivePartialCount = 0;
+  } else if (forceRefresh || FORCE_REFRESH_ON_BOOT) {
+    useFastPartial = false;
+    rtc_consecutivePartialCount = 0;
+    Serial.println("[EPD] Force refresh active -> performing FULL screen refresh.");
+  } else if (serverRefreshMode == "full") {
+    useFastPartial = false;
+    rtc_consecutivePartialCount = 0;
+    Serial.println("[EPD] Server header override (X-ST-Refresh-Mode: full) -> performing FULL screen refresh.");
+  } else if (s_refreshMode == REFRESH_MODE_ALWAYS_FULL) {
+    useFastPartial = false;
+    rtc_consecutivePartialCount = 0;
+  } else {
+    // Smart Partial Refresh policy
+    if (rtc_consecutivePartialCount < s_partialRefreshLimit) {
+      useFastPartial = true;
+      rtc_consecutivePartialCount++;
+      Serial.printf("[EPD] Refresh policy: PARTIAL (%d/%d consecutive)\n", rtc_consecutivePartialCount, s_partialRefreshLimit);
+    } else {
+      useFastPartial = false;
+      rtc_consecutivePartialCount = 0;
+      Serial.printf("[EPD] Refresh policy: FULL (Clean cycle after %d partial refreshes)\n", s_partialRefreshLimit);
+    }
+  }
+
   if (httpCode == HTTP_CODE_NOT_MODIFIED) {
     rtc_unchangedCycles++;
     Serial.printf("[Sync] 304 Not Modified — Content for item %d unchanged (0 bytes download, consecutive 304s: %d).\n",
@@ -1382,7 +1432,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
         gfx_draw_low_battery_icon(s_rawBuffer, -1, -1, battPct);
         rotate_buffer_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
       }
-      renderRotatedBuffer(s_rotatedBuffer);
+      renderRotatedBuffer(s_rotatedBuffer, useFastPartial);
     }
     return;
   }
@@ -1451,7 +1501,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
         rotate_buffer_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
       }
       cachePut(s_currentItemIndex, newEtag, s_rotatedBuffer);
-      if (renderRotatedBuffer(s_rotatedBuffer)) {
+      if (renderRotatedBuffer(s_rotatedBuffer, useFastPartial)) {
         ota_confirm_running_partition();
       } else {
         checkOtaVerificationFailure("Display panel refresh failed");
@@ -1827,6 +1877,9 @@ void setup() {
   }
 
   esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
+  if (wakeup_cause == ESP_SLEEP_WAKEUP_UNDEFINED) {
+    rtc_consecutivePartialCount = 0;
+  }
 
   initPsramBuffers();
 
@@ -1921,13 +1974,14 @@ void setup() {
   Serial.println("=============================================");
 
   rtc_unchangedCycles = 0;
+  rtc_consecutivePartialCount = 0;
   s_inInteractiveMode = false;
 
   if (isConfigured) {
     showSplashScreen(FIRMWARE_VERSION, (s_currentLang == LANG_DE) ? "Verbinde mit WLAN & Server..." : "Connecting to network...");
     if (isPaired) {
       Serial.println("[Setup] Device configured and paired. Syncing content...");
-      fetchAndRender(FORCE_REFRESH_ON_BOOT);
+      fetchAndRender(true);
 
       // Enter initial deep sleep for slide interval
       uint32_t baseSec = max((uint32_t)10, (uint32_t)(s_syncIntervalMs / 1000));
@@ -2119,6 +2173,7 @@ void loop() {
             s_prefs.begin("screentinker", false);
             s_prefs.putUChar("orient_mode", (uint8_t)s_orientationMode);
             s_prefs.end();
+            rtc_consecutivePartialCount = 0;
 
             if (s_orientationMode == ORIENT_MODE_LANDSCAPE) {
               s_activeOrientation = ORIENTATION_LANDSCAPE_0;
@@ -2146,28 +2201,42 @@ void loop() {
                           s_wifiTxPowerLevel, (s_wifiTxPowerLevel == 1) ? "15 dBm" : (s_wifiTxPowerLevel == 2) ? "11 dBm" : "19.5 dBm");
             showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
           } else if (s_menuSelection == 3) {
-            // 3: Language Toggle (EN <-> DE)
+            // 3: Refresh Mode Toggle (Smart Partial [6:1] <-> Always Full)
+            if (DEVICE_SUPPORTS_PARTIAL_REFRESH) {
+              s_refreshMode = (s_refreshMode == REFRESH_MODE_SMART_PARTIAL) ? REFRESH_MODE_ALWAYS_FULL : REFRESH_MODE_SMART_PARTIAL;
+              s_prefs.begin("screentinker", false);
+              s_prefs.putUChar("refresh_mode", s_refreshMode);
+              s_prefs.end();
+              rtc_consecutivePartialCount = 0;
+              Serial.printf("\n>>> [SystemMenu] Refresh Mode changed to: %s\n",
+                            (s_refreshMode == REFRESH_MODE_SMART_PARTIAL) ? "Smart Partial [6:1]" : "Always Full");
+            } else {
+              Serial.println("\n>>> [SystemMenu] This device target only supports Full Refresh (Spectra 6).");
+            }
+            showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
+          } else if (s_menuSelection == 4) {
+            // 4: Language Toggle (EN <-> DE)
             s_currentLang = (s_currentLang == LANG_EN) ? LANG_DE : LANG_EN;
             s_prefs.begin("screentinker", false);
             s_prefs.putUChar("lang", (uint8_t)s_currentLang);
             s_prefs.end();
             Serial.printf("\n>>> [SystemMenu] Language changed to: %s\n", (s_currentLang == LANG_DE) ? "DE" : "EN");
             showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
-          } else if (s_menuSelection == 4) {
-            // 4: Gerät entkoppeln (Unpair)
+          } else if (s_menuSelection == 5) {
+            // 5: Gerät entkoppeln (Unpair)
             s_inSystemMenu = false;
             Serial.println("[SystemMenu] Unpairing device and generating new pairing code...");
             saveConfigToNVS(g_wifiSsid, g_wifiPass, g_serverUrl, "", "");
             registerAndStartPairing();
-          } else if (s_menuSelection == 5) {
-            // 5: Ausschalten / Standby
-            powerOffDevice();
           } else if (s_menuSelection == 6) {
-            // 6: Factory Reset
+            // 6: Ausschalten / Standby
+            powerOffDevice();
+          } else if (s_menuSelection == 7) {
+            // 7: Factory Reset
             s_inSystemMenu = false;
             factoryResetNVS();
-          } else if (s_menuSelection == 7) {
-            // 7: Zurück / Schließen -> Deep Sleep
+          } else if (s_menuSelection == 8) {
+            // 8: Zurück / Schließen -> Deep Sleep
             s_inSystemMenu = false;
             s_inInteractiveMode = false;
             redrawCurrentState();
@@ -2221,7 +2290,7 @@ void loop() {
       s_menuOpenMillis = millis();
       showSystemMenu(s_menuSelection, false);
     } else if (s_inSystemMenu) {
-      s_menuSelection = (s_menuSelection - 1 + 8) % 8;
+      s_menuSelection = (s_menuSelection - 1 + 9) % 9;
       s_menuOpenMillis = millis();
       Serial.printf("\n>>> [SystemMenu] UP pressed -> Selection: %d\n", s_menuSelection);
       showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
@@ -2244,7 +2313,7 @@ void loop() {
       s_menuOpenMillis = millis();
       showSystemMenu(s_menuSelection, false);
     } else if (s_inSystemMenu) {
-      s_menuSelection = (s_menuSelection + 1) % 8;
+      s_menuSelection = (s_menuSelection + 1) % 9;
       s_menuOpenMillis = millis();
       Serial.printf("\n>>> [SystemMenu] DOWN pressed -> Selection: %d\n", s_menuSelection);
       showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!

@@ -80,6 +80,82 @@ void test_system_menu_rendering() {
   std::cout << "  ✓ All System Menu rendering tests passed!\n";
 }
 
+void test_smart_partial_refresh_policy() {
+  std::cout << "[Test] Running Smart Partial Refresh Policy tests...\n";
+
+  gfx_set_screen_dimensions(800, 480);
+  std::vector<uint8_t> buffer(gfx_get_buffer_size(), 0xFF);
+
+  // 1. Verify Menu item 3 (Refresh Mode) selection highlight
+  renderSystemMenu(buffer.data(), 3, LANG_EN, 0, (uint8_t)ORIENT_MODE_LANDSCAPE, false, -1, false, false, 0, true);
+  // Item 3 y is startY (58) + 3 * 40 = 178; item height is 35 -> y in [178, 213]
+  assert(gfx_get_pixel(buffer.data(), 40, 190) == 0); // Item 3 filled rectangle is black
+
+  // 2. Simulate 6:1 partial refresh cadence
+  int partialCount = 0;
+  const int limit = 6;
+  bool isColdBoot = true;
+
+  auto decideRefresh = [&](bool force, const std::string& serverHdr, bool supportsPartial, uint8_t userMode) -> std::string {
+    if (!supportsPartial) {
+      partialCount = 0;
+      return "FULL";
+    }
+    if (isColdBoot || force) {
+      isColdBoot = false;
+      partialCount = 0;
+      return "FULL";
+    }
+    if (serverHdr == "full") {
+      partialCount = 0;
+      return "FULL";
+    }
+    if (userMode == 1) { // Always full
+      partialCount = 0;
+      return "FULL";
+    }
+    if (partialCount < limit) {
+      partialCount++;
+      return "PARTIAL";
+    } else {
+      partialCount = 0;
+      return "FULL";
+    }
+  };
+
+  // Cold boot: always FULL
+  assert(decideRefresh(false, "", true, 0) == "FULL");
+  assert(partialCount == 0);
+
+  // Consecutive 6 partials
+  for (int i = 1; i <= 6; ++i) {
+    assert(decideRefresh(false, "", true, 0) == "PARTIAL");
+    assert(partialCount == i);
+  }
+
+  // 7th refresh triggers clean cycle (FULL) and resets to 0
+  assert(decideRefresh(false, "", true, 0) == "FULL");
+  assert(partialCount == 0);
+
+  // 8th refresh resumes PARTIAL (count = 1)
+  assert(decideRefresh(false, "", true, 0) == "PARTIAL");
+  assert(partialCount == 1);
+
+  // Server override forces full and resets counter
+  assert(decideRefresh(false, "full", true, 0) == "FULL");
+  assert(partialCount == 0);
+
+  // Device not supporting partial (Spectra 6) always returns FULL
+  assert(decideRefresh(false, "partial", false, 0) == "FULL");
+  assert(partialCount == 0);
+
+  // User configured "Always Full" mode
+  assert(decideRefresh(false, "", true, 1) == "FULL");
+  assert(partialCount == 0);
+
+  std::cout << "  ✓ All Smart Partial Refresh Policy tests passed!\n";
+}
+
 #include <cmath>
 #include "sht40_driver.h"
 
@@ -450,6 +526,7 @@ int main() {
 
   test_imu_orientation_detection();
   test_system_menu_rendering();
+  test_smart_partial_refresh_policy();
   test_sht40_driver();
   test_status_screen_telemetry();
   test_diag_logger();

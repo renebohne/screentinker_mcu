@@ -211,6 +211,9 @@ int main(int argc, char** argv) {
   int sleepDurationSec = cfg.syncIntervalSec;
   bool running = true;
   int cycleCount = 0;
+  int consecutivePartialCount = 0;
+  const int partialRefreshLimit = 6;
+  bool forceFullRefresh = true; // Initial boot always triggers full refresh
 
   while (running) {
     std::string url = cfg.serverUrl + "/api/embedded/render?device_id=" + cfg.deviceId;
@@ -345,10 +348,41 @@ int main(int argc, char** argv) {
           std::cout << "[Power] Low battery warning (" << cfg.batteryPercent << "%)! Drawing low battery icon.\n";
           gfx_draw_low_battery_icon_native(frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode, -1, -1, cfg.batteryPercent);
         }
+
+        std::string reqRefresh = res.getHeader("x-st-refresh-mode");
+        bool useFastPartial = false;
+
+        if (!cfg.supportsPartialRefresh) {
+          useFastPartial = false;
+          consecutivePartialCount = 0;
+          std::cout << "[Display] Refresh: FULL [" << cfg.fullRefreshTimeMs << " ms]\n";
+        } else if (forceFullRefresh) {
+          useFastPartial = false;
+          consecutivePartialCount = 0;
+          forceFullRefresh = false;
+          std::cout << "[Display] Refresh: FULL (Initial boot or forced clean) [" << cfg.fullRefreshTimeMs << " ms]\n";
+        } else if (reqRefresh == "full") {
+          useFastPartial = false;
+          consecutivePartialCount = 0;
+          std::cout << "[Display] Refresh: FULL (Server override: x-st-refresh-mode: full) [" << cfg.fullRefreshTimeMs << " ms]\n";
+        } else if (consecutivePartialCount < partialRefreshLimit) {
+          useFastPartial = true;
+          consecutivePartialCount++;
+          std::cout << "[Display] Refresh: PARTIAL (" << consecutivePartialCount << "/" << partialRefreshLimit << ") [" << cfg.partialRefreshTimeMs << " ms]\n";
+        } else {
+          useFastPartial = false;
+          consecutivePartialCount = 0;
+          std::cout << "[Display] Refresh: FULL (Clean cycle after " << partialRefreshLimit << " partial refreshes) [" << cfg.fullRefreshTimeMs << " ms]\n";
+        }
+
         std::cout << "[Sync] 200 OK — Downloaded new frame (" << cfg.bufferSize() << " bytes). Updating display.\n";
         display.renderBuffer(frameBuffer.data());
         display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
         ota_confirm_running_partition();
+
+        if (!cfg.headless) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(useFastPartial ? cfg.partialRefreshTimeMs : std::min(cfg.fullRefreshTimeMs, 1000)));
+        }
       } else {
         std::cerr << "[Sync] Warning: Received 200 OK but payload size is " << res.body.size()
                   << " bytes (expected " << cfg.bufferSize() << ")\n";
@@ -424,7 +458,7 @@ int main(int argc, char** argv) {
       return (res.statusCode == 0) ? 1 : 0;
     }
 
-    std::cout << "[Sleep] Next poll scheduled in " << sleepDurationSec << "s (Press [Space] to wake, [O]/[R] to rotate orientation, [P] to toggle USB/Battery, [B] to toggle battery level, [L] to dump logs, [Q] to quit)\n";
+    std::cout << "[Sleep] Next poll scheduled in " << sleepDurationSec << "s (Press [Space] to wake, [F] to force full clean, [O]/[R] to rotate orientation, [P] to toggle USB/Battery, [B] to toggle battery level, [L] to dump logs, [Q] to quit)\n";
 
     // Simulate sleep interval while polling interactive SDL2 events
     auto sleepStart = std::chrono::steady_clock::now();
@@ -434,12 +468,20 @@ int main(int argc, char** argv) {
       int batteryDelta = 0;
       bool powerToggled = false;
       bool rotateRequested = false;
-      if (!display.pollEvents(wakeRequested, batteryDelta, powerToggled, rotateRequested)) {
+      bool forceFullRequested = false;
+      if (!display.pollEvents(wakeRequested, batteryDelta, powerToggled, rotateRequested, forceFullRequested)) {
         running = false;
         break;
       }
 
+      if (forceFullRequested) {
+        forceFullRefresh = true;
+        wakeRequested = true;
+      }
+
       if (rotateRequested) {
+        forceFullRefresh = true;
+        consecutivePartialCount = 0;
         cfg.cycleRotation();
         std::cout << "[Simulator] Rotated to " << cfg.rotation << "° ("
                   << (cfg.orientation.empty() ? (cfg.width > cfg.height ? "landscape" : "portrait") : cfg.orientation)

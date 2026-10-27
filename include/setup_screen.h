@@ -48,7 +48,7 @@ void renderNoWifiScreen(uint8_t* buffer, const char* ssid, Language lang = LANG_
 void renderEmptyPlaylistScreen(uint8_t* buffer, const char* deviceName, const char* serverUrl, Language lang = LANG_EN);
 void renderPairingCodeScreen(uint8_t* buffer, const char* code, const char* serverUrl, Language lang = LANG_EN);
 void renderStatusInfoScreen(uint8_t* buffer, const char* ip, const char* ssid, int rssi, const char* serverUrl, const char* devId, const char* version, Language lang = LANG_EN, float tempC = -999.0f, float humidityPct = -1.0f, int batteryPct = -1, bool isCharging = false, bool isUsbPower = false);
-void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang = LANG_EN, uint8_t wifiTxLevel = 0, uint8_t orientMode = 1, bool hasImu = false, int batteryPct = -1, bool isCharging = false, bool isUsbPower = false);
+void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang = LANG_EN, uint8_t wifiTxLevel = 0, uint8_t orientMode = 1, bool hasImu = false, int batteryPct = -1, bool isCharging = false, bool isUsbPower = false, uint8_t refreshMode = 0, bool supportsPartial = true);
 void renderPowerOffScreen(uint8_t* buffer, Language lang = LANG_EN);
 void renderUnsupportedContentScreen(uint8_t* buffer, const char* reason = nullptr, Language lang = LANG_EN);
 void renderOtaUpdateScreen(uint8_t* buffer, const char* statusMsg = nullptr, Language lang = LANG_EN);

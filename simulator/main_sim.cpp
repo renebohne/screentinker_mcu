@@ -500,7 +500,8 @@ int main(int argc, char** argv) {
       monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
       display.renderBuffer(frameBuffer.data());
       std::cout << "[Simulator] " << (simInStatus ? "Status Screen" : "System Menu")
-                << " rendered via fast partial refresh (" << cfg.partialRefreshTimeMs << "ms)\n";
+                << " rendered via " << (fastPartial ? "fast partial refresh" : "full refresh")
+                << " (" << (fastPartial ? cfg.partialRefreshTimeMs : cfg.fullRefreshTimeMs) << "ms)\n";
     };
 
     while (running && !wakeRequested) {

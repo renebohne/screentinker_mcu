@@ -228,9 +228,9 @@ class TestDisplayDrivers(unittest.TestCase):
         # Verify device_profile.h touch mappings
         dev_profile = (INCLUDE_DIR / "device_profile.h").read_text()
         # Sticky & E1003 support touch
-        self.assertIn("#define DEVICE_SUPPORTS_TOUCH            true", dev_profile)
+        self.assertIn("#define DEVICE_SUPPORTS_TOUCH            1", dev_profile)
         # E1001, E1002, E1004 do not support touch
-        self.assertIn("#define DEVICE_SUPPORTS_TOUCH            false", dev_profile)
+        self.assertIn("#define DEVICE_SUPPORTS_TOUCH            0", dev_profile)
 
         # Hit testing formula verification in Python
         def hit_test_menu(x, y, w, h):
@@ -256,6 +256,20 @@ class TestDisplayDrivers(unittest.TestCase):
         self.assertEqual(hit_test_menu(400, 413, 800, 480), 8)  # Row 8
         self.assertEqual(hit_test_menu(400, 430, 800, 480), 8)  # Footer banner
         self.assertEqual(hit_test_menu(10, 70, 800, 480), -1)   # Margin
+
+    def test_10_touch_driver_include_order(self):
+        """Verifies device_profile.h is included before DEVICE_SUPPORTS_TOUCH guard (CRITICAL-1 fix)."""
+        src_path = REPO_ROOT / "src" / "touch_driver.cpp"
+        self.assertTrue(src_path.exists(), f"Missing {src_path}")
+        src = src_path.read_text()
+        self.assertIn('#include "device_profile.h"', src)
+        include_pos = src.index('#include "device_profile.h"')
+        guard_pos = src.index("DEVICE_SUPPORTS_TOUCH")
+        self.assertLess(
+            include_pos,
+            guard_pos,
+            "device_profile.h must be included before any DEVICE_SUPPORTS_TOUCH preprocessor guard",
+        )
 
 
 if __name__ == "__main__":

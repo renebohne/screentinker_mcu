@@ -101,9 +101,12 @@ static int s_totalItems = 0;
 static uint32_t s_lastSyncMillis = 0;
 static uint32_t s_syncIntervalMs = DEFAULT_SLEEP_SEC * 1000;
 
+// ─── EPD Refresh State ───────────────────────────────────────────────────────
+RTC_DATA_ATTR int rtc_consecutivePartialCount = 0;
+
 // ─── PSRAM Frame Buffers & Cache ─────────────────────────────────────────────
-static uint8_t* s_rawBuffer = nullptr;       // 48,000 bytes (Download buffer)
-static uint8_t* s_rotatedBuffer = nullptr;   // 48,000 bytes (Rotated E-Paper ready buffer)
+static uint8_t* s_rawBuffer = nullptr;       // Up to 96,000 bytes (Download buffer for Gray4 / Mono)
+static uint8_t* s_rotatedBuffer = nullptr;   // Up to 96,000 bytes (Rotated E-Paper ready buffer)
 
 struct CacheItem {
   int itemIndex;
@@ -426,17 +429,12 @@ static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = fa
     refErr = seeed_epaper_panel_write_bitmap_gray4(s_panel, &full_screen, rotatedBuf, stride);
     if (refErr == ESP_OK) {
       refErr = seeed_epaper_panel_commit(s_panel, &full_screen, SEEED_EPAPER_REFRESH_GRAY4);
+      // Gray4 OTP waveform provides full-panel agitation, naturally resetting the ghosting cadence
+      rtc_consecutivePartialCount = 0;
     }
   } else {
     seeed_epaper_pixel_format_t pixel_fmt = SEEED_EPAPER_PIXEL_FORMAT_MONO1_MSB;
     size_t stride = EPD_WIDTH / 8;
-#if (DEVICE_COLOR_MODE == COLOR_MODE_SPECTRA6)
-    pixel_fmt = SEEED_EPAPER_PIXEL_FORMAT_SPECTRA6;
-    stride = (EPD_WIDTH + 1) / 2;
-#elif (DEVICE_COLOR_MODE == COLOR_MODE_GRAY16)
-    pixel_fmt = SEEED_EPAPER_PIXEL_FORMAT_GRAY16;
-    stride = (EPD_WIDTH + 1) / 2;
-#endif
     if (colorMode == COLOR_MODE_GRAY16) {
       pixel_fmt = SEEED_EPAPER_PIXEL_FORMAT_GRAY16;
       stride = (EPD_WIDTH + 1) / 2;
@@ -456,9 +454,10 @@ static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = fa
   }
 
   uint32_t refElapsed = millis() - refStart;
-  Serial.printf("[EPD] Refresh (%s, mode=%d) completed in %u ms (result: %s)\n",
+  Serial.printf("[EPD] Refresh (%s, mode=%d) completed in %u ms (result: %s)%s\n",
                 (colorMode == COLOR_MODE_GRAY4) ? "GRAY4" : ((mode == SEEED_EPAPER_REFRESH_PARTIAL) ? "PARTIAL" : "FULL"),
-                (int)colorMode, refElapsed, esp_err_to_name(refErr));
+                (int)colorMode, refElapsed, esp_err_to_name(refErr),
+                (colorMode == COLOR_MODE_GRAY4) ? " [OTP agitation waveform, clean cycle reset]" : "");
   return refErr == ESP_OK;
 }
 
@@ -596,7 +595,6 @@ void showPairingCodeScreen(const char* code, Language lang = LANG_EN) {
 
 static uint8_t s_refreshMode = REFRESH_MODE_SMART_PARTIAL;
 static uint8_t s_partialRefreshLimit = 6;
-RTC_DATA_ATTR int rtc_consecutivePartialCount = 0;
 
 static bool s_inSystemMenu = false;
 static bool s_inStatusScreen = false;
@@ -677,10 +675,6 @@ void enterDeepSleepWithWakeup(uint32_t sleepSeconds) {
     seeed_epaper_panel_sleep(s_panel);
   }
 
-#if DEVICE_SUPPORTS_TOUCH
-  touch_sleep();
-#endif
-
   // Release display power boost circuit
 #ifdef PIN_EPD_PWR_EN
   digitalWrite(PIN_EPD_PWR_EN, LOW);
@@ -750,10 +744,6 @@ void powerOffDevice() {
     seeed_epaper_panel_sleep(s_panel);
   }
 
-#if DEVICE_SUPPORTS_TOUCH
-  touch_sleep();
-#endif
-
   // Release display power boost circuit
 #ifdef PIN_EPD_PWR_EN
   digitalWrite(PIN_EPD_PWR_EN, LOW);
@@ -787,6 +777,9 @@ void powerOffDevice() {
   
   Serial.println("[Power] Power latch released. Entering Deep Sleep (Press OK to wake)...");
   delay(100);
+#if DEVICE_SUPPORTS_TOUCH
+  touch_sleep();
+#endif
   esp_deep_sleep_start();
 }
 
@@ -1202,6 +1195,36 @@ bool uploadLogsToServer() {
   return success;
 }
 
+// ─── Refresh Policy Helper ───────────────────────────────────────────────────
+static bool decideRefreshMode(bool forceRefresh, const String& serverRefreshMode) {
+  if (!DEVICE_SUPPORTS_PARTIAL_REFRESH) {
+    rtc_consecutivePartialCount = 0;
+    return false;
+  }
+  if (forceRefresh || FORCE_REFRESH_ON_BOOT) {
+    rtc_consecutivePartialCount = 0;
+    Serial.println("[EPD] Force refresh active -> performing FULL screen refresh.");
+    return false;
+  }
+  if (serverRefreshMode == "full") {
+    rtc_consecutivePartialCount = 0;
+    Serial.println("[EPD] Server header override (X-ST-Refresh-Mode: full) -> performing FULL screen refresh.");
+    return false;
+  }
+  if (s_refreshMode == REFRESH_MODE_ALWAYS_FULL) {
+    rtc_consecutivePartialCount = 0;
+    return false;
+  }
+  if (rtc_consecutivePartialCount < s_partialRefreshLimit) {
+    rtc_consecutivePartialCount++;
+    Serial.printf("[EPD] Refresh policy: PARTIAL (%d/%d consecutive)\n", rtc_consecutivePartialCount, s_partialRefreshLimit);
+    return true;
+  }
+  rtc_consecutivePartialCount = 0;
+  Serial.printf("[EPD] Refresh policy: FULL (Clean cycle after %d partial refreshes)\n", s_partialRefreshLimit);
+  return false;
+}
+
 // ─── Fetch & Render (with PSRAM Caching) ──────────────────────────────────────
 void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   int targetIndex = (requestedItemIndex >= 0) ? requestedItemIndex : s_currentItemIndex;
@@ -1426,34 +1449,6 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     serverRefreshMode.trim();
   }
 
-  bool useFastPartial = false;
-  if (!DEVICE_SUPPORTS_PARTIAL_REFRESH) {
-    useFastPartial = false;
-    rtc_consecutivePartialCount = 0;
-  } else if (forceRefresh || FORCE_REFRESH_ON_BOOT) {
-    useFastPartial = false;
-    rtc_consecutivePartialCount = 0;
-    Serial.println("[EPD] Force refresh active -> performing FULL screen refresh.");
-  } else if (serverRefreshMode == "full") {
-    useFastPartial = false;
-    rtc_consecutivePartialCount = 0;
-    Serial.println("[EPD] Server header override (X-ST-Refresh-Mode: full) -> performing FULL screen refresh.");
-  } else if (s_refreshMode == REFRESH_MODE_ALWAYS_FULL) {
-    useFastPartial = false;
-    rtc_consecutivePartialCount = 0;
-  } else {
-    // Smart Partial Refresh policy
-    if (rtc_consecutivePartialCount < s_partialRefreshLimit) {
-      useFastPartial = true;
-      rtc_consecutivePartialCount++;
-      Serial.printf("[EPD] Refresh policy: PARTIAL (%d/%d consecutive)\n", rtc_consecutivePartialCount, s_partialRefreshLimit);
-    } else {
-      useFastPartial = false;
-      rtc_consecutivePartialCount = 0;
-      Serial.printf("[EPD] Refresh policy: FULL (Clean cycle after %d partial refreshes)\n", s_partialRefreshLimit);
-    }
-  }
-
   if (httpCode == HTTP_CODE_NOT_MODIFIED) {
     rtc_unchangedCycles++;
     Serial.printf("[Sync] 304 Not Modified — Content for item %d unchanged (0 bytes download, consecutive 304s: %d).\n",
@@ -1476,6 +1471,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
         gfx_draw_low_battery_icon_native(s_rawBuffer, EPD_WIDTH, EPD_HEIGHT, cachedColorMode, -1, -1, battPct);
         rotate_buffer_180_mode(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT, cachedColorMode);
       }
+      bool useFastPartial = decideRefreshMode(false, serverRefreshMode);
       renderRotatedBuffer(s_rotatedBuffer, useFastPartial, cachedColorMode);
     }
     return;
@@ -1509,16 +1505,27 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     size_t expectedSize = EPD_BUFFER_SIZE;
 
 #if DEVICE_SUPPORTS_GRAY4
+    const size_t monoExpectedSize = ((size_t)EPD_WIDTH * EPD_HEIGHT) / 8;
+    const size_t gray4ExpectedSize = ((size_t)EPD_WIDTH * EPD_HEIGHT) / 4;
     int httpContentLen = http.getSize();
-    if (colorModeHdr == "gray4" || colorModeHdr == "2bpp" || httpContentLen == 96000) {
+    if (colorModeHdr == "gray4" || colorModeHdr == "2bpp") {
       activeColorMode = COLOR_MODE_GRAY4;
-      expectedSize = 96000;
-    } else if (colorModeHdr == "mono" || colorModeHdr == "1bpp" || httpContentLen == 48000) {
+      expectedSize = gray4ExpectedSize;
+    } else if (colorModeHdr == "mono" || colorModeHdr == "1bpp") {
       activeColorMode = COLOR_MODE_1BPP_MONO;
-      expectedSize = 48000;
+      expectedSize = monoExpectedSize;
+    } else if (httpContentLen == (int)gray4ExpectedSize) {
+      activeColorMode = COLOR_MODE_GRAY4;
+      expectedSize = gray4ExpectedSize;
+    } else if (httpContentLen == (int)monoExpectedSize) {
+      activeColorMode = COLOR_MODE_1BPP_MONO;
+      expectedSize = monoExpectedSize;
     } else {
-      activeColorMode = COLOR_MODE_1BPP_MONO;
-      expectedSize = 48000;
+      Serial.printf("[Sync] Unknown or mismatched frame format (len=%d, hdr='%s') — aborting render.\n",
+                    httpContentLen, colorModeHdr.c_str());
+      http.end();
+      disconnectWiFiIfPowerSave();
+      return;
     }
 #endif
 
@@ -1564,6 +1571,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
         rotate_buffer_180_mode(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT, activeColorMode);
       }
       cachePut(s_currentItemIndex, newEtag, s_rotatedBuffer, totalReceived, activeColorMode);
+      bool useFastPartial = decideRefreshMode(forceRefresh, serverRefreshMode);
       if (renderRotatedBuffer(s_rotatedBuffer, useFastPartial, activeColorMode)) {
         ota_confirm_running_partition();
       } else {
@@ -2034,7 +2042,7 @@ void setup() {
       }
       rtc_lastSyncIntervalS = sleepSec;
       scheduleNextSync(sleepSec);
-      if (!isUsbPowerConnected()) return;
+      return;
     }
   }
 

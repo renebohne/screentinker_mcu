@@ -1,4 +1,5 @@
 #include "setup_screen.h"
+#include "menu_layout.h"
 #include <string.h>
 #include <qrcode.h>
 
@@ -572,14 +573,14 @@ void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t
 
   const char** menuItems = (lang == LANG_DE) ? menuItemsDE : menuItemsEN;
 
-  int startY = 58;
-  int itemH = 35;
-  int itemGap = 5;
-  int itemW = s_epd_width - 60;
-  int itemX = 30;
+  int startY = MENU_START_Y;
+  int itemH = MENU_ITEM_HEIGHT;
+  int itemGap = MENU_ITEM_GAP;
+  int itemW = s_epd_width - (2 * MENU_ITEM_MARGIN_X);
+  int itemX = MENU_ITEM_MARGIN_X;
 
-  for (int i = 0; i < 9; i++) {
-    int y = startY + i * (itemH + itemGap);
+  for (int i = 0; i < MENU_ITEM_COUNT; i++) {
+    int y = startY + i * MENU_ITEM_PITCH;
     if (i == selectedIndex) {
       gfx_fill_rect(buffer, itemX, y, itemW, itemH, 0);
       char selText[64];

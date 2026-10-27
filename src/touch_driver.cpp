@@ -1,4 +1,6 @@
 #include "touch_driver.h"
+#include "device_profile.h"
+#include "menu_layout.h"
 
 // ─── Universal Geometry Hit-Testing ──────────────────────────────────────────
 
@@ -7,30 +9,26 @@ int touch_hit_test_menu(int x, int y, int screen_width, int screen_height) {
     return -1;
   }
 
-  // Footer Banner: y >= (screen_height - 56)
+  // Footer Banner: y >= (screen_height - MENU_FOOTER_HEIGHT)
   // Tapping anywhere in the footer banner corresponds to item 8 (BACK / CLOSE)
-  if (y >= screen_height - 56) {
+  if (y >= screen_height - MENU_FOOTER_HEIGHT) {
     return 8;
   }
 
-  const int startY = 58;
-  const int itemH = 35;
-  const int itemGap = 5;
-  const int pitch = itemH + itemGap; // 40
-  const int itemX = 30;
-  const int itemW = screen_width - 60;
+  const int itemW = screen_width - (2 * MENU_ITEM_MARGIN_X);
 
-  if (x < itemX || x > (itemX + itemW)) {
+  if (x < MENU_ITEM_MARGIN_X || x > (MENU_ITEM_MARGIN_X + itemW)) {
     return -1;
   }
-  if (y < startY) {
+  if (y < MENU_START_Y) {
     return -1;
   }
 
-  int row = (y - startY) / pitch;
-  int offset = (y - startY) % pitch;
+  int row = (y - MENU_START_Y) / MENU_ITEM_PITCH;
+  int offset = (y - MENU_START_Y) % MENU_ITEM_PITCH;
 
-  if (row >= 0 && row < 9 && offset <= itemH) {
+  // offset <= MENU_ITEM_HEIGHT allows an intentional 1px touch tolerance at row bottom border
+  if (row >= 0 && row < MENU_ITEM_COUNT && offset <= MENU_ITEM_HEIGHT) {
     return row;
   }
 
@@ -43,11 +41,10 @@ bool touch_hit_test_status(int x, int y, int screen_width, int screen_height) {
 
 // ─── Hardware Driver (Arduino & ESP32) ───────────────────────────────────────
 
-#if defined(ARDUINO) && DEVICE_SUPPORTS_TOUCH
+#if defined(ARDUINO) && (DEVICE_SUPPORTS_TOUCH == 1)
 
 #include <Arduino.h>
 #include <Wire.h>
-#include "device_profile.h"
 
 #define TOUCH_CHIP_NONE    0
 #define TOUCH_CHIP_GT911   1
@@ -294,12 +291,23 @@ void touch_wake() {
   delay(10);
 #endif
 
+  // Enforce GT911 address selection on wake: INT held LOW while RST rises
+#ifdef PIN_TOUCH_INT
+  pinMode(PIN_TOUCH_INT, OUTPUT);
+  digitalWrite(PIN_TOUCH_INT, LOW);
+#endif
+
 #ifdef PIN_TOUCH_RST
   digitalWrite(PIN_TOUCH_RST, LOW);
   delay(5);
   digitalWrite(PIN_TOUCH_RST, HIGH);
   delay(20);
 #endif
+
+#ifdef PIN_TOUCH_INT
+  pinMode(PIN_TOUCH_INT, INPUT);
+#endif
+  delay(50);
 
   s_sleeping = false;
   Serial.println("[Touch] Digitizer awakened from sleep.");

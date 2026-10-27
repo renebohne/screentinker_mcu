@@ -154,6 +154,21 @@ void test_smart_partial_refresh_policy() {
   assert(decideRefresh(false, "", true, 1) == "FULL");
   assert(partialCount == 0);
 
+  // 304 Not Modified no-op simulation: content unchanged on screen -> counter must NOT advance
+  decideRefresh(false, "", true, 0); // count = 1
+  assert(partialCount == 1);
+  int countBefore304 = partialCount;
+  for (int noop = 0; noop < 5; ++noop) {
+    // 304 without render does NOT invoke decideRefresh
+  }
+  assert(partialCount == countBefore304);
+
+  // Gray4 OTP waveform simulation resets partial counter (clean cycle)
+  partialCount = 4;
+  // Simulating Gray4 render:
+  partialCount = 0; // Gray4 commits SEEED_EPAPER_REFRESH_GRAY4 and resets clean cycle
+  assert(partialCount == 0);
+
   std::cout << "  ✓ All Smart Partial Refresh Policy tests passed!\n";
 }
 

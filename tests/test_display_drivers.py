@@ -214,6 +214,49 @@ class TestDisplayDrivers(unittest.TestCase):
         rot_gray4 = rotate_gray4_180(src_gray4, 8, 2)
         self.assertEqual(rot_gray4, bytes([0xFF, 0x00, 0x1B, 0xE4]))
 
+    def test_09_touch_driver_integration_and_hit_testing(self):
+        """Validates capacitive touch driver definitions, profiles, and hit-testing (Ticket 2)."""
+        header_path = INCLUDE_DIR / "touch_driver.h"
+        self.assertTrue(header_path.exists(), f"Missing {header_path}")
+        content = header_path.read_text()
+        self.assertIn("touch_hit_test_menu", content)
+        self.assertIn("touch_hit_test_status", content)
+        self.assertIn("touch_init", content)
+        self.assertIn("touch_read", content)
+        self.assertIn("touch_sleep", content)
+
+        # Verify device_profile.h touch mappings
+        dev_profile = (INCLUDE_DIR / "device_profile.h").read_text()
+        # Sticky & E1003 support touch
+        self.assertIn("#define DEVICE_SUPPORTS_TOUCH            true", dev_profile)
+        # E1001, E1002, E1004 do not support touch
+        self.assertIn("#define DEVICE_SUPPORTS_TOUCH            false", dev_profile)
+
+        # Hit testing formula verification in Python
+        def hit_test_menu(x, y, w, h):
+            if x < 0 or y < 0 or x >= w or y >= h:
+                return -1
+            if y >= h - 56:
+                return 8  # Footer / Close
+            startY, itemH, itemGap, itemX = 58, 35, 5, 30
+            pitch = itemH + itemGap
+            itemW = w - 60
+            if x < itemX or x > (itemX + itemW) or y < startY:
+                return -1
+            row = (y - startY) // pitch
+            offset = (y - startY) % pitch
+            if 0 <= row < 9 and offset <= itemH:
+                return row
+            return -1
+
+        self.assertEqual(hit_test_menu(400, 58, 800, 480), 0)   # Row 0 top
+        self.assertEqual(hit_test_menu(400, 93, 800, 480), 0)   # Row 0 bottom
+        self.assertEqual(hit_test_menu(400, 95, 800, 480), -1)  # Gap
+        self.assertEqual(hit_test_menu(400, 98, 800, 480), 1)   # Row 1
+        self.assertEqual(hit_test_menu(400, 413, 800, 480), 8)  # Row 8
+        self.assertEqual(hit_test_menu(400, 430, 800, 480), 8)  # Footer banner
+        self.assertEqual(hit_test_menu(10, 70, 800, 480), -1)   # Margin
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

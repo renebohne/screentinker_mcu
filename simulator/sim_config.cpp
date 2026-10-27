@@ -31,6 +31,7 @@ bool SimConfig::setModel(const std::string& modelName) {
     supportsPartialRefresh = true;
     fullRefreshTimeMs = 1800;
     partialRefreshTimeMs = 350;
+    touchSupported = true;
     if (!orientation.empty()) applyOrientation(orientation);
     else if (rotation != 0) applyRotation(rotation);
     return true;
@@ -45,6 +46,7 @@ bool SimConfig::setModel(const std::string& modelName) {
     supportsPartialRefresh = true;
     fullRefreshTimeMs = 3000;
     partialRefreshTimeMs = 450;
+    touchSupported = false;
     if (!orientation.empty()) applyOrientation(orientation);
     else if (rotation != 0) applyRotation(rotation);
     return true;
@@ -59,6 +61,7 @@ bool SimConfig::setModel(const std::string& modelName) {
     supportsPartialRefresh = false;
     fullRefreshTimeMs = 14000;
     partialRefreshTimeMs = 0;
+    touchSupported = false;
     if (!orientation.empty()) applyOrientation(orientation);
     else if (rotation != 0) applyRotation(rotation);
     return true;
@@ -73,6 +76,7 @@ bool SimConfig::setModel(const std::string& modelName) {
     supportsPartialRefresh = true;
     fullRefreshTimeMs = 1200;
     partialRefreshTimeMs = 180;
+    touchSupported = true;
     if (!orientation.empty()) applyOrientation(orientation);
     else if (rotation != 0) applyRotation(rotation);
     return true;
@@ -87,6 +91,7 @@ bool SimConfig::setModel(const std::string& modelName) {
     supportsPartialRefresh = false;
     fullRefreshTimeMs = 22000;
     partialRefreshTimeMs = 0;
+    touchSupported = false;
     if (!orientation.empty()) applyOrientation(orientation);
     else if (rotation != 0) applyRotation(rotation);
     return true;

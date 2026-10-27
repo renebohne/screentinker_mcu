@@ -18,6 +18,7 @@ extern "C" {
 #include "sht40_driver.h"
 #include "diag_logger.h"
 #include "ota_updater.h"
+#include "touch_driver.h"
 
 #include <WebServer.h>
 #include <DNSServer.h>
@@ -604,6 +605,9 @@ static uint32_t s_menuOpenMillis = 0;
 
 void showSystemMenu(int selectedIndex, bool fastPartial = false) {
   if (!s_rawBuffer || !s_rotatedBuffer) return;
+#if DEVICE_SUPPORTS_TOUCH
+  touch_wake();
+#endif
   int battPct = readBatteryPercent();
   bool charging = isBatteryCharging();
   bool usb = isUsbPowerConnected();
@@ -673,6 +677,10 @@ void enterDeepSleepWithWakeup(uint32_t sleepSeconds) {
     seeed_epaper_panel_sleep(s_panel);
   }
 
+#if DEVICE_SUPPORTS_TOUCH
+  touch_sleep();
+#endif
+
   // Release display power boost circuit
 #ifdef PIN_EPD_PWR_EN
   digitalWrite(PIN_EPD_PWR_EN, LOW);
@@ -703,6 +711,10 @@ void enterDeepSleepWithWakeup(uint32_t sleepSeconds) {
   // 2. Button Wakeup (OK, UP, DOWN on GPIO 4, 5, 6 - active LOW)
   uint64_t btn_mask = (1ULL << PIN_BTN_OK) | (1ULL << PIN_BTN_UP) | (1ULL << PIN_BTN_DOWN);
   esp_sleep_enable_ext1_wakeup(btn_mask, ESP_EXT1_WAKEUP_ANY_LOW);
+
+#if DEVICE_SUPPORTS_TOUCH
+  touch_sleep();
+#endif
 
   Serial.flush();
   esp_deep_sleep_start();
@@ -737,6 +749,10 @@ void powerOffDevice() {
   if (s_panel) {
     seeed_epaper_panel_sleep(s_panel);
   }
+
+#if DEVICE_SUPPORTS_TOUCH
+  touch_sleep();
+#endif
 
   // Release display power boost circuit
 #ifdef PIN_EPD_PWR_EN
@@ -1949,6 +1965,14 @@ void setup() {
   s_hasImu = false;
 #endif
 
+#if DEVICE_SUPPORTS_TOUCH
+  if (touch_init()) {
+    Serial.println("[Touch] Capacitive touch digitizer initialized.");
+  } else {
+    Serial.println("[Touch] Capacitive touch digitizer not detected.");
+  }
+#endif
+
   loadConfigFromNVS();
 
   if (s_hasImu && (s_orientationMode == ORIENT_MODE_AUTO || s_imuDebugScreen)) {
@@ -2048,6 +2072,112 @@ void setup() {
   }
 
   s_lastSyncMillis = millis();
+}
+
+static void executeMenuAction(int selection) {
+  s_menuOpenMillis = millis();
+  s_interactiveUntilMillis = millis() + 30000;
+  bool isConfigured = (g_wifiSsid.length() > 0 && g_wifiSsid != "Your-WiFi-SSID");
+  bool isPaired = (isConfigured && g_deviceId.length() > 0 && g_deviceToken.length() > 0 && g_deviceId != "your-device-uuid");
+  if (selection == 0) {
+    // 0: Status & Info
+    s_inSystemMenu = false;
+    s_inStatusScreen = true;
+    showStatusInfoScreen();
+  } else if (selection == 1) {
+    // 1: Orientation Mode Cycle
+    if (s_hasImu) {
+      s_orientationMode = (OrientationMode)(((int)s_orientationMode + 1) % 3);
+    } else {
+      s_orientationMode = (s_orientationMode == ORIENT_MODE_LANDSCAPE) ? ORIENT_MODE_PORTRAIT : ORIENT_MODE_LANDSCAPE;
+    }
+    s_prefs.begin("screentinker", false);
+    s_prefs.putUChar("orient_mode", (uint8_t)s_orientationMode);
+    s_prefs.end();
+    rtc_consecutivePartialCount = 0;
+
+    if (s_orientationMode == ORIENT_MODE_LANDSCAPE) {
+      s_activeOrientation = ORIENTATION_LANDSCAPE_0;
+    } else if (s_orientationMode == ORIENT_MODE_PORTRAIT) {
+      s_activeOrientation = ORIENTATION_PORTRAIT_90;
+    } else if (s_orientationMode == ORIENT_MODE_AUTO && s_hasImu) {
+      int detected = imu_detect_orientation(s_activeOrientation);
+      if (detected >= 0) s_activeOrientation = detected;
+    }
+
+    Serial.printf("\n>>> [SystemMenu] Orientation mode changed to: %d (%s)!\n",
+                  (int)s_orientationMode,
+                  (s_orientationMode == ORIENT_MODE_AUTO) ? "Auto (IMU)" : (s_orientationMode == ORIENT_MODE_PORTRAIT) ? "Portrait" : "Landscape");
+    showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
+  } else if (selection == 2) {
+    // 2: Wi-Fi TX Power Toggle (MAX -> MED -> LOW -> MAX)
+    s_wifiTxPowerLevel = (s_wifiTxPowerLevel + 1) % 3;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putUChar("wifi_tx_pwr", s_wifiTxPowerLevel);
+    s_prefs.end();
+    wifi_power_t pwrEnum = (s_wifiTxPowerLevel == 1) ? WIFI_POWER_15dBm :
+                           (s_wifiTxPowerLevel == 2) ? WIFI_POWER_11dBm : WIFI_POWER_19_5dBm;
+    WiFi.setTxPower(pwrEnum);
+    Serial.printf("\n>>> [SystemMenu] Wi-Fi TX Power switched to level %d (%s)!\n",
+                  s_wifiTxPowerLevel, (s_wifiTxPowerLevel == 1) ? "15 dBm" : (s_wifiTxPowerLevel == 2) ? "11 dBm" : "19.5 dBm");
+    showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
+  } else if (selection == 3) {
+    // 3: Refresh Mode Toggle (Smart Partial [6:1] <-> Always Full)
+    if (DEVICE_SUPPORTS_PARTIAL_REFRESH) {
+      s_refreshMode = (s_refreshMode == REFRESH_MODE_SMART_PARTIAL) ? REFRESH_MODE_ALWAYS_FULL : REFRESH_MODE_SMART_PARTIAL;
+      s_prefs.begin("screentinker", false);
+      s_prefs.putUChar("refresh_mode", s_refreshMode);
+      s_prefs.end();
+      rtc_consecutivePartialCount = 0;
+      Serial.printf("\n>>> [SystemMenu] Refresh Mode changed to: %s\n",
+                    (s_refreshMode == REFRESH_MODE_SMART_PARTIAL) ? "Smart Partial [6:1]" : "Always Full");
+    } else {
+      Serial.println("\n>>> [SystemMenu] This device target only supports Full Refresh (Spectra 6).");
+    }
+    showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
+  } else if (selection == 4) {
+    // 4: Language Toggle (EN <-> DE)
+    s_currentLang = (s_currentLang == LANG_EN) ? LANG_DE : LANG_EN;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putUChar("lang", (uint8_t)s_currentLang);
+    s_prefs.end();
+    Serial.printf("\n>>> [SystemMenu] Language changed to: %s\n", (s_currentLang == LANG_DE) ? "DE" : "EN");
+    showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
+  } else if (selection == 5) {
+    // 5: Gerät entkoppeln (Unpair)
+    s_inSystemMenu = false;
+#if DEVICE_SUPPORTS_TOUCH
+    touch_sleep();
+#endif
+    Serial.println("[SystemMenu] Unpairing device and generating new pairing code...");
+    saveConfigToNVS(g_wifiSsid, g_wifiPass, g_serverUrl, "", "");
+    registerAndStartPairing();
+  } else if (selection == 6) {
+    // 6: Ausschalten / Standby
+#if DEVICE_SUPPORTS_TOUCH
+    touch_sleep();
+#endif
+    powerOffDevice();
+  } else if (selection == 7) {
+    // 7: Factory Reset
+    s_inSystemMenu = false;
+#if DEVICE_SUPPORTS_TOUCH
+    touch_sleep();
+#endif
+    factoryResetNVS();
+  } else if (selection == 8) {
+    // 8: Zurück / Schließen -> Deep Sleep
+    s_inSystemMenu = false;
+    s_inInteractiveMode = false;
+#if DEVICE_SUPPORTS_TOUCH
+    touch_sleep();
+#endif
+    redrawCurrentState();
+    if (isConfigured && isPaired) {
+      uint32_t baseSec = max((uint32_t)10, (uint32_t)(s_syncIntervalMs / 1000));
+      scheduleNextSync(baseSec);
+    }
+  }
 }
 
 void loop() {
@@ -2204,94 +2334,7 @@ void loop() {
         } else if (s_inSystemMenu) {
           // Inside System Menu: Execute selection!
           Serial.printf("\n>>> [SystemMenu] Selection %d confirmed!\n", s_menuSelection);
-          s_menuOpenMillis = millis();
-          if (s_menuSelection == 0) {
-            // 0: Status & Info
-            s_inSystemMenu = false;
-            s_inStatusScreen = true;
-            showStatusInfoScreen();
-          } else if (s_menuSelection == 1) {
-            // 1: Orientation Mode Cycle
-            if (s_hasImu) {
-              s_orientationMode = (OrientationMode)(((int)s_orientationMode + 1) % 3);
-            } else {
-              s_orientationMode = (s_orientationMode == ORIENT_MODE_LANDSCAPE) ? ORIENT_MODE_PORTRAIT : ORIENT_MODE_LANDSCAPE;
-            }
-            s_prefs.begin("screentinker", false);
-            s_prefs.putUChar("orient_mode", (uint8_t)s_orientationMode);
-            s_prefs.end();
-            rtc_consecutivePartialCount = 0;
-
-            if (s_orientationMode == ORIENT_MODE_LANDSCAPE) {
-              s_activeOrientation = ORIENTATION_LANDSCAPE_0;
-            } else if (s_orientationMode == ORIENT_MODE_PORTRAIT) {
-              s_activeOrientation = ORIENTATION_PORTRAIT_90;
-            } else if (s_orientationMode == ORIENT_MODE_AUTO && s_hasImu) {
-              int detected = imu_detect_orientation(s_activeOrientation);
-              if (detected >= 0) s_activeOrientation = detected;
-            }
-
-            Serial.printf("\n>>> [SystemMenu] Orientation mode changed to: %d (%s)!\n",
-                          (int)s_orientationMode,
-                          (s_orientationMode == ORIENT_MODE_AUTO) ? "Auto (IMU)" : (s_orientationMode == ORIENT_MODE_PORTRAIT) ? "Portrait" : "Landscape");
-            showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
-          } else if (s_menuSelection == 2) {
-            // 2: Wi-Fi TX Power Toggle (MAX -> MED -> LOW -> MAX)
-            s_wifiTxPowerLevel = (s_wifiTxPowerLevel + 1) % 3;
-            s_prefs.begin("screentinker", false);
-            s_prefs.putUChar("wifi_tx_pwr", s_wifiTxPowerLevel);
-            s_prefs.end();
-            wifi_power_t pwrEnum = (s_wifiTxPowerLevel == 1) ? WIFI_POWER_15dBm :
-                                   (s_wifiTxPowerLevel == 2) ? WIFI_POWER_11dBm : WIFI_POWER_19_5dBm;
-            WiFi.setTxPower(pwrEnum);
-            Serial.printf("\n>>> [SystemMenu] Wi-Fi TX Power switched to level %d (%s)!\n",
-                          s_wifiTxPowerLevel, (s_wifiTxPowerLevel == 1) ? "15 dBm" : (s_wifiTxPowerLevel == 2) ? "11 dBm" : "19.5 dBm");
-            showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
-          } else if (s_menuSelection == 3) {
-            // 3: Refresh Mode Toggle (Smart Partial [6:1] <-> Always Full)
-            if (DEVICE_SUPPORTS_PARTIAL_REFRESH) {
-              s_refreshMode = (s_refreshMode == REFRESH_MODE_SMART_PARTIAL) ? REFRESH_MODE_ALWAYS_FULL : REFRESH_MODE_SMART_PARTIAL;
-              s_prefs.begin("screentinker", false);
-              s_prefs.putUChar("refresh_mode", s_refreshMode);
-              s_prefs.end();
-              rtc_consecutivePartialCount = 0;
-              Serial.printf("\n>>> [SystemMenu] Refresh Mode changed to: %s\n",
-                            (s_refreshMode == REFRESH_MODE_SMART_PARTIAL) ? "Smart Partial [6:1]" : "Always Full");
-            } else {
-              Serial.println("\n>>> [SystemMenu] This device target only supports Full Refresh (Spectra 6).");
-            }
-            showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
-          } else if (s_menuSelection == 4) {
-            // 4: Language Toggle (EN <-> DE)
-            s_currentLang = (s_currentLang == LANG_EN) ? LANG_DE : LANG_EN;
-            s_prefs.begin("screentinker", false);
-            s_prefs.putUChar("lang", (uint8_t)s_currentLang);
-            s_prefs.end();
-            Serial.printf("\n>>> [SystemMenu] Language changed to: %s\n", (s_currentLang == LANG_DE) ? "DE" : "EN");
-            showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
-          } else if (s_menuSelection == 5) {
-            // 5: Gerät entkoppeln (Unpair)
-            s_inSystemMenu = false;
-            Serial.println("[SystemMenu] Unpairing device and generating new pairing code...");
-            saveConfigToNVS(g_wifiSsid, g_wifiPass, g_serverUrl, "", "");
-            registerAndStartPairing();
-          } else if (s_menuSelection == 6) {
-            // 6: Ausschalten / Standby
-            powerOffDevice();
-          } else if (s_menuSelection == 7) {
-            // 7: Factory Reset
-            s_inSystemMenu = false;
-            factoryResetNVS();
-          } else if (s_menuSelection == 8) {
-            // 8: Zurück / Schließen -> Deep Sleep
-            s_inSystemMenu = false;
-            s_inInteractiveMode = false;
-            redrawCurrentState();
-            if (isConfigured && isPaired) {
-              uint32_t baseSec = max((uint32_t)10, (uint32_t)(s_syncIntervalMs / 1000));
-              scheduleNextSync(baseSec);
-            }
-          }
+          executeMenuAction(s_menuSelection);
         } else {
           // Outside Menu: Normal Short Press -> Open menu or refresh
           if (!isConfigured) {
@@ -2318,12 +2361,59 @@ void loop() {
     s_inInteractiveMode = false;
     s_inSystemMenu = false;
     s_inStatusScreen = false;
+#if DEVICE_SUPPORTS_TOUCH
+    touch_sleep();
+#endif
     redrawCurrentState();
     if (isConfigured && isPaired) {
       uint32_t baseSec = max((uint32_t)10, (uint32_t)(s_syncIntervalMs / 1000));
       scheduleNextSync(baseSec);
     }
   }
+
+#if DEVICE_SUPPORTS_TOUCH
+  // Capacitive Touch Digitizer Handling (Sticky & E1003)
+  if (s_inSystemMenu || s_inStatusScreen || (isUsbPowerConnected() && isConfigured && isPaired)) {
+    touch_point_t tp;
+    if (touch_read(&tp)) {
+      static bool s_touchWasPressed = false;
+      static uint32_t s_lastTouchActionMillis = 0;
+
+      if (tp.pressed && !s_touchWasPressed && (millis() - s_lastTouchActionMillis > 250)) {
+        s_touchWasPressed = true;
+        s_lastTouchActionMillis = millis();
+
+        if (s_inStatusScreen) {
+          Serial.printf("\n>>> [Touch] Status Screen tapped at (%d, %d) -> Returning to System Menu\n", tp.x, tp.y);
+          s_inStatusScreen = false;
+          s_inSystemMenu = true;
+          s_menuOpenMillis = millis();
+          s_interactiveUntilMillis = millis() + 30000;
+          showSystemMenu(s_menuSelection, false);
+        } else if (s_inSystemMenu) {
+          int hit = touch_hit_test_menu(tp.x, tp.y, EPD_WIDTH, EPD_HEIGHT);
+          if (hit >= 0 && hit < 9) {
+            Serial.printf("\n>>> [Touch] Menu item %d tapped at (%d, %d)!\n", hit, tp.x, tp.y);
+            s_menuSelection = hit;
+            executeMenuAction(s_menuSelection);
+          }
+        } else if (!s_inSystemMenu && !s_inStatusScreen) {
+          // Tap on screen while displaying slide on mains power -> open system menu
+          Serial.printf("\n>>> [Touch] Screen tapped at (%d, %d) -> Opening System Menu!\n", tp.x, tp.y);
+          s_inInteractiveMode = true;
+          s_interactiveUntilMillis = millis() + 30000;
+          s_inSystemMenu = true;
+          s_inStatusScreen = false;
+          s_menuSelection = 0;
+          s_menuOpenMillis = millis();
+          showSystemMenu(s_menuSelection, false);
+        }
+      } else if (!tp.pressed) {
+        s_touchWasPressed = false;
+      }
+    }
+  }
+#endif
 
   // UP Button (GPIO 5)
   if (digitalRead(PIN_BTN_UP) == LOW && millis() - lastBtnUp > 200) {

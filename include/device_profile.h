@@ -16,6 +16,7 @@
 #define TOUCH_NONE             0
 #define TOUCH_FT6336U          1
 #define TOUCH_GT911            2
+#define TOUCH_AUTO             3
 
 #if defined(DEVICE_RETERMINAL_E1001)
   #include "pins_e1001.h"
@@ -108,7 +109,7 @@
   #define DEVICE_FULL_REFRESH_TIME_MS      1800
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   350
   #define DEVICE_SUPPORTS_TOUCH            true
-  #define DEVICE_TOUCH_CONTROLLER          TOUCH_FT6336U
+  #define DEVICE_TOUCH_CONTROLLER          TOUCH_GT911
   #define DEVICE_SUPPORTS_IMU              true
 #endif
 

@@ -42,6 +42,7 @@ struct SimConfig {
   bool supportsPartialRefresh = true;
   int fullRefreshTimeMs = 1800;
   int partialRefreshTimeMs = 350;
+  bool touchSupported = true;
 
   // Sensirion SHT40 Temperature & Humidity Telemetry
   bool hasSht40 = true;

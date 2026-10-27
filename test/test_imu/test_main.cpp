@@ -4,6 +4,7 @@
 #include <vector>
 #include "imu_driver.h"
 #include "setup_screen.h"
+#include "touch_driver.h"
 
 void test_imu_orientation_detection() {
   std::cout << "[Test] Running IMU orientation detection tests...\n";
@@ -574,6 +575,78 @@ void test_gray4_buffer_rotation() {
   std::cout << "  ✓ All Gray4 buffer rotation tests passed!\n";
 }
 
+void test_touch_hit_testing() {
+  std::cout << "[Test] Running Capacitive Touch hit-testing tests (Sticky & E1003)...\n";
+
+  const int W = 800;
+  const int H = 480;
+
+  // 1. Out of bounds checks
+  assert(touch_hit_test_menu(-1, 100, W, H) == -1);
+  assert(touch_hit_test_menu(100, -5, W, H) == -1);
+  assert(touch_hit_test_menu(800, 100, W, H) == -1);
+  assert(touch_hit_test_menu(100, 480, W, H) == -1);
+
+  // 2. Margins & Header
+  assert(touch_hit_test_menu(400, 20, W, H) == -1);  // In top header banner
+  assert(touch_hit_test_menu(10, 70, W, H) == -1);   // Left margin (< 30)
+  assert(touch_hit_test_menu(780, 70, W, H) == -1);  // Right margin (> 770)
+
+  // 3. Row tests (x = 400)
+  // Row 0: Status & Info (y = 58..93)
+  assert(touch_hit_test_menu(400, 58, W, H) == 0);
+  assert(touch_hit_test_menu(400, 75, W, H) == 0);
+  assert(touch_hit_test_menu(400, 93, W, H) == 0);
+
+  // Gap between row 0 and row 1 (y = 94..97)
+  assert(touch_hit_test_menu(400, 95, W, H) == -1);
+
+  // Row 1: Orientation (y = 98..133)
+  assert(touch_hit_test_menu(400, 98, W, H) == 1);
+  assert(touch_hit_test_menu(400, 133, W, H) == 1);
+
+  // Row 2: Wi-Fi Power (y = 138..173)
+  assert(touch_hit_test_menu(400, 138, W, H) == 2);
+  assert(touch_hit_test_menu(400, 173, W, H) == 2);
+
+  // Row 3: Refresh Mode (y = 178..213)
+  assert(touch_hit_test_menu(400, 178, W, H) == 3);
+  assert(touch_hit_test_menu(400, 213, W, H) == 3);
+
+  // Row 4: Language (y = 218..253)
+  assert(touch_hit_test_menu(400, 218, W, H) == 4);
+  assert(touch_hit_test_menu(400, 253, W, H) == 4);
+
+  // Row 5: Unpair (y = 258..293)
+  assert(touch_hit_test_menu(400, 258, W, H) == 5);
+  assert(touch_hit_test_menu(400, 293, W, H) == 5);
+
+  // Row 6: Power Off (y = 298..333)
+  assert(touch_hit_test_menu(400, 298, W, H) == 6);
+  assert(touch_hit_test_menu(400, 333, W, H) == 6);
+
+  // Row 7: Factory Reset (y = 338..373)
+  assert(touch_hit_test_menu(400, 338, W, H) == 7);
+  assert(touch_hit_test_menu(400, 373, W, H) == 7);
+
+  // Row 8: Back / Close (y = 378..413)
+  assert(touch_hit_test_menu(400, 378, W, H) == 8);
+  assert(touch_hit_test_menu(400, 413, W, H) == 8);
+
+  // 4. Footer Banner (y >= 480 - 56 = 424) -> triggers Back / Close
+  assert(touch_hit_test_menu(400, 425, W, H) == 8);
+  assert(touch_hit_test_menu(100, 450, W, H) == 8);
+
+  // 5. Status Screen hit-test
+  assert(touch_hit_test_status(200, 300, W, H) == true);
+  assert(touch_hit_test_status(0, 0, W, H) == true);
+  assert(touch_hit_test_status(799, 479, W, H) == true);
+  assert(touch_hit_test_status(-1, 100, W, H) == false);
+  assert(touch_hit_test_status(100, 480, W, H) == false);
+
+  std::cout << "  ✓ All Capacitive Touch hit-testing tests passed!\n";
+}
+
 int main() {
   std::cout << "==========================================\n";
   std::cout << " ScreenTinker Native Unit Tests (#8, #9, #21, #22)\n";
@@ -589,6 +662,7 @@ int main() {
   test_imu_debug_screen();
   test_portrait_buffer_rotation();
   test_gray4_buffer_rotation();
+  test_touch_hit_testing();
 
   std::cout << "\n✅ ALL UNIT TESTS PASSED SUCCESSFULLY!\n";
   return 0;

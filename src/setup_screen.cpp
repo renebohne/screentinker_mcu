@@ -1318,12 +1318,77 @@ void rotate_nibble_portrait(const uint8_t *src, uint8_t *dst, uint16_t src_w, ui
   }
 }
 
+void rotate_gray4_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height) {
+  if (!source || !destination) return;
+  const size_t stride = (width + 3) / 4U;
+  for (uint16_t y = 0; y < height; ++y) {
+    const size_t src_row = y * stride;
+    const size_t dst_row = (height - 1U - y) * stride;
+    for (size_t x = 0; x < stride; ++x) {
+      uint8_t b = source[src_row + (stride - 1U - x)];
+      b = ((b & 0x03) << 6) | ((b & 0x0C) << 2) | ((b & 0x30) >> 2) | ((b & 0xC0) >> 6);
+      destination[dst_row + x] = b;
+    }
+  }
+}
+
+void rotate_gray4_portrait(const uint8_t *src, uint8_t *dst, uint16_t src_w, uint16_t src_h, bool flip) {
+  if (!src || !dst) return;
+  const size_t src_stride = (src_w + 3) / 4U;
+  const size_t dst_stride = (src_h + 3) / 4U;
+  memset(dst, 0xFF, dst_stride * src_w);
+
+  for (uint16_t sy = 0; sy < src_h; ++sy) {
+    const size_t src_row = sy * src_stride;
+    for (uint16_t sx = 0; sx < src_w; ++sx) {
+      uint8_t src_byte = src[src_row + (sx >> 2)];
+      uint8_t shift = 6U - ((sx & 3U) * 2U);
+      uint8_t val = (src_byte >> shift) & 0x03U;
+
+      uint16_t dx, dy;
+      if (!flip) {
+        dx = (src_h - 1U) - sy;
+        dy = sx;
+      } else {
+        dx = sy;
+        dy = (src_w - 1U) - sx;
+      }
+
+      uint8_t dst_shift = 6U - ((dx & 3U) * 2U);
+      size_t dst_idx = dy * dst_stride + (dx >> 2);
+      dst[dst_idx] = (dst[dst_idx] & ~(0x03U << dst_shift)) | (val << dst_shift);
+    }
+  }
+}
+
 void rotate_buffer_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height) {
 #if (DEVICE_COLOR_MODE == COLOR_MODE_SPECTRA6) || (DEVICE_COLOR_MODE == COLOR_MODE_GRAY16)
   rotate_nibble_180(source, destination, width, height);
+#elif (DEVICE_COLOR_MODE == COLOR_MODE_GRAY4)
+  rotate_gray4_180(source, destination, width, height);
 #else
   rotate_mono_180(source, destination, width, height);
 #endif
+}
+
+void rotate_buffer_180_mode(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height, uint8_t colorMode) {
+  if (colorMode == COLOR_MODE_GRAY4) {
+    rotate_gray4_180(source, destination, width, height);
+  } else if (colorMode == COLOR_MODE_SPECTRA6 || colorMode == COLOR_MODE_GRAY16) {
+    rotate_nibble_180(source, destination, width, height);
+  } else {
+    rotate_mono_180(source, destination, width, height);
+  }
+}
+
+void rotate_buffer_portrait_mode(const uint8_t *src, uint8_t *dst, uint16_t src_w, uint16_t src_h, bool flip, uint8_t colorMode) {
+  if (colorMode == COLOR_MODE_GRAY4) {
+    rotate_gray4_portrait(src, dst, src_w, src_h, flip);
+  } else if (colorMode == COLOR_MODE_SPECTRA6 || colorMode == COLOR_MODE_GRAY16) {
+    rotate_nibble_portrait(src, dst, src_w, src_h, flip);
+  } else {
+    rotate_mono_portrait(src, dst, src_w, src_h, flip);
+  }
 }
 
 

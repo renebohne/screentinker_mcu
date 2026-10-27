@@ -519,6 +519,61 @@ void test_portrait_buffer_rotation() {
   std::cout << "  ✓ All portrait buffer rotation tests passed!\n";
 }
 
+static inline uint8_t test_get_gray4_pixel(const uint8_t* buf, uint16_t x, uint16_t y, uint16_t w) {
+  size_t stride = (w + 3) / 4;
+  uint8_t byte = buf[y * stride + (x >> 2)];
+  uint8_t shift = 6 - (x & 3) * 2;
+  return (byte >> shift) & 0x03;
+}
+
+static inline void test_set_gray4_pixel(uint8_t* buf, uint16_t x, uint16_t y, uint16_t w, uint8_t val) {
+  size_t stride = (w + 3) / 4;
+  size_t idx = y * stride + (x >> 2);
+  uint8_t shift = 6 - (x & 3) * 2;
+  buf[idx] = (buf[idx] & ~(0x03 << shift)) | ((val & 0x03) << shift);
+}
+
+void test_gray4_buffer_rotation() {
+  std::cout << "[Test] Running Gray4 (2bpp) buffer rotation tests...\n";
+
+  // 1. Single byte test: pixels [0, 1, 2, 3] = [0b00, 0b01, 0b10, 0b11] -> 0x1B
+  uint8_t single_byte = 0x1B; // 00 01 10 11
+  uint8_t single_dst = 0x00;
+  rotate_gray4_180(&single_byte, &single_dst, 4, 1);
+  // Reversal: [3, 2, 1, 0] = [0b11, 0b10, 0b01, 0b00] = 0xE4
+  assert(single_dst == 0xE4);
+
+  // 2. Full 800x480 Gray4 rotation symmetry (180° applied twice restores image)
+  uint16_t w = 800, h = 480;
+  size_t buf_size = (w * h) / 4;
+  assert(buf_size == 96000);
+
+  std::vector<uint8_t> src(buf_size, 0x00);
+  for (size_t i = 0; i < buf_size; i++) {
+    src[i] = (uint8_t)(i & 0xFF);
+  }
+
+  std::vector<uint8_t> dst1(buf_size, 0x00);
+  std::vector<uint8_t> dst2(buf_size, 0x00);
+
+  rotate_gray4_180(src.data(), dst1.data(), w, h);
+  rotate_gray4_180(dst1.data(), dst2.data(), w, h);
+  assert(memcmp(src.data(), dst2.data(), buf_size) == 0);
+
+  // 3. Portrait 90° rotation test
+  uint16_t src_w = 480, src_h = 800;
+  std::vector<uint8_t> p_src(buf_size, 0xFF);
+  test_set_gray4_pixel(p_src.data(), 10, 20, src_w, 0x02); // Light Gray at (10, 20)
+  assert(test_get_gray4_pixel(p_src.data(), 10, 20, src_w) == 0x02);
+
+  std::vector<uint8_t> p_dst_90(buf_size, 0xFF);
+  rotate_gray4_portrait(p_src.data(), p_dst_90.data(), src_w, src_h, false);
+  // In 90° rotation: dx = (src_h - 1) - sy = 799 - 20 = 779; dy = sx = 10
+  assert(test_get_gray4_pixel(p_dst_90.data(), 779, 10, src_h) == 0x02);
+
+  std::cout << "  ✓ All Gray4 buffer rotation tests passed!\n";
+}
+
 int main() {
   std::cout << "==========================================\n";
   std::cout << " ScreenTinker Native Unit Tests (#8, #9, #21, #22)\n";
@@ -533,6 +588,7 @@ int main() {
   test_ota_updater();
   test_imu_debug_screen();
   test_portrait_buffer_rotation();
+  test_gray4_buffer_rotation();
 
   std::cout << "\n✅ ALL UNIT TESTS PASSED SUCCESSFULLY!\n";
   return 0;

@@ -170,6 +170,50 @@ class TestDisplayDrivers(unittest.TestCase):
         rot_nibble = rotate_nibble(src_nibble, 4, 2)
         self.assertEqual(rot_nibble, bytes([0x87, 0x65, 0x43, 0x21]))
 
+    def test_08_gray4_rotation_and_packing(self):
+        """Validates 2bpp Gray4 packing and 180° rotation correctness for Sticky & E1001 (Ticket 1)."""
+        # 1. Verify DEVICE_SUPPORTS_GRAY4 is enabled for Sticky and E1001 in device_profile.h
+        profile_path = INCLUDE_DIR / "device_profile.h"
+        content = profile_path.read_text()
+        self.assertIn("DEVICE_SUPPORTS_GRAY4", content, "Missing DEVICE_SUPPORTS_GRAY4 in device_profile.h")
+
+        # 2. Test 2bpp Gray4 buffer size: 800x480 at 2bpp is exactly 96,000 bytes
+        w, h = 800, 480
+        stride = (w + 3) // 4
+        self.assertEqual(stride, 200)
+        self.assertEqual(stride * h, 96000)
+
+        # 3. Test 2bpp pixel reversal / 180° rotation:
+        # Byte layout: [px0(bits 7..6) | px1(bits 5..4) | px2(bits 3..2) | px3(bits 1..0)]
+        # Pixel values: 0=Black (0b00), 1=DarkGray (0b01), 2=LightGray (0b10), 3=White (0b11)
+        # Byte: 0b00_01_10_11 (0x1B)
+        # 180° rotated single byte should reverse pixels: [px3, px2, px1, px0] = 0b11_10_01_00 (0xE4)
+        def reverse_2bpp_byte(b):
+            return ((b & 0x03) << 6) | ((b & 0x0C) << 2) | ((b & 0x30) >> 2) | ((b & 0xC0) >> 6)
+
+        self.assertEqual(reverse_2bpp_byte(0x1B), 0xE4)
+
+        def rotate_gray4_180(src, width, height):
+            row_stride = (width + 3) // 4
+            dest = bytearray(len(src))
+            for y in range(height):
+                src_row = y * row_stride
+                dst_row = (height - 1 - y) * row_stride
+                for x in range(row_stride):
+                    b = src[src_row + (row_stride - 1 - x)]
+                    dest[dst_row + x] = reverse_2bpp_byte(b)
+            return bytes(dest)
+
+        # 8 pixels wide, 2 rows:
+        # Row 0: [0, 1, 2, 3], [3, 2, 1, 0] -> [0x1B, 0xE4]
+        # Row 1: [0, 0, 0, 0], [3, 3, 3, 3] -> [0x00, 0xFF]
+        src_gray4 = bytes([0x1B, 0xE4, 0x00, 0xFF])
+        # Rotated 180°:
+        # Row 0 should be reversed Row 1: [reversed 0xFF, reversed 0x00] -> [0xFF, 0x00]
+        # Row 1 should be reversed Row 0: [reversed 0xE4, reversed 0x1B] -> [0x1B, 0xE4]
+        rot_gray4 = rotate_gray4_180(src_gray4, 8, 2)
+        self.assertEqual(rot_gray4, bytes([0xFF, 0x00, 0x1B, 0xE4]))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

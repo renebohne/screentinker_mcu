@@ -328,6 +328,19 @@ SimConfig SimConfig::load(int argc, char** argv) {
       cfg.maxCycles = 1;
     } else if (arg == "--cycles" && i + 1 < argc) {
       cfg.maxCycles = std::atoi(argv[++i]);
+    } else if ((arg == "--color-mode" || arg == "--color") && i + 1 < argc) {
+      std::string modeStr = argv[++i];
+      if (modeStr == "gray4" || modeStr == "2bpp") {
+        cfg.colorMode = SIM_COLOR_GRAY4;
+      } else if (modeStr == "gray16" || modeStr == "4bpp") {
+        cfg.colorMode = SIM_COLOR_GRAY16;
+      } else if (modeStr == "spectra6" || modeStr == "color") {
+        cfg.colorMode = SIM_COLOR_SPECTRA6;
+      } else if (modeStr == "mono" || modeStr == "1bpp") {
+        cfg.colorMode = SIM_COLOR_1BPP_MONO;
+      }
+    } else if (arg == "--gray4") {
+      cfg.colorMode = SIM_COLOR_GRAY4;
     } else if (arg == "--help" || arg == "-h") {
       std::cout << "ScreenTinker MCU Host Simulator (" << PLATFORM_OS << ")\n"
                 << "Usage: ./screentinker_sim [options]\n\n"
@@ -341,6 +354,8 @@ SimConfig SimConfig::load(int argc, char** argv) {
                 << "  -r, --rotate <deg>       Rotation: 0, 90, 180, 270 degrees\n"
                 << "      --portrait           Shortcut for --orientation portrait\n"
                 << "      --landscape          Shortcut for --orientation landscape\n"
+                << "      --color-mode <mode>  Color mode: mono, gray4, gray16, spectra6\n"
+                << "      --gray4              Shortcut for --color-mode gray4 (2bpp)\n"
                 << "  --mock-temp <degC>       Simulated ambient temperature (default: 21.5)\n"
                 << "  --mock-humidity <pct>    Simulated relative humidity (default: 45.0)\n"
                 << "  --no-sht40               Disable simulated SHT40 sensor telemetry\n"

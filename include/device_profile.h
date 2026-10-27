@@ -26,8 +26,9 @@
   #define DEVICE_DISPLAY_HEIGHT            480
   #define DEVICE_COLOR_MODE                COLOR_MODE_1BPP_MONO
   #define DEVICE_PANEL_MODEL               SEEED_EPAPER_PANEL_UC8179
-  #define DEVICE_BUFFER_SIZE               48000
+  #define DEVICE_BUFFER_SIZE               96000
   #define DEVICE_SUPPORTS_PARTIAL_REFRESH  true
+  #define DEVICE_SUPPORTS_GRAY4            true
   #define DEVICE_FULL_REFRESH_TIME_MS      3000
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   350
   #define DEVICE_SUPPORTS_TOUCH            false
@@ -45,6 +46,7 @@
   #define DEVICE_PANEL_MODEL               SEEED_EPAPER_PANEL_ED2208
   #define DEVICE_BUFFER_SIZE               192000
   #define DEVICE_SUPPORTS_PARTIAL_REFRESH  false
+  #define DEVICE_SUPPORTS_GRAY4            false
   #define DEVICE_FULL_REFRESH_TIME_MS      14000
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   0
   #define DEVICE_SUPPORTS_TOUCH            false
@@ -62,6 +64,7 @@
   #define DEVICE_PANEL_MODEL               SEEED_EPAPER_PANEL_IT8951
   #define DEVICE_BUFFER_SIZE               1314144
   #define DEVICE_SUPPORTS_PARTIAL_REFRESH  true
+  #define DEVICE_SUPPORTS_GRAY4            false
   #define DEVICE_FULL_REFRESH_TIME_MS      1200
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   180
   #define DEVICE_SUPPORTS_TOUCH            true
@@ -79,6 +82,7 @@
   #define DEVICE_PANEL_MODEL               SEEED_EPAPER_PANEL_T133A01
   #define DEVICE_BUFFER_SIZE               960000
   #define DEVICE_SUPPORTS_PARTIAL_REFRESH  false
+  #define DEVICE_SUPPORTS_GRAY4            false
   #define DEVICE_FULL_REFRESH_TIME_MS      22000
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   0
   #define DEVICE_SUPPORTS_TOUCH            false
@@ -98,8 +102,9 @@
   #define DEVICE_DISPLAY_HEIGHT            480
   #define DEVICE_COLOR_MODE                COLOR_MODE_1BPP_MONO
   #define DEVICE_PANEL_MODEL               SEEED_EPAPER_PANEL_SSD1677
-  #define DEVICE_BUFFER_SIZE               48000
+  #define DEVICE_BUFFER_SIZE               96000
   #define DEVICE_SUPPORTS_PARTIAL_REFRESH  true
+  #define DEVICE_SUPPORTS_GRAY4            true
   #define DEVICE_FULL_REFRESH_TIME_MS      1800
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   350
   #define DEVICE_SUPPORTS_TOUCH            true

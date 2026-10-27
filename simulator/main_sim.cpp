@@ -342,6 +342,25 @@ int main(int argc, char** argv) {
       std::string etag = res.getHeader("etag");
       if (!etag.empty()) lastEtag = etag;
 
+      std::string cModeHdr = res.getHeader("x-st-color-mode");
+      if ((cModeHdr == "gray4" || cModeHdr == "2bpp" || res.body.size() == ((size_t)cfg.width * cfg.height) / 4)
+          && (cfg.model == "sticky" || cfg.model == "e1001")) {
+        if (cfg.colorMode != SIM_COLOR_GRAY4) {
+          std::cout << "[Sync] Detected 2bpp Gray4 payload (" << res.body.size() << " bytes). Updating display mode to Gray4.\n";
+          cfg.colorMode = SIM_COLOR_GRAY4;
+          display.setColorMode(SIM_COLOR_GRAY4);
+          frameBuffer.resize(cfg.bufferSize(), 0xFF);
+        }
+      } else if ((cModeHdr == "mono" || cModeHdr == "1bpp" || res.body.size() == ((size_t)cfg.width * cfg.height) / 8)
+                 && (cfg.model == "sticky" || cfg.model == "e1001")) {
+        if (cfg.colorMode != SIM_COLOR_1BPP_MONO) {
+          std::cout << "[Sync] Detected 1bpp Mono payload (" << res.body.size() << " bytes). Updating display mode to Mono.\n";
+          cfg.colorMode = SIM_COLOR_1BPP_MONO;
+          display.setColorMode(SIM_COLOR_1BPP_MONO);
+          frameBuffer.resize(cfg.bufferSize(), 0xFF);
+        }
+      }
+
       if (res.body.size() == cfg.bufferSize()) {
         std::memcpy(frameBuffer.data(), res.body.data(), cfg.bufferSize());
         if (cfg.batteryPercent >= 0 && cfg.batteryPercent < 10 && !cfg.isCharging && cfg.powerSource != "usb") {

@@ -18,6 +18,7 @@ public:
   bool pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerToggled, bool& rotateRequested);
   bool pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerToggled, bool& rotateRequested, bool& forceFullRequested);
   void updateDimensions(int width, int height);
+  void setColorMode(SimColorMode mode) { m_colorMode = mode; }
 
   int width() const { return m_width; }
   int height() const { return m_height; }

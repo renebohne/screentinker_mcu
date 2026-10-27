@@ -59,10 +59,14 @@ void gfx_draw_low_battery_icon_native(uint8_t* buffer, int width, int height, in
 
 // ─── Display Buffer Rotation Algorithms ──────────────────────────────────────
 void rotate_mono_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height);
+void rotate_gray4_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height);
 void rotate_nibble_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height);
 void rotate_mono_portrait(const uint8_t *src, uint8_t *dst, uint16_t src_w, uint16_t src_h, bool flip = false);
+void rotate_gray4_portrait(const uint8_t *src, uint8_t *dst, uint16_t src_w, uint16_t src_h, bool flip = false);
 void rotate_nibble_portrait(const uint8_t *src, uint8_t *dst, uint16_t src_w, uint16_t src_h, bool flip = false);
 void rotate_buffer_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height);
+void rotate_buffer_180_mode(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height, uint8_t colorMode);
+void rotate_buffer_portrait_mode(const uint8_t *src, uint8_t *dst, uint16_t src_w, uint16_t src_h, bool flip, uint8_t colorMode);
 
 
 

@@ -107,7 +107,9 @@ static uint8_t* s_rotatedBuffer = nullptr;   // 48,000 bytes (Rotated E-Paper re
 struct CacheItem {
   int itemIndex;
   String etag;
-  uint8_t* buffer;  // 48,000 bytes in PSRAM
+  uint8_t* buffer;  // Up to 96,000 bytes in PSRAM
+  size_t frameSize;
+  uint8_t colorMode;
   bool valid;
 };
 
@@ -137,6 +139,8 @@ static void initPsramBuffers() {
     s_cache[i].itemIndex = -1;
     s_cache[i].etag = "";
     s_cache[i].buffer = nullptr;
+    s_cache[i].frameSize = 0;
+    s_cache[i].colorMode = DEVICE_COLOR_MODE;
     s_cache[i].valid = false;
   }
 }
@@ -169,10 +173,13 @@ static int findFreeOrLruSlot() {
   return 0; // Overwrite first slot if full
 }
 
-static bool cacheGet(int itemIndex, uint8_t* outRotatedBuffer) {
+static bool cacheGet(int itemIndex, uint8_t* outRotatedBuffer, uint8_t* outColorMode = nullptr, size_t* outFrameSize = nullptr) {
   int slot = findCacheSlot(itemIndex);
   if (slot >= 0 && s_cache[slot].valid && s_cache[slot].buffer != nullptr) {
-    memcpy(outRotatedBuffer, s_cache[slot].buffer, EPD_BUFFER_SIZE);
+    size_t sz = s_cache[slot].frameSize > 0 ? s_cache[slot].frameSize : EPD_BUFFER_SIZE;
+    memcpy(outRotatedBuffer, s_cache[slot].buffer, min(sz, (size_t)EPD_BUFFER_SIZE));
+    if (outColorMode) *outColorMode = s_cache[slot].colorMode;
+    if (outFrameSize) *outFrameSize = sz;
     return true;
   }
   return false;
@@ -186,7 +193,7 @@ static String cacheGetEtag(int itemIndex) {
   return "";
 }
 
-static void cachePut(int itemIndex, const String& etag, const uint8_t* rotatedFrame) {
+static void cachePut(int itemIndex, const String& etag, const uint8_t* rotatedFrame, size_t frameSize = EPD_BUFFER_SIZE, uint8_t colorMode = DEVICE_COLOR_MODE) {
   int slot = findCacheSlot(itemIndex);
   if (slot < 0) {
     slot = findFreeOrLruSlot();
@@ -194,11 +201,14 @@ static void cachePut(int itemIndex, const String& etag, const uint8_t* rotatedFr
 
   uint8_t* targetBuf = getOrAllocCacheBuffer(slot);
   if (targetBuf) {
-    memcpy(targetBuf, rotatedFrame, EPD_BUFFER_SIZE);
+    size_t toCopy = min(frameSize, (size_t)EPD_BUFFER_SIZE);
+    memcpy(targetBuf, rotatedFrame, toCopy);
     s_cache[slot].itemIndex = itemIndex;
     s_cache[slot].etag = etag;
+    s_cache[slot].frameSize = toCopy;
+    s_cache[slot].colorMode = colorMode;
     s_cache[slot].valid = true;
-    Serial.printf("[Cache] Stored item %d (ETag: %s) in slot %d\n", itemIndex, etag.c_str(), slot);
+    Serial.printf("[Cache] Stored item %d (ETag: %s, mode=%d, %u B) in slot %d\n", itemIndex, etag.c_str(), (int)colorMode, (unsigned)toCopy, slot);
   } else {
     Serial.printf("[Cache] Failed to allocate memory for cache slot %d!\n", slot);
   }
@@ -209,6 +219,8 @@ static void cacheClear() {
     s_cache[i].valid = false;
     s_cache[i].itemIndex = -1;
     s_cache[i].etag = "";
+    s_cache[i].frameSize = 0;
+    s_cache[i].colorMode = DEVICE_COLOR_MODE;
   }
   Serial.println("[Cache] Playlist cache cleared.");
 }
@@ -396,7 +408,7 @@ static bool initDisplayPanel() {
   return true;
 }
 
-static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = false) {
+static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = false, uint8_t colorMode = DEVICE_COLOR_MODE) {
   if (!initDisplayPanel()) return false;
 
   const seeed_epaper_area_t full_screen = {0, 0, (uint16_t)EPD_WIDTH, (uint16_t)EPD_HEIGHT};
@@ -407,31 +419,45 @@ static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = fa
     mode = SEEED_EPAPER_REFRESH_PARTIAL;
   }
 
-  seeed_epaper_pixel_format_t pixel_fmt = SEEED_EPAPER_PIXEL_FORMAT_MONO1_MSB;
-  size_t stride = EPD_WIDTH / 8;
+  esp_err_t refErr = ESP_OK;
+  if (colorMode == COLOR_MODE_GRAY4) {
+    size_t stride = (EPD_WIDTH + 3) / 4;
+    refErr = seeed_epaper_panel_write_bitmap_gray4(s_panel, &full_screen, rotatedBuf, stride);
+    if (refErr == ESP_OK) {
+      refErr = seeed_epaper_panel_commit(s_panel, &full_screen, SEEED_EPAPER_REFRESH_GRAY4);
+    }
+  } else {
+    seeed_epaper_pixel_format_t pixel_fmt = SEEED_EPAPER_PIXEL_FORMAT_MONO1_MSB;
+    size_t stride = EPD_WIDTH / 8;
 #if (DEVICE_COLOR_MODE == COLOR_MODE_SPECTRA6)
-  pixel_fmt = SEEED_EPAPER_PIXEL_FORMAT_SPECTRA6;
-  stride = (EPD_WIDTH + 1) / 2;
+    pixel_fmt = SEEED_EPAPER_PIXEL_FORMAT_SPECTRA6;
+    stride = (EPD_WIDTH + 1) / 2;
 #elif (DEVICE_COLOR_MODE == COLOR_MODE_GRAY16)
-  pixel_fmt = SEEED_EPAPER_PIXEL_FORMAT_GRAY16;
-  stride = (EPD_WIDTH + 1) / 2;
-#elif (DEVICE_COLOR_MODE == COLOR_MODE_GRAY4)
-  pixel_fmt = SEEED_EPAPER_PIXEL_FORMAT_GRAY4;
-  stride = (EPD_WIDTH + 3) / 4;
+    pixel_fmt = SEEED_EPAPER_PIXEL_FORMAT_GRAY16;
+    stride = (EPD_WIDTH + 1) / 2;
 #endif
+    if (colorMode == COLOR_MODE_GRAY16) {
+      pixel_fmt = SEEED_EPAPER_PIXEL_FORMAT_GRAY16;
+      stride = (EPD_WIDTH + 1) / 2;
+    } else if (colorMode == COLOR_MODE_SPECTRA6) {
+      pixel_fmt = SEEED_EPAPER_PIXEL_FORMAT_SPECTRA6;
+      stride = (EPD_WIDTH + 1) / 2;
+    }
 
-  esp_err_t refErr = seeed_epaper_panel_refresh_area(
-    s_panel,
-    &full_screen,
-    rotatedBuf,
-    stride,
-    pixel_fmt,
-    mode
-  );
+    refErr = seeed_epaper_panel_refresh_area(
+      s_panel,
+      &full_screen,
+      rotatedBuf,
+      stride,
+      pixel_fmt,
+      mode
+    );
+  }
 
   uint32_t refElapsed = millis() - refStart;
-  Serial.printf("[EPD] Refresh (%s) completed in %u ms (result: %s)\n",
-                (mode == SEEED_EPAPER_REFRESH_PARTIAL) ? "PARTIAL" : "FULL", refElapsed, esp_err_to_name(refErr));
+  Serial.printf("[EPD] Refresh (%s, mode=%d) completed in %u ms (result: %s)\n",
+                (colorMode == COLOR_MODE_GRAY4) ? "GRAY4" : ((mode == SEEED_EPAPER_REFRESH_PARTIAL) ? "PARTIAL" : "FULL"),
+                (int)colorMode, refElapsed, esp_err_to_name(refErr));
   return refErr == ESP_OK;
 }
 
@@ -1420,19 +1446,21 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     disconnectWiFiIfPowerSave();
     ota_confirm_running_partition();
     // If playlist advanced to another item that is in cache, display it without re-downloading
-    if (resolvedIndex != s_currentItemIndex && cacheGet(resolvedIndex, s_rotatedBuffer)) {
+    uint8_t cachedColorMode = DEVICE_COLOR_MODE;
+    size_t cachedFrameSize = 0;
+    if (resolvedIndex != s_currentItemIndex && cacheGet(resolvedIndex, s_rotatedBuffer, &cachedColorMode, &cachedFrameSize)) {
       s_currentItemIndex = resolvedIndex;
       rtc_currentItemIndex = resolvedIndex;
-      Serial.printf("[Sync] Switched display to cached item %d.\n", resolvedIndex);
+      Serial.printf("[Sync] Switched display to cached item %d (mode=%d).\n", resolvedIndex, (int)cachedColorMode);
       int battPct = readBatteryPercent();
       bool charging = isBatteryCharging();
       bool usb = isUsbPowerConnected();
       if (battPct >= 0 && battPct < 10 && !charging && !usb) {
-        rotate_buffer_180(s_rotatedBuffer, s_rawBuffer, EPD_WIDTH, EPD_HEIGHT);
-        gfx_draw_low_battery_icon(s_rawBuffer, -1, -1, battPct);
-        rotate_buffer_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
+        rotate_buffer_180_mode(s_rotatedBuffer, s_rawBuffer, EPD_WIDTH, EPD_HEIGHT, cachedColorMode);
+        gfx_draw_low_battery_icon_native(s_rawBuffer, EPD_WIDTH, EPD_HEIGHT, cachedColorMode, -1, -1, battPct);
+        rotate_buffer_180_mode(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT, cachedColorMode);
       }
-      renderRotatedBuffer(s_rotatedBuffer, useFastPartial);
+      renderRotatedBuffer(s_rotatedBuffer, useFastPartial, cachedColorMode);
     }
     return;
   }
@@ -1454,14 +1482,38 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
       return;
     }
 
+    String colorModeHdr = "";
+    if (http.hasHeader("X-ST-Color-Mode")) {
+      colorModeHdr = http.header("X-ST-Color-Mode");
+      colorModeHdr.toLowerCase();
+      colorModeHdr.trim();
+    }
+
+    uint8_t activeColorMode = DEVICE_COLOR_MODE;
+    size_t expectedSize = EPD_BUFFER_SIZE;
+
+#if DEVICE_SUPPORTS_GRAY4
+    int httpContentLen = http.getSize();
+    if (colorModeHdr == "gray4" || colorModeHdr == "2bpp" || httpContentLen == 96000) {
+      activeColorMode = COLOR_MODE_GRAY4;
+      expectedSize = 96000;
+    } else if (colorModeHdr == "mono" || colorModeHdr == "1bpp" || httpContentLen == 48000) {
+      activeColorMode = COLOR_MODE_1BPP_MONO;
+      expectedSize = 48000;
+    } else {
+      activeColorMode = COLOR_MODE_1BPP_MONO;
+      expectedSize = 48000;
+    }
+#endif
+
     WiFiClient* stream = http.getStreamPtr();
     size_t totalReceived = 0;
     uint32_t streamStart = millis();
 
-    while (http.connected() && totalReceived < EPD_BUFFER_SIZE) {
+    while (http.connected() && totalReceived < expectedSize) {
       size_t available = stream->available();
       if (available > 0) {
-        size_t toRead = min(available, (size_t)(EPD_BUFFER_SIZE - totalReceived));
+        size_t toRead = min(available, (size_t)(expectedSize - totalReceived));
         int readBytes = stream->readBytes((char*)(s_rawBuffer + totalReceived), toRead);
         if (readBytes > 0) totalReceived += readBytes;
       } else {
@@ -1471,9 +1523,10 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     }
 
     http.end();
-    Serial.printf("[Sync] Received %u / %u bytes.\n", totalReceived, EPD_BUFFER_SIZE);
+    Serial.printf("[Sync] Received %u / %u bytes (colorMode=%s).\n",
+                  totalReceived, expectedSize, (activeColorMode == COLOR_MODE_GRAY4) ? "gray4" : "mono");
 
-    if (totalReceived == EPD_BUFFER_SIZE) {
+    if (totalReceived == expectedSize) {
       bool isSwapped = (serverW > 0 && serverH > 0 && (serverW != EPD_WIDTH || serverH != EPD_HEIGHT))
                        || (serverW == 0 && isPortraitFrame && EPD_WIDTH != EPD_HEIGHT);
       uint16_t src_w = (serverW > 0) ? (uint16_t)serverW : (uint16_t)(isPortraitFrame ? EPD_HEIGHT : EPD_WIDTH);
@@ -1486,28 +1539,22 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
       bool usb = isUsbPowerConnected();
       if (battPct >= 0 && battPct < 10 && !charging && !usb) {
         Serial.printf("[Power] Low battery warning (%d%%)! Drawing low battery icon.\n", battPct);
-        gfx_draw_low_battery_icon_native(s_rawBuffer, src_w, src_h, DEVICE_COLOR_MODE, -1, -1, battPct);
+        gfx_draw_low_battery_icon_native(s_rawBuffer, src_w, src_h, activeColorMode, -1, -1, battPct);
       }
 
       if (isSwapped) {
-#if (DEVICE_COLOR_MODE == COLOR_MODE_1BPP_MONO)
-        rotate_mono_portrait(s_rawBuffer, s_rotatedBuffer, src_w, src_h, flip);
-#elif (DEVICE_COLOR_MODE == COLOR_MODE_SPECTRA6) || (DEVICE_COLOR_MODE == COLOR_MODE_GRAY16)
-        rotate_nibble_portrait(s_rawBuffer, s_rotatedBuffer, src_w, src_h, flip);
-#else
-        rotate_mono_portrait(s_rawBuffer, s_rotatedBuffer, src_w, src_h, flip);
-#endif
+        rotate_buffer_portrait_mode(s_rawBuffer, s_rotatedBuffer, src_w, src_h, flip, activeColorMode);
       } else {
-        rotate_buffer_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
+        rotate_buffer_180_mode(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT, activeColorMode);
       }
-      cachePut(s_currentItemIndex, newEtag, s_rotatedBuffer);
-      if (renderRotatedBuffer(s_rotatedBuffer, useFastPartial)) {
+      cachePut(s_currentItemIndex, newEtag, s_rotatedBuffer, totalReceived, activeColorMode);
+      if (renderRotatedBuffer(s_rotatedBuffer, useFastPartial, activeColorMode)) {
         ota_confirm_running_partition();
       } else {
         checkOtaVerificationFailure("Display panel refresh failed");
       }
     } else {
-      Serial.println("[Sync] Incomplete frame received! Refresh aborted.");
+      Serial.printf("[Sync] Incomplete frame received (%u / %u bytes)! Refresh aborted.\n", totalReceived, expectedSize);
       checkOtaVerificationFailure("Incomplete frame received");
     }
 

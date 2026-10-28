@@ -594,7 +594,8 @@ void showPairingCodeScreen(const char* code, Language lang = LANG_EN) {
 #define REFRESH_MODE_ALWAYS_FULL   1
 
 static uint8_t s_refreshMode = REFRESH_MODE_SMART_PARTIAL;
-static uint8_t s_partialRefreshLimit = 6;
+// Number of consecutive partial refreshes before a full clean cycle (6:1 ghosting mitigation)
+static const uint8_t s_partialRefreshLimit = 6;
 
 static bool s_inSystemMenu = false;
 static bool s_inStatusScreen = false;
@@ -838,8 +839,6 @@ void loadConfigFromNVS() {
   }
   s_refreshMode = s_prefs.getUChar("refresh_mode", REFRESH_MODE_SMART_PARTIAL);
   if (s_refreshMode > 1) s_refreshMode = REFRESH_MODE_SMART_PARTIAL;
-  s_partialRefreshLimit = s_prefs.getUChar("part_limit", 6);
-  if (s_partialRefreshLimit == 0) s_partialRefreshLimit = 6;
   s_prefs.end();
 
   Serial.println("[Config] Loaded configuration from NVS/Defaults:");
@@ -1511,7 +1510,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     if (colorModeHdr == "gray4" || colorModeHdr == "2bpp") {
       activeColorMode = COLOR_MODE_GRAY4;
       expectedSize = gray4ExpectedSize;
-    } else if (colorModeHdr == "mono" || colorModeHdr == "1bpp") {
+    } else if (colorModeHdr == "mono" || colorModeHdr == "1bpp" || colorModeHdr == "1bit") {
       activeColorMode = COLOR_MODE_1BPP_MONO;
       expectedSize = monoExpectedSize;
     } else if (httpContentLen == (int)gray4ExpectedSize) {

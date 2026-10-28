@@ -241,7 +241,7 @@ class TestDisplayDrivers(unittest.TestCase):
             startY, itemH, itemGap, itemX = 58, 35, 5, 30
             pitch = itemH + itemGap
             itemW = w - 60
-            if x < itemX or x > (itemX + itemW) or y < startY:
+            if x < itemX or x >= (itemX + itemW) or y < startY:
                 return -1
             row = (y - startY) // pitch
             offset = (y - startY) % pitch
@@ -256,6 +256,8 @@ class TestDisplayDrivers(unittest.TestCase):
         self.assertEqual(hit_test_menu(400, 413, 800, 480), 8)  # Row 8
         self.assertEqual(hit_test_menu(400, 430, 800, 480), 8)  # Footer banner
         self.assertEqual(hit_test_menu(10, 70, 800, 480), -1)   # Margin
+        self.assertEqual(hit_test_menu(769, 70, 800, 480), 0)   # Last px inside box (right edge)
+        self.assertEqual(hit_test_menu(770, 70, 800, 480), -1)  # First px outside box (right edge)
 
     def test_10_touch_driver_include_order(self):
         """Verifies device_profile.h is included before DEVICE_SUPPORTS_TOUCH guard (CRITICAL-1 fix)."""

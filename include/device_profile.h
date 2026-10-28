@@ -12,11 +12,8 @@
 #define COLOR_MODE_GRAY16      2
 #define COLOR_MODE_SPECTRA6    3
 
-// ─── Touch Digitizer Architecture ───────────────────────────────────────────
-#define TOUCH_NONE             0
-#define TOUCH_FT6336U          1
-#define TOUCH_GT911            2
-#define TOUCH_AUTO             3
+// Note: touch-capable targets (DEVICE_SUPPORTS_TOUCH=1) auto-probe GT911 (0x5D/0x14)
+// and FT6336U (0x38) on the I2C bus at runtime; see src/touch_driver.cpp.
 
 #if defined(DEVICE_RETERMINAL_E1001)
   #include "pins_e1001.h"
@@ -33,7 +30,6 @@
   #define DEVICE_FULL_REFRESH_TIME_MS      3000
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   350
   #define DEVICE_SUPPORTS_TOUCH            0
-  #define DEVICE_TOUCH_CONTROLLER          TOUCH_NONE
   #define DEVICE_SUPPORTS_IMU              0
 
 #elif defined(DEVICE_RETERMINAL_E1002)
@@ -51,7 +47,6 @@
   #define DEVICE_FULL_REFRESH_TIME_MS      14000
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   0
   #define DEVICE_SUPPORTS_TOUCH            0
-  #define DEVICE_TOUCH_CONTROLLER          TOUCH_NONE
   #define DEVICE_SUPPORTS_IMU              0
 
 #elif defined(DEVICE_RETERMINAL_E1003)
@@ -69,7 +64,6 @@
   #define DEVICE_FULL_REFRESH_TIME_MS      1200
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   180
   #define DEVICE_SUPPORTS_TOUCH            1
-  #define DEVICE_TOUCH_CONTROLLER          TOUCH_GT911
   #define DEVICE_SUPPORTS_IMU              0
 
 #elif defined(DEVICE_RETERMINAL_E1004)
@@ -87,7 +81,6 @@
   #define DEVICE_FULL_REFRESH_TIME_MS      22000
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   0
   #define DEVICE_SUPPORTS_TOUCH            0
-  #define DEVICE_TOUCH_CONTROLLER          TOUCH_NONE
   #define DEVICE_SUPPORTS_IMU              0
 
 #else
@@ -109,7 +102,6 @@
   #define DEVICE_FULL_REFRESH_TIME_MS      1800
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   350
   #define DEVICE_SUPPORTS_TOUCH            1
-  #define DEVICE_TOUCH_CONTROLLER          TOUCH_GT911
   #define DEVICE_SUPPORTS_IMU              1
 #endif
 

@@ -17,7 +17,8 @@ int touch_hit_test_menu(int x, int y, int screen_width, int screen_height) {
 
   const int itemW = screen_width - (2 * MENU_ITEM_MARGIN_X);
 
-  if (x < MENU_ITEM_MARGIN_X || x > (MENU_ITEM_MARGIN_X + itemW)) {
+  // Boxes span x in [MENU_ITEM_MARGIN_X, MENU_ITEM_MARGIN_X + itemW) like gfx_fill_rect
+  if (x < MENU_ITEM_MARGIN_X || x >= (MENU_ITEM_MARGIN_X + itemW)) {
     return -1;
   }
   if (y < MENU_START_Y) {

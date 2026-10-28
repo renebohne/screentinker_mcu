@@ -595,13 +595,14 @@ void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t
   }
 
   // Footer Navigation Hint
-  gfx_fill_rect(buffer, 0, s_epd_height - 56, s_epd_width, 56, 0);
+  const int footerY = s_epd_height - MENU_FOOTER_HEIGHT;
+  gfx_fill_rect(buffer, 0, footerY, s_epd_width, MENU_FOOTER_HEIGHT, 0);
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 30, s_epd_height - 38, "[ UP / DOWN ]: Navigieren", 1, 2);
-    gfx_draw_string(buffer, 500, s_epd_height - 38, "[ OK ]: Auswaehlen", 1, 2);
+    gfx_draw_string(buffer, 30, footerY + 18, "[ UP / DOWN ]: Navigieren", 1, 2);
+    gfx_draw_string(buffer, 500, footerY + 18, "[ OK ]: Auswaehlen", 1, 2);
   } else {
-    gfx_draw_string(buffer, 30, s_epd_height - 38, "[ UP / DOWN ]: Navigate", 1, 2);
-    gfx_draw_string(buffer, 520, s_epd_height - 38, "[ OK ]: Select", 1, 2);
+    gfx_draw_string(buffer, 30, footerY + 18, "[ UP / DOWN ]: Navigate", 1, 2);
+    gfx_draw_string(buffer, 520, footerY + 18, "[ OK ]: Select", 1, 2);
   }
 }
 

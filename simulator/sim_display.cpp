@@ -266,7 +266,7 @@ bool SimDisplay::pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerT
           std::cout << "[Simulator] System Menu hotkey ('M') triggered!\n";
           touchClicked = true;
           touchX = 50;
-          touchY = 20; // Banner tap to open menu
+          touchY = m_height - 10; // Footer tap: opens menu when closed, hits BACK/CLOSE when open
           wakeRequested = true;
           break;
         case SDLK_r:

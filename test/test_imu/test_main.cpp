@@ -606,6 +606,8 @@ void test_touch_hit_testing() {
   assert(touch_hit_test_menu(400, 20, W, H) == -1);  // In top header banner
   assert(touch_hit_test_menu(10, 70, W, H) == -1);   // Left margin (< 30)
   assert(touch_hit_test_menu(780, 70, W, H) == -1);  // Right margin (> 770)
+  assert(touch_hit_test_menu(769, 70, W, H) == 0);   // Last px inside box (right edge)
+  assert(touch_hit_test_menu(770, 70, W, H) == -1);  // First px outside box (right edge)
 
   // 3. Row tests (x = 400)
   // Row 0: Status & Info (y = 58..93)

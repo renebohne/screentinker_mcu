@@ -4,6 +4,7 @@
 #include "diag_logger.h"
 #include "setup_screen.h"
 #include "ota_updater.h"
+#include "touch_driver.h"
 #include <ArduinoJson.h>
 #include <qrcode.h>
 #include <iostream>
@@ -225,6 +226,16 @@ int main(int argc, char** argv) {
   int sleepDurationSec = cfg.syncIntervalSec;
   bool running = true;
   int cycleCount = 0;
+  int consecutivePartialCount = 0;
+  const int partialRefreshLimit = 6;
+  bool forceFullRefresh = true; // Initial boot always triggers full refresh
+
+  bool simInMenu = false;
+  bool simInStatus = false;
+  int simMenuSelection = 0;
+  Language simLang = LANG_EN;
+  uint8_t simWifiPowerLevel = 0;
+  uint8_t simRefreshMode = 0;
 
   while (running) {
     if (cfg.powerSource != "usb" && !cfg.isCharging && cfg.batteryPercent >= 0 && cfg.batteryPercent <= 1) {
@@ -366,16 +377,66 @@ int main(int argc, char** argv) {
       std::string etag = res.getHeader("etag");
       if (!etag.empty()) lastEtag = etag;
 
+      std::string cModeHdr = res.getHeader("x-st-color-mode");
+      if ((cModeHdr == "gray4" || cModeHdr == "2bpp" || res.body.size() == ((size_t)cfg.width * cfg.height) / 4)
+          && (cfg.model == "sticky" || cfg.model == "e1001")) {
+        if (cfg.colorMode != SIM_COLOR_GRAY4) {
+          std::cout << "[Sync] Detected 2bpp Gray4 payload (" << res.body.size() << " bytes). Updating display mode to Gray4.\n";
+          cfg.colorMode = SIM_COLOR_GRAY4;
+          display.setColorMode(SIM_COLOR_GRAY4);
+          frameBuffer.resize(cfg.bufferSize(), 0xFF);
+        }
+      } else if ((cModeHdr == "mono" || cModeHdr == "1bpp" || res.body.size() == ((size_t)cfg.width * cfg.height) / 8)
+                 && (cfg.model == "sticky" || cfg.model == "e1001")) {
+        if (cfg.colorMode != SIM_COLOR_1BPP_MONO) {
+          std::cout << "[Sync] Detected 1bpp Mono payload (" << res.body.size() << " bytes). Updating display mode to Mono.\n";
+          cfg.colorMode = SIM_COLOR_1BPP_MONO;
+          display.setColorMode(SIM_COLOR_1BPP_MONO);
+          frameBuffer.resize(cfg.bufferSize(), 0xFF);
+        }
+      }
+
       if (res.body.size() == cfg.bufferSize()) {
         std::memcpy(frameBuffer.data(), res.body.data(), cfg.bufferSize());
         if (cfg.batteryPercent >= 0 && cfg.batteryPercent < 10 && !cfg.isCharging && cfg.powerSource != "usb") {
           std::cout << "[Power] Low battery warning (" << cfg.batteryPercent << "%)! Drawing low battery icon.\n";
           gfx_draw_low_battery_icon_native(frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode, -1, -1, cfg.batteryPercent);
         }
+
+        std::string reqRefresh = res.getHeader("x-st-refresh-mode");
+        bool useFastPartial = false;
+
+        if (!cfg.supportsPartialRefresh) {
+          useFastPartial = false;
+          consecutivePartialCount = 0;
+          std::cout << "[Display] Refresh: FULL [" << cfg.fullRefreshTimeMs << " ms]\n";
+        } else if (forceFullRefresh) {
+          useFastPartial = false;
+          consecutivePartialCount = 0;
+          forceFullRefresh = false;
+          std::cout << "[Display] Refresh: FULL (Initial boot or forced clean) [" << cfg.fullRefreshTimeMs << " ms]\n";
+        } else if (reqRefresh == "full") {
+          useFastPartial = false;
+          consecutivePartialCount = 0;
+          std::cout << "[Display] Refresh: FULL (Server override: x-st-refresh-mode: full) [" << cfg.fullRefreshTimeMs << " ms]\n";
+        } else if (consecutivePartialCount < partialRefreshLimit) {
+          useFastPartial = true;
+          consecutivePartialCount++;
+          std::cout << "[Display] Refresh: PARTIAL (" << consecutivePartialCount << "/" << partialRefreshLimit << ") [" << cfg.partialRefreshTimeMs << " ms]\n";
+        } else {
+          useFastPartial = false;
+          consecutivePartialCount = 0;
+          std::cout << "[Display] Refresh: FULL (Clean cycle after " << partialRefreshLimit << " partial refreshes) [" << cfg.fullRefreshTimeMs << " ms]\n";
+        }
+
         std::cout << "[Sync] 200 OK — Downloaded new frame (" << cfg.bufferSize() << " bytes). Updating display.\n";
         display.renderBuffer(frameBuffer.data());
         display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
         ota_confirm_running_partition();
+
+        if (!cfg.headless) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(useFastPartial ? cfg.partialRefreshTimeMs : std::min(cfg.fullRefreshTimeMs, 1000)));
+        }
       } else {
         std::cerr << "[Sync] Warning: Received 200 OK but payload size is " << res.body.size()
                   << " bytes (expected " << cfg.bufferSize() << ")\n";
@@ -451,22 +512,129 @@ int main(int argc, char** argv) {
       return (res.statusCode == 0) ? 1 : 0;
     }
 
-    std::cout << "[Sleep] Next poll scheduled in " << sleepDurationSec << "s (Press [Space] to wake, [O]/[R] to rotate orientation, [P] to toggle USB/Battery, [B] to toggle battery level, [L] to dump logs, [Q] to quit)\n";
+    std::cout << "[Sleep] Next poll scheduled in " << sleepDurationSec << "s (Press [Space] to wake, [Click]/[M] for Touch/Menu, [F] to force full clean, [O]/[R] to rotate orientation, [P] to toggle USB/Battery, [B] to toggle battery level, [L] to dump logs, [Q] to quit)\n";
 
     // Simulate sleep interval while polling interactive SDL2 events
     auto sleepStart = std::chrono::steady_clock::now();
     bool wakeRequested = false;
 
+    auto redrawSimMenu = [&](bool fastPartial) {
+      if (simInStatus) {
+        renderStatusInfoScreen(monoBuffer.data(), "192.168.1.100", "ScreenTinker-WLAN", cfg.wifiRssi, cfg.serverUrl.c_str(), cfg.deviceId.c_str(), cfg.firmwareVersion.c_str(), simLang, cfg.mockTemp, cfg.mockHumidity, cfg.batteryPercent, cfg.isCharging, (cfg.powerSource == "usb"));
+      } else {
+        renderSystemMenu(monoBuffer.data(), simMenuSelection, simLang, simWifiPowerLevel, 0, false, cfg.batteryPercent, cfg.isCharging, (cfg.powerSource == "usb"), simRefreshMode, cfg.supportsPartialRefresh);
+      }
+      monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+      display.renderBuffer(frameBuffer.data());
+      std::cout << "[Simulator] " << (simInStatus ? "Status Screen" : "System Menu")
+                << " rendered via " << (fastPartial ? "fast partial refresh" : "full refresh")
+                << " (" << (fastPartial ? cfg.partialRefreshTimeMs : cfg.fullRefreshTimeMs) << "ms)\n";
+    };
+
     while (running && !wakeRequested) {
       int batteryDelta = 0;
       bool powerToggled = false;
       bool rotateRequested = false;
-      if (!display.pollEvents(wakeRequested, batteryDelta, powerToggled, rotateRequested)) {
+      bool forceFullRequested = false;
+      int touchX = 0, touchY = 0;
+      bool touchClicked = false;
+      if (!display.pollEvents(wakeRequested, batteryDelta, powerToggled, rotateRequested, forceFullRequested, touchX, touchY, touchClicked)) {
         running = false;
         break;
       }
 
+      if (touchClicked) {
+        if (!cfg.touchSupported) {
+          std::cout << "[Simulator] Touch ignored: target model '" << cfg.model << "' does not support capacitive touch.\n";
+          wakeRequested = false;
+        } else {
+          if (simInStatus) {
+            std::cout << "[Simulator] Touch at (" << touchX << ", " << touchY << ") -> Exiting Status Screen back to Menu\n";
+            simInStatus = false;
+            simInMenu = true;
+            redrawSimMenu(true);
+            wakeRequested = false;
+          } else if (simInMenu) {
+            int row = touch_hit_test_menu(touchX, touchY, cfg.width, cfg.height);
+            if (row >= 0 && row < 9) {
+              simMenuSelection = row;
+              std::cout << "[Simulator] Touch tap on menu item " << row << " at (" << touchX << ", " << touchY << ")!\n";
+              if (row == 0) {
+                simInMenu = false;
+                simInStatus = true;
+                redrawSimMenu(false);
+                wakeRequested = false;
+              } else if (row == 1) {
+                cfg.cycleRotation();
+                std::cout << "[Simulator] Orientation cycled to " << cfg.rotation << "°\n";
+                gfx_set_screen_dimensions(cfg.width, cfg.height);
+                display.updateDimensions(cfg.width, cfg.height);
+                frameBuffer.resize(cfg.bufferSize(), 0xFF);
+                monoBuffer.resize(gfx_get_buffer_size(), 0xFF);
+                redrawSimMenu(true);
+                wakeRequested = false;
+              } else if (row == 2) {
+                simWifiPowerLevel = (simWifiPowerLevel + 1) % 3;
+                std::cout << "[Simulator] Wi-Fi Power Level: " << (int)simWifiPowerLevel << "\n";
+                redrawSimMenu(true);
+                wakeRequested = false;
+              } else if (row == 3) {
+                if (cfg.supportsPartialRefresh) {
+                  simRefreshMode = (simRefreshMode == 0) ? 1 : 0;
+                  std::cout << "[Simulator] Refresh Mode: " << (simRefreshMode == 0 ? "Smart Partial [6:1]" : "Always Full") << "\n";
+                }
+                redrawSimMenu(true);
+                wakeRequested = false;
+              } else if (row == 4) {
+                simLang = (simLang == LANG_EN) ? LANG_DE : LANG_EN;
+                std::cout << "[Simulator] Language: " << (simLang == LANG_DE ? "DE" : "EN") << "\n";
+                redrawSimMenu(true);
+                wakeRequested = false;
+              } else if (row == 5) {
+                std::cout << "[Simulator] Unpairing device...\n";
+                cfg.deviceToken = "";
+                simInMenu = false;
+                cfg.pairMode = true;
+                wakeRequested = true;
+              } else if (row == 6) {
+                std::cout << "[Simulator] Powering off device...\n";
+                renderPowerOffScreen(monoBuffer.data(), simLang);
+                monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+                display.renderBuffer(frameBuffer.data());
+                running = false;
+                break;
+              } else if (row == 7) {
+                std::cout << "[Simulator] Factory Resetting...\n";
+                cfg.deviceToken = "";
+                simInMenu = false;
+                cfg.pairMode = true;
+                wakeRequested = true;
+              } else if (row == 8) {
+                std::cout << "[Simulator] Closing System Menu, resuming normal slideshow.\n";
+                simInMenu = false;
+                wakeRequested = true;
+              }
+            } else {
+              wakeRequested = false;
+            }
+          } else {
+            std::cout << "[Simulator] Capacitive touch at (" << touchX << ", " << touchY << ") -> Opening System Menu!\n";
+            simInMenu = true;
+            simMenuSelection = 0;
+            redrawSimMenu(false);
+            wakeRequested = false;
+          }
+        }
+      }
+
+      if (forceFullRequested) {
+        forceFullRefresh = true;
+        wakeRequested = true;
+      }
+
       if (rotateRequested) {
+        forceFullRefresh = true;
+        consecutivePartialCount = 0;
         cfg.cycleRotation();
         std::cout << "[Simulator] Rotated to " << cfg.rotation << "° ("
                   << (cfg.orientation.empty() ? (cfg.width > cfg.height ? "landscape" : "portrait") : cfg.orientation)

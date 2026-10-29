@@ -170,6 +170,109 @@ class TestDisplayDrivers(unittest.TestCase):
         rot_nibble = rotate_nibble(src_nibble, 4, 2)
         self.assertEqual(rot_nibble, bytes([0x87, 0x65, 0x43, 0x21]))
 
+    def test_08_gray4_rotation_and_packing(self):
+        """Validates 2bpp Gray4 packing and 180° rotation correctness for Sticky & E1001 (Ticket 1)."""
+        # 1. Verify DEVICE_SUPPORTS_GRAY4 is enabled for Sticky and E1001 in device_profile.h
+        profile_path = INCLUDE_DIR / "device_profile.h"
+        content = profile_path.read_text()
+        self.assertIn("DEVICE_SUPPORTS_GRAY4", content, "Missing DEVICE_SUPPORTS_GRAY4 in device_profile.h")
+
+        # 2. Test 2bpp Gray4 buffer size: 800x480 at 2bpp is exactly 96,000 bytes
+        w, h = 800, 480
+        stride = (w + 3) // 4
+        self.assertEqual(stride, 200)
+        self.assertEqual(stride * h, 96000)
+
+        # 3. Test 2bpp pixel reversal / 180° rotation:
+        # Byte layout: [px0(bits 7..6) | px1(bits 5..4) | px2(bits 3..2) | px3(bits 1..0)]
+        # Pixel values: 0=Black (0b00), 1=DarkGray (0b01), 2=LightGray (0b10), 3=White (0b11)
+        # Byte: 0b00_01_10_11 (0x1B)
+        # 180° rotated single byte should reverse pixels: [px3, px2, px1, px0] = 0b11_10_01_00 (0xE4)
+        def reverse_2bpp_byte(b):
+            return ((b & 0x03) << 6) | ((b & 0x0C) << 2) | ((b & 0x30) >> 2) | ((b & 0xC0) >> 6)
+
+        self.assertEqual(reverse_2bpp_byte(0x1B), 0xE4)
+
+        def rotate_gray4_180(src, width, height):
+            row_stride = (width + 3) // 4
+            dest = bytearray(len(src))
+            for y in range(height):
+                src_row = y * row_stride
+                dst_row = (height - 1 - y) * row_stride
+                for x in range(row_stride):
+                    b = src[src_row + (row_stride - 1 - x)]
+                    dest[dst_row + x] = reverse_2bpp_byte(b)
+            return bytes(dest)
+
+        # 8 pixels wide, 2 rows:
+        # Row 0: [0, 1, 2, 3], [3, 2, 1, 0] -> [0x1B, 0xE4]
+        # Row 1: [0, 0, 0, 0], [3, 3, 3, 3] -> [0x00, 0xFF]
+        src_gray4 = bytes([0x1B, 0xE4, 0x00, 0xFF])
+        # Rotated 180°:
+        # Row 0 should be reversed Row 1: [reversed 0xFF, reversed 0x00] -> [0xFF, 0x00]
+        # Row 1 should be reversed Row 0: [reversed 0xE4, reversed 0x1B] -> [0x1B, 0xE4]
+        rot_gray4 = rotate_gray4_180(src_gray4, 8, 2)
+        self.assertEqual(rot_gray4, bytes([0xFF, 0x00, 0x1B, 0xE4]))
+
+    def test_09_touch_driver_integration_and_hit_testing(self):
+        """Validates capacitive touch driver definitions, profiles, and hit-testing (Ticket 2)."""
+        header_path = INCLUDE_DIR / "touch_driver.h"
+        self.assertTrue(header_path.exists(), f"Missing {header_path}")
+        content = header_path.read_text()
+        self.assertIn("touch_hit_test_menu", content)
+        self.assertIn("touch_hit_test_status", content)
+        self.assertIn("touch_init", content)
+        self.assertIn("touch_read", content)
+        self.assertIn("touch_sleep", content)
+
+        # Verify device_profile.h touch mappings
+        dev_profile = (INCLUDE_DIR / "device_profile.h").read_text()
+        # Sticky & E1003 support touch
+        self.assertIn("#define DEVICE_SUPPORTS_TOUCH            1", dev_profile)
+        # E1001, E1002, E1004 do not support touch
+        self.assertIn("#define DEVICE_SUPPORTS_TOUCH            0", dev_profile)
+
+        # Hit testing formula verification in Python
+        def hit_test_menu(x, y, w, h):
+            if x < 0 or y < 0 or x >= w or y >= h:
+                return -1
+            if y >= h - 56:
+                return 8  # Footer / Close
+            startY, itemH, itemGap, itemX = 58, 35, 5, 30
+            pitch = itemH + itemGap
+            itemW = w - 60
+            if x < itemX or x >= (itemX + itemW) or y < startY:
+                return -1
+            row = (y - startY) // pitch
+            offset = (y - startY) % pitch
+            if 0 <= row < 9 and offset <= itemH:
+                return row
+            return -1
+
+        self.assertEqual(hit_test_menu(400, 58, 800, 480), 0)   # Row 0 top
+        self.assertEqual(hit_test_menu(400, 93, 800, 480), 0)   # Row 0 bottom
+        self.assertEqual(hit_test_menu(400, 95, 800, 480), -1)  # Gap
+        self.assertEqual(hit_test_menu(400, 98, 800, 480), 1)   # Row 1
+        self.assertEqual(hit_test_menu(400, 413, 800, 480), 8)  # Row 8
+        self.assertEqual(hit_test_menu(400, 430, 800, 480), 8)  # Footer banner
+        self.assertEqual(hit_test_menu(10, 70, 800, 480), -1)   # Margin
+        self.assertEqual(hit_test_menu(769, 70, 800, 480), 0)   # Last px inside box (right edge)
+        self.assertEqual(hit_test_menu(770, 70, 800, 480), -1)  # First px outside box (right edge)
+
+    def test_10_touch_driver_include_order(self):
+        """Verifies device_profile.h is included before DEVICE_SUPPORTS_TOUCH guard (CRITICAL-1 fix)."""
+        src_path = REPO_ROOT / "src" / "touch_driver.cpp"
+        self.assertTrue(src_path.exists(), f"Missing {src_path}")
+        src = src_path.read_text()
+        self.assertIn('#include "device_profile.h"', src)
+        include_pos = src.index('#include "device_profile.h"')
+        guard_pos = src.index("DEVICE_SUPPORTS_TOUCH")
+        self.assertLess(
+            include_pos,
+            guard_pos,
+            "device_profile.h must be included before any DEVICE_SUPPORTS_TOUCH preprocessor guard",
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

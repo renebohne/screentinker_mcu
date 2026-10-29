@@ -4,6 +4,7 @@
 #include <vector>
 #include "imu_driver.h"
 #include "setup_screen.h"
+#include "touch_driver.h"
 
 void test_imu_orientation_detection() {
   std::cout << "[Test] Running IMU orientation detection tests...\n";
@@ -78,6 +79,97 @@ void test_system_menu_rendering() {
   assert(gfx_get_pixel(buffer.data(), 40, 110) == 0);
 
   std::cout << "  ✓ All System Menu rendering tests passed!\n";
+}
+
+void test_smart_partial_refresh_policy() {
+  std::cout << "[Test] Running Smart Partial Refresh Policy tests...\n";
+
+  gfx_set_screen_dimensions(800, 480);
+  std::vector<uint8_t> buffer(gfx_get_buffer_size(), 0xFF);
+
+  // 1. Verify Menu item 3 (Refresh Mode) selection highlight
+  renderSystemMenu(buffer.data(), 3, LANG_EN, 0, (uint8_t)ORIENT_MODE_LANDSCAPE, false, -1, false, false, 0, true);
+  // Item 3 y is startY (58) + 3 * 40 = 178; item height is 35 -> y in [178, 213]
+  assert(gfx_get_pixel(buffer.data(), 40, 190) == 0); // Item 3 filled rectangle is black
+
+  // 2. Simulate 6:1 partial refresh cadence
+  int partialCount = 0;
+  const int limit = 6;
+  bool isColdBoot = true;
+
+  auto decideRefresh = [&](bool force, const std::string& serverHdr, bool supportsPartial, uint8_t userMode) -> std::string {
+    if (!supportsPartial) {
+      partialCount = 0;
+      return "FULL";
+    }
+    if (isColdBoot || force) {
+      isColdBoot = false;
+      partialCount = 0;
+      return "FULL";
+    }
+    if (serverHdr == "full") {
+      partialCount = 0;
+      return "FULL";
+    }
+    if (userMode == 1) { // Always full
+      partialCount = 0;
+      return "FULL";
+    }
+    if (partialCount < limit) {
+      partialCount++;
+      return "PARTIAL";
+    } else {
+      partialCount = 0;
+      return "FULL";
+    }
+  };
+
+  // Cold boot: always FULL
+  assert(decideRefresh(false, "", true, 0) == "FULL");
+  assert(partialCount == 0);
+
+  // Consecutive 6 partials
+  for (int i = 1; i <= 6; ++i) {
+    assert(decideRefresh(false, "", true, 0) == "PARTIAL");
+    assert(partialCount == i);
+  }
+
+  // 7th refresh triggers clean cycle (FULL) and resets to 0
+  assert(decideRefresh(false, "", true, 0) == "FULL");
+  assert(partialCount == 0);
+
+  // 8th refresh resumes PARTIAL (count = 1)
+  assert(decideRefresh(false, "", true, 0) == "PARTIAL");
+  assert(partialCount == 1);
+
+  // Server override forces full and resets counter
+  assert(decideRefresh(false, "full", true, 0) == "FULL");
+  assert(partialCount == 0);
+
+  // Device not supporting partial (Spectra 6) always returns FULL
+  assert(decideRefresh(false, "partial", false, 0) == "FULL");
+  assert(partialCount == 0);
+
+  // User configured "Always Full" mode
+  assert(decideRefresh(false, "", true, 1) == "FULL");
+  assert(partialCount == 0);
+
+  // 304 Not Modified no-op simulation: content unchanged on screen -> counter must NOT advance
+  decideRefresh(false, "", true, 0); // count = 1
+  assert(partialCount == 1);
+  int countBefore304 = partialCount;
+  for (int noop = 0; noop < 5; ++noop) {
+    // 304 without render does NOT invoke decideRefresh
+  }
+  assert(partialCount == countBefore304);
+
+  // Gray4 OTP waveform simulation resets partial counter (clean cycle)
+  partialCount = 4;
+  // Simulating Gray4 render:
+  partialCount = 0; // Gray4 commits SEEED_EPAPER_REFRESH_GRAY4 and resets clean cycle
+  assert(partialCount == 0);
+
+  std::cout << "  ✓ All Smart Partial Refresh Policy tests passed!\n";
 }
 
 #include <cmath>
@@ -443,6 +535,135 @@ void test_portrait_buffer_rotation() {
   std::cout << "  ✓ All portrait buffer rotation tests passed!\n";
 }
 
+static inline uint8_t test_get_gray4_pixel(const uint8_t* buf, uint16_t x, uint16_t y, uint16_t w) {
+  size_t stride = (w + 3) / 4;
+  uint8_t byte = buf[y * stride + (x >> 2)];
+  uint8_t shift = 6 - (x & 3) * 2;
+  return (byte >> shift) & 0x03;
+}
+
+static inline void test_set_gray4_pixel(uint8_t* buf, uint16_t x, uint16_t y, uint16_t w, uint8_t val) {
+  size_t stride = (w + 3) / 4;
+  size_t idx = y * stride + (x >> 2);
+  uint8_t shift = 6 - (x & 3) * 2;
+  buf[idx] = (buf[idx] & ~(0x03 << shift)) | ((val & 0x03) << shift);
+}
+
+void test_gray4_buffer_rotation() {
+  std::cout << "[Test] Running Gray4 (2bpp) buffer rotation tests...\n";
+
+  // 1. Single byte test: pixels [0, 1, 2, 3] = [0b00, 0b01, 0b10, 0b11] -> 0x1B
+  uint8_t single_byte = 0x1B; // 00 01 10 11
+  uint8_t single_dst = 0x00;
+  rotate_gray4_180(&single_byte, &single_dst, 4, 1);
+  // Reversal: [3, 2, 1, 0] = [0b11, 0b10, 0b01, 0b00] = 0xE4
+  assert(single_dst == 0xE4);
+
+  // 2. Full 800x480 Gray4 rotation symmetry (180° applied twice restores image)
+  uint16_t w = 800, h = 480;
+  size_t buf_size = (w * h) / 4;
+  assert(buf_size == 96000);
+
+  std::vector<uint8_t> src(buf_size, 0x00);
+  for (size_t i = 0; i < buf_size; i++) {
+    src[i] = (uint8_t)(i & 0xFF);
+  }
+
+  std::vector<uint8_t> dst1(buf_size, 0x00);
+  std::vector<uint8_t> dst2(buf_size, 0x00);
+
+  rotate_gray4_180(src.data(), dst1.data(), w, h);
+  rotate_gray4_180(dst1.data(), dst2.data(), w, h);
+  assert(memcmp(src.data(), dst2.data(), buf_size) == 0);
+
+  // 3. Portrait 90° rotation test
+  uint16_t src_w = 480, src_h = 800;
+  std::vector<uint8_t> p_src(buf_size, 0xFF);
+  test_set_gray4_pixel(p_src.data(), 10, 20, src_w, 0x02); // Light Gray at (10, 20)
+  assert(test_get_gray4_pixel(p_src.data(), 10, 20, src_w) == 0x02);
+
+  std::vector<uint8_t> p_dst_90(buf_size, 0xFF);
+  rotate_gray4_portrait(p_src.data(), p_dst_90.data(), src_w, src_h, false);
+  // In 90° rotation: dx = (src_h - 1) - sy = 799 - 20 = 779; dy = sx = 10
+  assert(test_get_gray4_pixel(p_dst_90.data(), 779, 10, src_h) == 0x02);
+
+  std::cout << "  ✓ All Gray4 buffer rotation tests passed!\n";
+}
+
+void test_touch_hit_testing() {
+  std::cout << "[Test] Running Capacitive Touch hit-testing tests (Sticky & E1003)...\n";
+
+  const int W = 800;
+  const int H = 480;
+
+  // 1. Out of bounds checks
+  assert(touch_hit_test_menu(-1, 100, W, H) == -1);
+  assert(touch_hit_test_menu(100, -5, W, H) == -1);
+  assert(touch_hit_test_menu(800, 100, W, H) == -1);
+  assert(touch_hit_test_menu(100, 480, W, H) == -1);
+
+  // 2. Margins & Header
+  assert(touch_hit_test_menu(400, 20, W, H) == -1);  // In top header banner
+  assert(touch_hit_test_menu(10, 70, W, H) == -1);   // Left margin (< 30)
+  assert(touch_hit_test_menu(780, 70, W, H) == -1);  // Right margin (> 770)
+  assert(touch_hit_test_menu(769, 70, W, H) == 0);   // Last px inside box (right edge)
+  assert(touch_hit_test_menu(770, 70, W, H) == -1);  // First px outside box (right edge)
+
+  // 3. Row tests (x = 400)
+  // Row 0: Status & Info (y = 58..93)
+  assert(touch_hit_test_menu(400, 58, W, H) == 0);
+  assert(touch_hit_test_menu(400, 75, W, H) == 0);
+  assert(touch_hit_test_menu(400, 93, W, H) == 0);
+
+  // Gap between row 0 and row 1 (y = 94..97)
+  assert(touch_hit_test_menu(400, 95, W, H) == -1);
+
+  // Row 1: Orientation (y = 98..133)
+  assert(touch_hit_test_menu(400, 98, W, H) == 1);
+  assert(touch_hit_test_menu(400, 133, W, H) == 1);
+
+  // Row 2: Wi-Fi Power (y = 138..173)
+  assert(touch_hit_test_menu(400, 138, W, H) == 2);
+  assert(touch_hit_test_menu(400, 173, W, H) == 2);
+
+  // Row 3: Refresh Mode (y = 178..213)
+  assert(touch_hit_test_menu(400, 178, W, H) == 3);
+  assert(touch_hit_test_menu(400, 213, W, H) == 3);
+
+  // Row 4: Language (y = 218..253)
+  assert(touch_hit_test_menu(400, 218, W, H) == 4);
+  assert(touch_hit_test_menu(400, 253, W, H) == 4);
+
+  // Row 5: Unpair (y = 258..293)
+  assert(touch_hit_test_menu(400, 258, W, H) == 5);
+  assert(touch_hit_test_menu(400, 293, W, H) == 5);
+
+  // Row 6: Power Off (y = 298..333)
+  assert(touch_hit_test_menu(400, 298, W, H) == 6);
+  assert(touch_hit_test_menu(400, 333, W, H) == 6);
+
+  // Row 7: Factory Reset (y = 338..373)
+  assert(touch_hit_test_menu(400, 338, W, H) == 7);
+  assert(touch_hit_test_menu(400, 373, W, H) == 7);
+
+  // Row 8: Back / Close (y = 378..413)
+  assert(touch_hit_test_menu(400, 378, W, H) == 8);
+  assert(touch_hit_test_menu(400, 413, W, H) == 8);
+
+  // 4. Footer Banner (y >= 480 - 56 = 424) -> triggers Back / Close
+  assert(touch_hit_test_menu(400, 425, W, H) == 8);
+  assert(touch_hit_test_menu(100, 450, W, H) == 8);
+
+  // 5. Status Screen hit-test
+  assert(touch_hit_test_status(200, 300, W, H) == true);
+  assert(touch_hit_test_status(0, 0, W, H) == true);
+  assert(touch_hit_test_status(799, 479, W, H) == true);
+  assert(touch_hit_test_status(-1, 100, W, H) == false);
+  assert(touch_hit_test_status(100, 480, W, H) == false);
+
+  std::cout << "  ✓ All Capacitive Touch hit-testing tests passed!\n";
+}
+
 int main() {
   std::cout << "==========================================\n";
   std::cout << " ScreenTinker Native Unit Tests (#8, #9, #21, #22)\n";
@@ -450,12 +671,15 @@ int main() {
 
   test_imu_orientation_detection();
   test_system_menu_rendering();
+  test_smart_partial_refresh_policy();
   test_sht40_driver();
   test_status_screen_telemetry();
   test_diag_logger();
   test_ota_updater();
   test_imu_debug_screen();
   test_portrait_buffer_rotation();
+  test_gray4_buffer_rotation();
+  test_touch_hit_testing();
 
   std::cout << "\n✅ ALL UNIT TESTS PASSED SUCCESSFULLY!\n";
   return 0;

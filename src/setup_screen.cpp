@@ -1,4 +1,5 @@
 #include "setup_screen.h"
+#include "menu_layout.h"
 #include <string.h>
 #include <qrcode.h>
 
@@ -467,8 +468,8 @@ void renderPairingCodeScreen(uint8_t* buffer, const char* code, const char* serv
   }
 }
 
-// ─── 3. Settings Menu (8 Items with Orientation, Wi-Fi Power & Language) ─────
-void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t wifiTxLevel, uint8_t orientMode, bool hasImu, int batteryPct, bool isCharging, bool isUsbPower) {
+// ─── 3. Settings Menu (9 Items with Orientation, Refresh Mode, Wi-Fi Power & Language) ─────
+void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t wifiTxLevel, uint8_t orientMode, bool hasImu, int batteryPct, bool isCharging, bool isUsbPower, uint8_t refreshMode, bool supportsPartial) {
   gfx_fill(buffer, 1);
 
   // Header Banner
@@ -531,59 +532,77 @@ void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t
     snprintf(wifiPwrEN, sizeof(wifiPwrEN), "3. WI-FI POWER: MAX [19.5 dBm]");
   }
 
-  const char* menuItemsDE[8] = {
+  char refreshDE[64];
+  char refreshEN[64];
+  if (supportsPartial) {
+    if (refreshMode == 0) {
+      snprintf(refreshDE, sizeof(refreshDE), "4. BILD-REFRESH: PARTIELL [6:1]");
+      snprintf(refreshEN, sizeof(refreshEN), "4. REFRESH MODE: SMART PARTIAL [6:1]");
+    } else {
+      snprintf(refreshDE, sizeof(refreshDE), "4. BILD-REFRESH: IMMER VOLL");
+      snprintf(refreshEN, sizeof(refreshEN), "4. REFRESH MODE: ALWAYS FULL");
+    }
+  } else {
+    snprintf(refreshDE, sizeof(refreshDE), "4. BILD-REFRESH: NUR VOLL (SPECTRA 6)");
+    snprintf(refreshEN, sizeof(refreshEN), "4. REFRESH MODE: FULL ONLY (SPECTRA 6)");
+  }
+
+  const char* menuItemsDE[9] = {
     "1. STATUS & INFO",
     orientDE,
     wifiPwrDE,
-    "4. SPRACHE: DEUTSCH [DE]",
-    "5. GERAET ENTKOPPELN (UNPAIR)",
-    "6. AUSSCHALTEN / STANDBY",
-    "7. WERKSEINSTELLUNGEN (RESET)",
-    "8. ZURUECK / SCHLIESSEN"
+    refreshDE,
+    "5. SPRACHE: DEUTSCH [DE]",
+    "6. GERAET ENTKOPPELN (UNPAIR)",
+    "7. AUSSCHALTEN / STANDBY",
+    "8. WERKSEINSTELLUNGEN (RESET)",
+    "9. ZURUECK / SCHLIESSEN"
   };
 
-  const char* menuItemsEN[8] = {
+  const char* menuItemsEN[9] = {
     "1. STATUS & INFO",
     orientEN,
     wifiPwrEN,
-    "4. LANGUAGE: ENGLISH [EN]",
-    "5. UNPAIR DEVICE",
-    "6. POWER OFF / STANDBY",
-    "7. FACTORY RESET",
-    "8. BACK / CLOSE"
+    refreshEN,
+    "5. LANGUAGE: ENGLISH [EN]",
+    "6. UNPAIR DEVICE",
+    "7. POWER OFF / STANDBY",
+    "8. FACTORY RESET",
+    "9. BACK / CLOSE"
   };
 
   const char** menuItems = (lang == LANG_DE) ? menuItemsDE : menuItemsEN;
 
-  int startY = 60;
-  int itemH = 38;
-  int itemGap = 5;
-  int itemW = s_epd_width - 60;
-  int itemX = 30;
+  int startY = MENU_START_Y;
+  int itemH = MENU_ITEM_HEIGHT;
+  int itemGap = MENU_ITEM_GAP;
+  int itemW = s_epd_width - (2 * MENU_ITEM_MARGIN_X);
+  int itemX = MENU_ITEM_MARGIN_X;
 
-  for (int i = 0; i < 8; i++) {
-    int y = startY + i * (itemH + itemGap);
+  for (int i = 0; i < MENU_ITEM_COUNT; i++) {
+    int y = startY + i * MENU_ITEM_PITCH;
     if (i == selectedIndex) {
       gfx_fill_rect(buffer, itemX, y, itemW, itemH, 0);
       char selText[64];
       snprintf(selText, sizeof(selText), "> %s", menuItems[i]);
-      gfx_draw_string(buffer, itemX + 20, y + 11, selText, 1, 2);
+      gfx_draw_string(buffer, itemX + 20, y + 9, selText, 1, 2);
     } else {
       gfx_draw_rect(buffer, itemX, y, itemW, itemH, 0);
       char normText[64];
       snprintf(normText, sizeof(normText), "  %s", menuItems[i]);
-      gfx_draw_string(buffer, itemX + 20, y + 11, normText, 0, 2);
+      gfx_draw_string(buffer, itemX + 20, y + 9, normText, 0, 2);
     }
   }
 
   // Footer Navigation Hint
-  gfx_fill_rect(buffer, 0, s_epd_height - 56, s_epd_width, 56, 0);
+  const int footerY = s_epd_height - MENU_FOOTER_HEIGHT;
+  gfx_fill_rect(buffer, 0, footerY, s_epd_width, MENU_FOOTER_HEIGHT, 0);
   if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 30, s_epd_height - 38, "[ UP / DOWN ]: Navigieren", 1, 2);
-    gfx_draw_string(buffer, 500, s_epd_height - 38, "[ OK ]: Auswaehlen", 1, 2);
+    gfx_draw_string(buffer, 30, footerY + 18, "[ UP / DOWN ]: Navigieren", 1, 2);
+    gfx_draw_string(buffer, 500, footerY + 18, "[ OK ]: Auswaehlen", 1, 2);
   } else {
-    gfx_draw_string(buffer, 30, s_epd_height - 38, "[ UP / DOWN ]: Navigate", 1, 2);
-    gfx_draw_string(buffer, 520, s_epd_height - 38, "[ OK ]: Select", 1, 2);
+    gfx_draw_string(buffer, 30, footerY + 18, "[ UP / DOWN ]: Navigate", 1, 2);
+    gfx_draw_string(buffer, 520, footerY + 18, "[ OK ]: Select", 1, 2);
   }
 }
 
@@ -1359,12 +1378,77 @@ void rotate_nibble_portrait(const uint8_t *src, uint8_t *dst, uint16_t src_w, ui
   }
 }
 
+void rotate_gray4_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height) {
+  if (!source || !destination) return;
+  const size_t stride = (width + 3) / 4U;
+  for (uint16_t y = 0; y < height; ++y) {
+    const size_t src_row = y * stride;
+    const size_t dst_row = (height - 1U - y) * stride;
+    for (size_t x = 0; x < stride; ++x) {
+      uint8_t b = source[src_row + (stride - 1U - x)];
+      b = ((b & 0x03) << 6) | ((b & 0x0C) << 2) | ((b & 0x30) >> 2) | ((b & 0xC0) >> 6);
+      destination[dst_row + x] = b;
+    }
+  }
+}
+
+void rotate_gray4_portrait(const uint8_t *src, uint8_t *dst, uint16_t src_w, uint16_t src_h, bool flip) {
+  if (!src || !dst) return;
+  const size_t src_stride = (src_w + 3) / 4U;
+  const size_t dst_stride = (src_h + 3) / 4U;
+  memset(dst, 0xFF, dst_stride * src_w);
+
+  for (uint16_t sy = 0; sy < src_h; ++sy) {
+    const size_t src_row = sy * src_stride;
+    for (uint16_t sx = 0; sx < src_w; ++sx) {
+      uint8_t src_byte = src[src_row + (sx >> 2)];
+      uint8_t shift = 6U - ((sx & 3U) * 2U);
+      uint8_t val = (src_byte >> shift) & 0x03U;
+
+      uint16_t dx, dy;
+      if (!flip) {
+        dx = (src_h - 1U) - sy;
+        dy = sx;
+      } else {
+        dx = sy;
+        dy = (src_w - 1U) - sx;
+      }
+
+      uint8_t dst_shift = 6U - ((dx & 3U) * 2U);
+      size_t dst_idx = dy * dst_stride + (dx >> 2);
+      dst[dst_idx] = (dst[dst_idx] & ~(0x03U << dst_shift)) | (val << dst_shift);
+    }
+  }
+}
+
 void rotate_buffer_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height) {
 #if (DEVICE_COLOR_MODE == COLOR_MODE_SPECTRA6) || (DEVICE_COLOR_MODE == COLOR_MODE_GRAY16)
   rotate_nibble_180(source, destination, width, height);
+#elif (DEVICE_COLOR_MODE == COLOR_MODE_GRAY4)
+  rotate_gray4_180(source, destination, width, height);
 #else
   rotate_mono_180(source, destination, width, height);
 #endif
+}
+
+void rotate_buffer_180_mode(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height, uint8_t colorMode) {
+  if (colorMode == COLOR_MODE_GRAY4) {
+    rotate_gray4_180(source, destination, width, height);
+  } else if (colorMode == COLOR_MODE_SPECTRA6 || colorMode == COLOR_MODE_GRAY16) {
+    rotate_nibble_180(source, destination, width, height);
+  } else {
+    rotate_mono_180(source, destination, width, height);
+  }
+}
+
+void rotate_buffer_portrait_mode(const uint8_t *src, uint8_t *dst, uint16_t src_w, uint16_t src_h, bool flip, uint8_t colorMode) {
+  if (colorMode == COLOR_MODE_GRAY4) {
+    rotate_gray4_portrait(src, dst, src_w, src_h, flip);
+  } else if (colorMode == COLOR_MODE_SPECTRA6 || colorMode == COLOR_MODE_GRAY16) {
+    rotate_nibble_portrait(src, dst, src_w, src_h, flip);
+  } else {
+    rotate_mono_portrait(src, dst, src_w, src_h, flip);
+  }
 }
 
 

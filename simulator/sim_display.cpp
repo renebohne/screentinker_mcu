@@ -212,17 +212,40 @@ void SimDisplay::updateDimensions(int width, int height) {
 }
 
 bool SimDisplay::pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerToggled, bool& rotateRequested) {
+  bool dummyForceFull = false;
+  int dummyTx = 0, dummyTy = 0;
+  bool dummyClicked = false;
+  return pollEvents(wakeRequested, batteryDelta, powerToggled, rotateRequested, dummyForceFull, dummyTx, dummyTy, dummyClicked);
+}
+
+bool SimDisplay::pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerToggled, bool& rotateRequested, bool& forceFullRequested) {
+  int dummyTx = 0, dummyTy = 0;
+  bool dummyClicked = false;
+  return pollEvents(wakeRequested, batteryDelta, powerToggled, rotateRequested, forceFullRequested, dummyTx, dummyTy, dummyClicked);
+}
+
+bool SimDisplay::pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerToggled, bool& rotateRequested, bool& forceFullRequested, int& touchX, int& touchY, bool& touchClicked) {
   if (m_headless) return true;
 
   wakeRequested = false;
   batteryDelta = 0;
   powerToggled = false;
   rotateRequested = false;
+  forceFullRequested = false;
+  touchX = 0;
+  touchY = 0;
+  touchClicked = false;
 
   SDL_Event event;
   while (SDL_PollEvent(&event)) {
     if (event.type == SDL_QUIT) {
       return false; // Exit simulator
+    }
+    if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT) {
+      touchX = event.button.x / m_scale;
+      touchY = event.button.y / m_scale;
+      touchClicked = true;
+      wakeRequested = true;
     }
     if (event.type == SDL_KEYDOWN) {
       switch (event.key.keysym.sym) {
@@ -233,6 +256,18 @@ bool SimDisplay::pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerT
         case SDLK_RETURN:
           wakeRequested = true;
           std::cout << "[Simulator] Manual wake-up triggered by keypress!\n";
+          break;
+        case SDLK_f:
+          forceFullRequested = true;
+          wakeRequested = true;
+          std::cout << "[Simulator] Force full refresh triggered by keypress ('F')!\n";
+          break;
+        case SDLK_m:
+          std::cout << "[Simulator] System Menu hotkey ('M') triggered!\n";
+          touchClicked = true;
+          touchX = 50;
+          touchY = m_height - 10; // Footer tap: opens menu when closed, hits BACK/CLOSE when open
+          wakeRequested = true;
           break;
         case SDLK_r:
         case SDLK_o:

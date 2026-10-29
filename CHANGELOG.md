@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-10-29
+
+### Added
+- **Capacitive Touchscreen Navigation for System Menu & Status**:
+  - GT911 hardware initialization sequence with 50 ms `INT` LOW synchronization hold and 100 kHz I2C mode for reliable capacitive scanning engine startup.
+  - Direct touch hit-testing for System Menu items 0–8 and tap-to-return from Status screen.
+
+### Changed
+- **Touch Interaction Scope**:
+  - Restricted touchscreen processing exclusively to the on-screen System Menu and Status Screen; touching the active image / slide no longer opens settings.
+  - System Menu can only be opened via the physical hardware OK button (`PIN_BTN_OK`, GPIO 4) or serial command.
+  - Placed touch controller in low-power sleep mode during slide display to conserve battery and eliminate unnecessary I2C polling.
+- Bumped firmware version from `1.3.0` to `1.3.1`.
+
+### Fixed
+- **Battery Charging**: Enabled TI BQ25616 charger IC via `PIN_CHG_EN` (GPIO 7) and held low across deep sleep so connected batteries charge while running or in deep sleep.
+
 ## [1.3.0] - 2026-10-13
 
 ### Added

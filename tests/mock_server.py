@@ -304,6 +304,7 @@ class MockRequestHandler(BaseHTTPRequestHandler):
                     self.send_header("X-ST-Orientation", orient)
                 if rot is not None:
                     self.send_header("X-ST-Rotation", str(rot))
+                self.send_header("X-ST-Color-Mode", self.state.color_mode)
                 if cmd_to_send:
                     self.send_header("X-ST-Command", cmd_to_send)
                 self.end_headers()
@@ -323,6 +324,7 @@ class MockRequestHandler(BaseHTTPRequestHandler):
                 self.send_header("X-ST-Orientation", orient)
             if rot is not None:
                 self.send_header("X-ST-Rotation", str(rot))
+            self.send_header("X-ST-Color-Mode", self.state.color_mode)
             if self.state.refresh_mode_header:
                 self.send_header("X-ST-Refresh-Mode", self.state.refresh_mode_header)
             if cmd_to_send:

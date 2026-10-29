@@ -16,7 +16,10 @@ public:
   void renderBuffer(const uint8_t* buffer);
   bool saveBmp(const uint8_t* buffer, const std::string& path);
   bool pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerToggled, bool& rotateRequested);
+  bool pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerToggled, bool& rotateRequested, bool& forceFullRequested);
+  bool pollEvents(bool& wakeRequested, int& batteryDelta, bool& powerToggled, bool& rotateRequested, bool& forceFullRequested, int& touchX, int& touchY, bool& touchClicked);
   void updateDimensions(int width, int height);
+  void setColorMode(SimColorMode mode) { m_colorMode = mode; }
 
   int width() const { return m_width; }
   int height() const { return m_height; }

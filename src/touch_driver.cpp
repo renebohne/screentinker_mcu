@@ -118,22 +118,28 @@ bool touch_init() {
 #endif
 
   // GT911 reset timing for 0x5D slave address selection:
-  // Hold INT LOW while RST transitions from LOW to HIGH
+  // Hold INT LOW while RST transitions from LOW to HIGH, then hold INT LOW 50ms to synchronize scanning
 #ifdef PIN_TOUCH_RST
   digitalWrite(PIN_TOUCH_RST, LOW);
-  delay(10);
+  delay(20);
+  digitalWrite(PIN_TOUCH_INT, LOW);
+  delay(1);
   digitalWrite(PIN_TOUCH_RST, HIGH);
   delay(10);
+  digitalWrite(PIN_TOUCH_INT, LOW);
+  delay(50);
 #endif
 
 #ifdef PIN_TOUCH_INT
   pinMode(PIN_TOUCH_INT, INPUT);
+  delay(10);
 #endif
-  delay(50);
 
-  // Initialize I2C interface
+  // Initialize I2C interface at 100 kHz standard mode with pullups
 #if defined(PIN_TOUCH_SDA) && defined(PIN_TOUCH_SCL)
-  TOUCH_WIRE.begin(PIN_TOUCH_SDA, PIN_TOUCH_SCL, 400000);
+  pinMode(PIN_TOUCH_SDA, INPUT_PULLUP);
+  pinMode(PIN_TOUCH_SCL, INPUT_PULLUP);
+  TOUCH_WIRE.begin(PIN_TOUCH_SDA, PIN_TOUCH_SCL, 100000);
 #else
   TOUCH_WIRE.begin();
 #endif

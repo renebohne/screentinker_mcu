@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Placed touch controller in low-power sleep mode during slide display to conserve battery and eliminate unnecessary I2C polling.
 - Bumped firmware version from `1.3.0` to `1.3.1`.
 
+### Fixed
+- **Battery Charging**: Enabled TI BQ25616 charger IC via `PIN_CHG_EN` (GPIO 7) and held low across deep sleep so connected batteries charge while running or in deep sleep.
+
 ## [1.3.0] - 2026-10-13
 
 ### Added

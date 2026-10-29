@@ -1975,6 +1975,7 @@ void setup() {
 #if DEVICE_SUPPORTS_TOUCH
   if (touch_init()) {
     Serial.println("[Touch] Capacitive touch digitizer initialized.");
+    touch_sleep();
   } else {
     Serial.println("[Touch] Capacitive touch digitizer not detected.");
   }
@@ -2380,7 +2381,8 @@ void loop() {
 
 #if DEVICE_SUPPORTS_TOUCH
   // Capacitive Touch Digitizer Handling (Sticky & E1003)
-  if (s_inSystemMenu || s_inStatusScreen || (isUsbPowerConnected() && isConfigured && isPaired)) {
+  // Only active while in System Menu or Status Screen; image display is not affected by touch
+  if (s_inSystemMenu || s_inStatusScreen) {
     touch_point_t tp;
     if (touch_read(&tp)) {
       static bool s_touchWasPressed = false;
@@ -2404,16 +2406,6 @@ void loop() {
             s_menuSelection = hit;
             executeMenuAction(s_menuSelection);
           }
-        } else if (!s_inSystemMenu && !s_inStatusScreen) {
-          // Tap on screen while displaying slide on mains power -> open system menu
-          Serial.printf("\n>>> [Touch] Screen tapped at (%d, %d) -> Opening System Menu!\n", tp.x, tp.y);
-          s_inInteractiveMode = true;
-          s_interactiveUntilMillis = millis() + 30000;
-          s_inSystemMenu = true;
-          s_inStatusScreen = false;
-          s_menuSelection = 0;
-          s_menuOpenMillis = millis();
-          showSystemMenu(s_menuSelection, false);
         }
       } else if (!tp.pressed) {
         s_touchWasPressed = false;

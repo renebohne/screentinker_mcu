@@ -30,8 +30,14 @@
 
 // ─── PSRAM Cache & Power Management ──────────────────────────────────────────
 #ifndef MAX_CACHED_ITEMS
+#if defined(DEVICE_IS_LED_STRIP)
+#define MAX_CACHED_ITEMS      4
+#elif defined(BOARD_HAS_PSRAM)
 // Up to 4MB total cache in 8MB PSRAM (32 frames for 48KB, 20 for 192KB, 3 for 1.31MB, 4 for 960KB)
 #define MAX_CACHED_ITEMS      ((4000000 / EPD_BUFFER_SIZE) > 32 ? 32 : ((4000000 / EPD_BUFFER_SIZE) < 2 ? 2 : (4000000 / EPD_BUFFER_SIZE)))
+#else
+#define MAX_CACHED_ITEMS      2
+#endif
 #endif
 #define DEFAULT_SLEEP_SEC     30   // Default sync interval in seconds
 #define HTTP_TIMEOUT_MS       15000

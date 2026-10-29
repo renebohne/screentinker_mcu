@@ -6,12 +6,20 @@
 #include <esp_heap_caps.h>
 #include <driver/gpio.h>
 #include <driver/spi_master.h>
+#include <esp_wifi.h>
 
+#include "device_profile.h"
+
+#if !defined(DEVICE_IS_LED_STRIP)
 extern "C" {
 #include "epaper_panel.h"
 }
-
-#include "device_profile.h"
+#else
+#include "led_driver.h"
+#include "oled_status.h"
+typedef void* seeed_epaper_panel_handle_t;
+inline void seeed_epaper_panel_sleep(seeed_epaper_panel_handle_t) {}
+#endif
 #include "config.h"
 #include "setup_screen.h"
 #include "imu_driver.h"
@@ -61,7 +69,7 @@ static int readBatteryPercent() {
 }
 
 static bool isUsbPowerConnected() {
-#ifdef PIN_EXT_POWER
+#if defined(PIN_EXT_POWER) && (PIN_EXT_POWER >= 0)
   pinMode(PIN_EXT_POWER, INPUT);
   return digitalRead(PIN_EXT_POWER) == HIGH;
 #else
@@ -70,7 +78,7 @@ static bool isUsbPowerConnected() {
 }
 
 static bool isBatteryCharging() {
-#ifdef PIN_CHG_STAT
+#if defined(PIN_CHG_STAT) && (PIN_CHG_STAT >= 0)
   pinMode(PIN_CHG_STAT, INPUT_PULLUP);
   return isUsbPowerConnected() && (digitalRead(PIN_CHG_STAT) == LOW);
 #else
@@ -257,87 +265,106 @@ static int getNextCachedItemIndex(int currentIndex) {
 
 // ─── Board Power & GPIO Unhold ────────────────────────────────────────────────
 void initBoardPowerAndPins() {
+#if !defined(SOC_GPIO_SUPPORT_HOLD_SINGLE_IO_IN_DSLP) || !SOC_GPIO_SUPPORT_HOLD_SINGLE_IO_IN_DSLP
   gpio_deep_sleep_hold_dis();
+#endif
 
-#ifdef PIN_PWR_HOLD
+#if defined(PIN_WIFI_ENABLE)
+  pinMode(PIN_WIFI_ENABLE, OUTPUT);
+  digitalWrite(PIN_WIFI_ENABLE, LOW); // Active LOW = enable RF circuitry on XIAO ESP32-C6
+  Serial.println("[Radio] RF Switch power enabled (GPIO 3 = LOW).");
+#endif
+#if defined(PIN_WIFI_ANT_CONFIG)
+  pinMode(PIN_WIFI_ANT_CONFIG, OUTPUT);
+  s_prefs.begin("screentinker", true);
+  uint8_t antMode = s_prefs.getUChar("wifi_ant", 0);
+  s_prefs.end();
+  digitalWrite(PIN_WIFI_ANT_CONFIG, antMode ? HIGH : LOW); // 0 = internal ceramic, 1 = external u.FL
+  Serial.printf("[Radio] Antenna set to %s (GPIO 14 = %d).\n", antMode ? "external" : "internal ceramic", antMode ? 1 : 0);
+#endif
+#if defined(PIN_WIFI_ENABLE) || defined(PIN_WIFI_ANT_CONFIG)
+  delay(100);
+#endif
+
+#if defined(PIN_PWR_HOLD) && (PIN_PWR_HOLD >= 0)
   gpio_hold_dis((gpio_num_t)PIN_PWR_HOLD);
   pinMode(PIN_PWR_HOLD, OUTPUT);
   digitalWrite(PIN_PWR_HOLD, HIGH);
 #endif
-#ifdef PIN_PWR_LOCK
+#if defined(PIN_PWR_LOCK) && (PIN_PWR_LOCK >= 0)
   gpio_hold_dis((gpio_num_t)PIN_PWR_LOCK);
   pinMode(PIN_PWR_LOCK, OUTPUT);
   digitalWrite(PIN_PWR_LOCK, HIGH);
 #endif
-#ifdef PIN_CHG_EN
+#if defined(PIN_CHG_EN) && (PIN_CHG_EN >= 0)
   gpio_hold_dis((gpio_num_t)PIN_CHG_EN);
   pinMode(PIN_CHG_EN, OUTPUT);
   digitalWrite(PIN_CHG_EN, LOW); // Active LOW: enables BQ25616 battery charging
 #endif
-#ifdef PIN_CHG_STAT
+#if defined(PIN_CHG_STAT) && (PIN_CHG_STAT >= 0)
   pinMode(PIN_CHG_STAT, INPUT_PULLUP);
 #endif
 
-#ifdef PIN_SD_CS
+#if defined(PIN_SD_CS) && (PIN_SD_CS >= 0)
   gpio_hold_dis((gpio_num_t)PIN_SD_CS);
   pinMode(PIN_SD_CS, OUTPUT);
   digitalWrite(PIN_SD_CS, HIGH);
 #endif
-#ifdef PIN_SD_EN
+#if defined(PIN_SD_EN) && (PIN_SD_EN >= 0)
   gpio_hold_dis((gpio_num_t)PIN_SD_EN);
   pinMode(PIN_SD_EN, OUTPUT);
   digitalWrite(PIN_SD_EN, HIGH);
 #endif
-#ifdef PIN_SD_DETECT
+#if defined(PIN_SD_DETECT) && (PIN_SD_DETECT >= 0)
   gpio_hold_dis((gpio_num_t)PIN_SD_DETECT);
 #endif
 
-#ifdef PIN_EPD_PWR_EN
+#if defined(PIN_EPD_PWR_EN) && (PIN_EPD_PWR_EN >= 0)
   gpio_hold_dis((gpio_num_t)PIN_EPD_PWR_EN);
   pinMode(PIN_EPD_PWR_EN, OUTPUT);
   digitalWrite(PIN_EPD_PWR_EN, HIGH);
 #endif
-#ifdef PIN_EPD_TFT_EN
+#if defined(PIN_EPD_TFT_EN) && (PIN_EPD_TFT_EN >= 0)
   gpio_hold_dis((gpio_num_t)PIN_EPD_TFT_EN);
   pinMode(PIN_EPD_TFT_EN, OUTPUT);
   digitalWrite(PIN_EPD_TFT_EN, HIGH);
 #endif
-#ifdef PIN_EPD_ITE_EN
+#if defined(PIN_EPD_ITE_EN) && (PIN_EPD_ITE_EN >= 0)
   gpio_hold_dis((gpio_num_t)PIN_EPD_ITE_EN);
   pinMode(PIN_EPD_ITE_EN, OUTPUT);
   digitalWrite(PIN_EPD_ITE_EN, HIGH);
 #endif
-#ifdef PIN_EPD_ENABLE
+#if defined(PIN_EPD_ENABLE) && (PIN_EPD_ENABLE >= 0)
   gpio_hold_dis((gpio_num_t)PIN_EPD_ENABLE);
   pinMode(PIN_EPD_ENABLE, OUTPUT);
   digitalWrite(PIN_EPD_ENABLE, HIGH);
 #endif
-#ifdef PIN_BATT_EN
+#if defined(PIN_BATT_EN) && (PIN_BATT_EN >= 0)
   gpio_hold_dis((gpio_num_t)PIN_BATT_EN);
   pinMode(PIN_BATT_EN, OUTPUT);
   digitalWrite(PIN_BATT_EN, HIGH);
 #endif
 
-#ifdef PIN_TOUCH_EN
+#if defined(PIN_TOUCH_EN) && (PIN_TOUCH_EN >= 0)
   gpio_hold_dis((gpio_num_t)PIN_TOUCH_EN);
 #endif
-#ifdef PIN_TOUCH_RST
+#if defined(PIN_TOUCH_RST) && (PIN_TOUCH_RST >= 0)
   gpio_hold_dis((gpio_num_t)PIN_TOUCH_RST);
 #endif
-#ifdef PIN_BUZZER
+#if defined(PIN_BUZZER) && (PIN_BUZZER >= 0)
   gpio_hold_dis((gpio_num_t)PIN_BUZZER);
 #endif
 
   // Buttons (Active LOW with internal pullup)
-#ifdef PIN_BTN_OK
+#if defined(PIN_BTN_OK) && (PIN_BTN_OK >= 0)
   gpio_hold_dis((gpio_num_t)PIN_BTN_OK);
   pinMode(PIN_BTN_OK, INPUT_PULLUP);
 #endif
-#ifdef PIN_BTN_UP
+#if defined(PIN_BTN_UP) && (PIN_BTN_UP >= 0)
   gpio_hold_dis((gpio_num_t)PIN_BTN_UP);
   pinMode(PIN_BTN_UP, INPUT_PULLUP);
 #endif
-#ifdef PIN_BTN_DOWN
+#if defined(PIN_BTN_DOWN) && (PIN_BTN_DOWN >= 0)
   gpio_hold_dis((gpio_num_t)PIN_BTN_DOWN);
   pinMode(PIN_BTN_DOWN, INPUT_PULLUP);
 #endif
@@ -347,6 +374,9 @@ void initBoardPowerAndPins() {
 
 // ─── Display Driver HAL (Multi-Panel Unified Abstraction) ───────────────────
 static bool initDisplayPanel() {
+#if defined(DEVICE_IS_LED_STRIP)
+  return true;
+#else
   if (s_epdInitialized && s_panel != NULL) return true;
 
   spi_bus_config_t bus_config = {};
@@ -420,9 +450,14 @@ static bool initDisplayPanel() {
   s_epdInitialized = true;
   Serial.printf("[EPD] Display panel initialized (%s, model %d).\n", DEVICE_PROFILE_NAME, (int)DEVICE_PANEL_MODEL);
   return true;
+#endif
 }
 
 static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = false, uint8_t colorMode = DEVICE_COLOR_MODE) {
+#if defined(DEVICE_IS_LED_STRIP)
+  if (!rotatedBuf) return false;
+  return led_driver_show_rgb(rotatedBuf, DEVICE_BUFFER_SIZE, "GRB");
+#else
   if (!initDisplayPanel()) return false;
 
   const seeed_epaper_area_t full_screen = {0, 0, (uint16_t)EPD_WIDTH, (uint16_t)EPD_HEIGHT};
@@ -469,6 +504,7 @@ static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = fa
                 (int)colorMode, refElapsed, esp_err_to_name(refErr),
                 (colorMode == COLOR_MODE_GRAY4) ? " [OTP agitation waveform, clean cycle reset]" : "");
   return refErr == ESP_OK;
+#endif
 }
 
 static Language s_currentLang = LANG_EN;
@@ -543,47 +579,72 @@ void showImuDebugLetterScreen(int orient) {
 }
 
 void showSplashScreen(const char* version, const char* statusMsg) {
+#if defined(DEVICE_IS_LED_STRIP)
+  oled_show_status("ScreenTinker", 0, 0, 0, statusMsg ? statusMsg : "Starting...");
+  led_driver_pulse_status(0.2f, 0, 150, 255);
+#else
   if (!s_rawBuffer || !s_rotatedBuffer) return;
   Serial.printf("[Display] Rendering Splash Screen (v%s, %s)...\n", version ? version : FIRMWARE_VERSION, statusMsg ? statusMsg : "");
   renderSplashScreen(s_rawBuffer, version, statusMsg, s_currentLang);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, false);
+#endif
 }
 
 void showOnboardingScreen(Language lang = LANG_EN) {
   s_currentLang = lang;
+#if defined(DEVICE_IS_LED_STRIP)
+  oled_show_wifi("ScreenTinker-Setup", "Connect via WiFi");
+  led_driver_pulse_status(0.3f, 0, 150, 255);
+#else
   if (!s_rawBuffer || !s_rotatedBuffer) return;
   Serial.println("[Display] Rendering Onboarding Screen on E-Paper...");
   renderOnboardingScreen(s_rawBuffer, lang);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, false);
+#endif
 }
 
 void showNoWifiScreen(Language lang = LANG_EN) {
   s_currentLang = lang;
+#if defined(DEVICE_IS_LED_STRIP)
+  oled_show_wifi(g_wifiSsid.c_str(), "Connection Failed");
+  led_driver_pulse_status(0.1f, 255, 0, 0);
+#else
   if (!s_rawBuffer || !s_rotatedBuffer) return;
   Serial.println("[Display] Rendering No Wi-Fi Screen on E-Paper...");
   renderNoWifiScreen(s_rawBuffer, g_wifiSsid.c_str(), lang);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, false);
+#endif
 }
 
 void showEmptyPlaylistScreen(const char* deviceName = "", Language lang = LANG_EN) {
   s_currentLang = lang;
+#if defined(DEVICE_IS_LED_STRIP)
+  oled_show_status(deviceName, 0, 0, WiFi.RSSI(), "Empty Playlist");
+  led_driver_clear();
+#else
   if (!s_rawBuffer || !s_rotatedBuffer) return;
   Serial.printf("[Display] Rendering Empty Playlist Screen for '%s' on E-Paper...\n", deviceName ? deviceName : "");
   renderEmptyPlaylistScreen(s_rawBuffer, deviceName, g_serverUrl.c_str(), lang);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, false);
+#endif
 }
 
 void showOtaUpdateScreen(const char* statusMsg = nullptr, Language lang = LANG_EN) {
   s_currentLang = lang;
+#if defined(DEVICE_IS_LED_STRIP)
+  oled_show_status("ScreenTinker", 0, 0, WiFi.RSSI(), statusMsg ? statusMsg : "Updating OTA...");
+  led_driver_pulse_status(0.5f, 255, 200, 0);
+#else
   if (!s_rawBuffer || !s_rotatedBuffer) return;
   Serial.println("[Display] Rendering OTA Update Screen on E-Paper...");
   renderOtaUpdateScreen(s_rawBuffer, statusMsg, lang);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, false);
+#endif
 }
 
 static String s_activePairingCode = "";
@@ -592,11 +653,28 @@ static String s_activeClaimSecret = "";
 
 void showPairingCodeScreen(const char* code, Language lang = LANG_EN) {
   s_currentLang = lang;
+  Serial.println();
+  Serial.println("====================================================");
+  Serial.println("            SCREENTINKER PAIRING CODE");
+  Serial.printf("                  >>> %s <<<\n", code ? code : "WAITING");
+  Serial.println("  Enter this 6-digit code in your ScreenTinker UI");
+  Serial.printf("  Server: %s\n", g_serverUrl.c_str());
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("  Device IP: %s\n", WiFi.localIP().toString().c_str());
+  }
+  Serial.println("====================================================");
+  Serial.println();
+
+#if defined(DEVICE_IS_LED_STRIP)
+  oled_show_pairing(code, g_serverUrl.c_str(), (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString().c_str() : "No Wi-Fi");
+  led_driver_pulse_status(0.5f, 255, 140, 0);
+#else
   if (!s_rawBuffer || !s_rotatedBuffer) return;
   Serial.printf("[Display] Rendering Pairing Code Screen (Code: %s)...\n", code ? code : "");
   renderPairingCodeScreen(s_rawBuffer, code, g_serverUrl.c_str(), lang);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, false);
+#endif
 }
 
 // ─── Refresh Mode Policy ──────────────────────────────────────────────────────
@@ -702,23 +780,40 @@ void enterDeepSleepWithWakeup(uint32_t sleepSeconds) {
   delay(10);
 
   // Maintain board power latches across deep sleep
-#ifdef PIN_PWR_HOLD
+#if defined(PIN_PWR_HOLD) && (PIN_PWR_HOLD >= 0)
   gpio_hold_en((gpio_num_t)PIN_PWR_HOLD);
 #endif
-#ifdef PIN_PWR_LOCK
+#if defined(PIN_PWR_LOCK) && (PIN_PWR_LOCK >= 0)
   gpio_hold_en((gpio_num_t)PIN_PWR_LOCK);
 #endif
-#ifdef PIN_CHG_EN
+#if defined(PIN_CHG_EN) && (PIN_CHG_EN >= 0)
   gpio_hold_en((gpio_num_t)PIN_CHG_EN);
 #endif
+#if !defined(SOC_GPIO_SUPPORT_HOLD_SINGLE_IO_IN_DSLP) || !SOC_GPIO_SUPPORT_HOLD_SINGLE_IO_IN_DSLP
   gpio_deep_sleep_hold_en();
+#endif
 
   // 1. Timer Wakeup
   esp_sleep_enable_timer_wakeup((uint64_t)sleepSeconds * 1000000ULL);
 
-  // 2. Button Wakeup (OK, UP, DOWN on GPIO 4, 5, 6 - active LOW)
-  uint64_t btn_mask = (1ULL << PIN_BTN_OK) | (1ULL << PIN_BTN_UP) | (1ULL << PIN_BTN_DOWN);
-  esp_sleep_enable_ext1_wakeup(btn_mask, ESP_EXT1_WAKEUP_ANY_LOW);
+  // 2. Button Wakeup (OK, UP, DOWN on active LOW pins)
+  uint64_t btn_mask = 0;
+#if defined(PIN_BTN_OK) && (PIN_BTN_OK >= 0)
+  btn_mask |= (1ULL << PIN_BTN_OK);
+#endif
+#if defined(PIN_BTN_UP) && (PIN_BTN_UP >= 0)
+  btn_mask |= (1ULL << PIN_BTN_UP);
+#endif
+#if defined(PIN_BTN_DOWN) && (PIN_BTN_DOWN >= 0)
+  btn_mask |= (1ULL << PIN_BTN_DOWN);
+#endif
+  if (btn_mask != 0) {
+#if defined(SOC_PM_SUPPORT_EXT1_WAKEUP) && SOC_PM_SUPPORT_EXT1_WAKEUP
+    esp_sleep_enable_ext1_wakeup(btn_mask, ESP_EXT1_WAKEUP_ANY_LOW);
+#elif defined(SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP) && SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP
+    esp_deep_sleep_enable_gpio_wakeup(btn_mask, ESP_GPIO_WAKEUP_GPIO_LOW);
+#endif
+  }
 
 #if DEVICE_SUPPORTS_TOUCH
   touch_sleep();
@@ -782,13 +877,13 @@ void powerOffDevice(bool batteryDepleted = false) {
   delay(50);
   
   // Release hardware power latches (cuts battery power on battery mode)
-#ifdef PIN_PWR_HOLD
+#if defined(PIN_PWR_HOLD) && (PIN_PWR_HOLD >= 0)
   digitalWrite(PIN_PWR_HOLD, LOW);
 #endif
-#ifdef PIN_PWR_LOCK
+#if defined(PIN_PWR_LOCK) && (PIN_PWR_LOCK >= 0)
   digitalWrite(PIN_PWR_LOCK, LOW);
 #endif
-#ifdef PIN_CHG_EN
+#if defined(PIN_CHG_EN) && (PIN_CHG_EN >= 0)
   digitalWrite(PIN_CHG_EN, LOW);
   gpio_hold_en((gpio_num_t)PIN_CHG_EN);
 #endif
@@ -796,8 +891,14 @@ void powerOffDevice(bool batteryDepleted = false) {
   // If battery is depleted, do NOT enable OK button wakeup because waking with 0% battery drains the cell further
   // Only wake up when plugged into USB or external power!
   if (!batteryDepleted) {
-#ifdef PIN_BTN_OK
+#if defined(PIN_BTN_OK) && (PIN_BTN_OK >= 0)
+#if defined(SOC_PM_SUPPORT_EXT0_WAKEUP) && SOC_PM_SUPPORT_EXT0_WAKEUP
     esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_BTN_OK, 0);
+#elif defined(SOC_PM_SUPPORT_EXT1_WAKEUP) && SOC_PM_SUPPORT_EXT1_WAKEUP
+    esp_sleep_enable_ext1_wakeup(1ULL << PIN_BTN_OK, ESP_EXT1_WAKEUP_ANY_LOW);
+#elif defined(SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP) && SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP
+    esp_deep_sleep_enable_gpio_wakeup(1ULL << PIN_BTN_OK, ESP_GPIO_WAKEUP_GPIO_LOW);
+#endif
 #endif
     Serial.println("[Power] Power latch released. Entering Deep Sleep (Press OK to wake)...");
   } else {
@@ -1077,22 +1178,62 @@ void startCaptivePortal() {
 }
 
 // ─── Network & Power Management ───────────────────────────────────────────────
-bool connectWiFi(uint32_t timeoutMs = 20000) {
+void processSerialLine(const String& line);
+
+static void pollSerialInput() {
+  while (Serial.available() > 0) {
+    s_inInteractiveMode = true;
+    s_interactiveUntilMillis = millis() + 30000;
+    String line = Serial.readStringUntil('\n');
+    line.trim();
+    if (line.length() > 0) {
+      processSerialLine(line);
+    }
+  }
+}
+
+bool connectWiFi(uint32_t timeoutMs = 15000) {
   if (WiFi.status() == WL_CONNECTED) return true;
   if (g_wifiSsid.length() == 0 || g_wifiSsid == "Your-WiFi-SSID") {
     Serial.println("[WiFi] No valid SSID configured. Use Serial / Web-Flasher to configure.");
     return false;
   }
 
-  Serial.printf("[WiFi] Connecting to '%s'...", g_wifiSsid.c_str());
+  Serial.printf("[WiFi] Connecting to '%s'...\n", g_wifiSsid.c_str());
+#if defined(PIN_WIFI_ENABLE)
+  pinMode(PIN_WIFI_ENABLE, OUTPUT);
+  digitalWrite(PIN_WIFI_ENABLE, LOW); // Active LOW: powers on RF frontend switch on XIAO ESP32-C6!
+#endif
+#if defined(PIN_WIFI_ANT_CONFIG)
+  pinMode(PIN_WIFI_ANT_CONFIG, OUTPUT);
+  s_prefs.begin("screentinker", true);
+  uint8_t currentAnt = s_prefs.getUChar("wifi_ant", 0);
+  s_prefs.end();
+  digitalWrite(PIN_WIFI_ANT_CONFIG, currentAnt ? HIGH : LOW);
+#endif
+#if defined(PIN_WIFI_ENABLE) || defined(PIN_WIFI_ANT_CONFIG)
+  delay(100);
+#endif
+
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
+
+#if defined(CONFIG_IDF_TARGET_ESP32C6) || defined(ARDUINO_XIAO_ESP32C6)
+  wifi_country_t country = {
+      .cc = "DE",
+      .schan = 1,
+      .nchan = 13,
+      .max_tx_power = 20,
+      .policy = WIFI_COUNTRY_POLICY_MANUAL
+  };
+  esp_wifi_set_country(&country);
+  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AX);
+#endif
+
   wifi_power_t pwrEnum = (s_wifiTxPowerLevel == 1) ? WIFI_POWER_15dBm :
                          (s_wifiTxPowerLevel == 2) ? WIFI_POWER_11dBm : WIFI_POWER_19_5dBm;
   WiFi.setTxPower(pwrEnum);
   WiFi.setSleep(false);
-  WiFi.disconnect();
-  delay(100);
 
   if (g_wifiPass.length() > 0) {
     WiFi.begin(g_wifiSsid.c_str(), g_wifiPass.c_str());
@@ -1103,9 +1244,29 @@ bool connectWiFi(uint32_t timeoutMs = 20000) {
   uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED) {
     delay(300);
+    pollSerialInput();
     Serial.print(".");
     if (millis() - start > timeoutMs) {
       Serial.printf("\n[WiFi] Connection timeout (Status: %d)\n", WiFi.status());
+
+      WiFi.disconnect(true);
+      delay(200);
+
+      Serial.println("[WiFi] Performing diagnostic scan of nearby networks (Internal antenna)...");
+#if defined(PIN_WIFI_ANT_CONFIG)
+      digitalWrite(PIN_WIFI_ANT_CONFIG, LOW);
+      delay(50);
+#endif
+      int n = WiFi.scanNetworks(false, true);
+      Serial.printf("[WiFi] Found %d visible networks:\n", n);
+      for (int i = 0; i < n; i++) {
+        Serial.printf("  - '%s' (RSSI: %d dBm, Ch: %d)\n", WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i));
+      }
+      WiFi.scanDelete();
+
+#if defined(PIN_WIFI_ANT_CONFIG)
+      digitalWrite(PIN_WIFI_ANT_CONFIG, currentAnt ? HIGH : LOW);
+#endif
       return false;
     }
   }
@@ -1495,6 +1656,9 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     http.end();
     disconnectWiFiIfPowerSave();
     ota_confirm_running_partition();
+#if defined(DEVICE_IS_LED_STRIP)
+    oled_show_status("LED Strip", resolvedIndex, s_totalItems, curRssi, "304 Unchanged");
+#endif
     // If playlist advanced to another item that is in cache, display it without re-downloading
     uint8_t cachedColorMode = DEVICE_COLOR_MODE;
     size_t cachedFrameSize = 0;
@@ -1543,7 +1707,14 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     uint8_t activeColorMode = DEVICE_COLOR_MODE;
     size_t expectedSize = EPD_BUFFER_SIZE;
 
-#if DEVICE_SUPPORTS_GRAY4
+#if defined(DEVICE_IS_LED_STRIP)
+    int httpContentLen = http.getSize();
+    if (httpContentLen > 0) {
+      expectedSize = min((size_t)httpContentLen, (size_t)DEVICE_BUFFER_SIZE);
+    } else {
+      expectedSize = DEVICE_BUFFER_SIZE;
+    }
+#elif DEVICE_SUPPORTS_GRAY4
     const size_t monoExpectedSize = ((size_t)EPD_WIDTH * EPD_HEIGHT) / 8;
     const size_t gray4ExpectedSize = ((size_t)EPD_WIDTH * EPD_HEIGHT) / 4;
     int httpContentLen = http.getSize();
@@ -1586,8 +1757,19 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
 
     http.end();
     Serial.printf("[Sync] Received %u / %u bytes (colorMode=%s).\n",
-                  totalReceived, expectedSize, (activeColorMode == COLOR_MODE_GRAY4) ? "gray4" : "mono");
+                  totalReceived, expectedSize, (activeColorMode == COLOR_MODE_GRAY4) ? "gray4" : ((activeColorMode == COLOR_MODE_RGB888) ? "rgb888" : "mono"));
 
+#if defined(DEVICE_IS_LED_STRIP)
+    if (totalReceived > 0) {
+      String devName = http.hasHeader("X-ST-Device-Name") ? http.header("X-ST-Device-Name") : "LED Strip";
+      led_driver_show_rgb(s_rawBuffer, totalReceived, "GRB");
+      oled_show_status(devName.c_str(), s_currentItemIndex, s_totalItems, curRssi, "OK");
+      ota_confirm_running_partition();
+    } else {
+      Serial.printf("[Sync] Incomplete LED frame received (%u bytes)! Refresh aborted.\n", totalReceived);
+      checkOtaVerificationFailure("Incomplete frame received");
+    }
+#else
     if (totalReceived == expectedSize) {
       bool isSwapped = (serverW > 0 && serverH > 0 && (serverW != EPD_WIDTH || serverH != EPD_HEIGHT))
                        || (serverW == 0 && isPortraitFrame && EPD_WIDTH != EPD_HEIGHT);
@@ -1620,6 +1802,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
       Serial.printf("[Sync] Incomplete frame received (%u / %u bytes)! Refresh aborted.\n", totalReceived, expectedSize);
       checkOtaVerificationFailure("Incomplete frame received");
     }
+#endif
 
     disconnectWiFiIfPowerSave();
     return;
@@ -1843,10 +2026,16 @@ void processSerialLine(const String& line) {
   } else if (strcmp(cmd, "status") == 0) {
     float curT = -999.0f, curH = -1.0f;
     bool hasEnv = sht40_read(&curT, &curH);
-    Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"multi_zone\":%s,\"orient_mode\":%d,\"active_orient\":%d,\"temp_c\":%s,\"humidity\":%s,\"psram_free\":%u,\"rssi\":%d}\n",
+    Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"connected\":%s,\"ssid\":\"%s\",\"antenna\":\"%s\",\"device_id\":\"%s\",\"multi_zone\":%s,\"orient_mode\":%d,\"active_orient\":%d,\"temp_c\":%s,\"humidity\":%s,\"psram_free\":%u,\"rssi\":%d}\n",
                   FIRMWARE_VERSION,
                   WiFi.localIP().toString().c_str(),
                   WiFi.status() == WL_CONNECTED ? "true" : "false",
+                  g_wifiSsid.c_str(),
+#if defined(PIN_WIFI_ANT_CONFIG)
+                  digitalRead(PIN_WIFI_ANT_CONFIG) ? "external" : "internal",
+#else
+                  "default",
+#endif
                   g_deviceId.c_str(),
                   g_multiZone ? "true" : "false",
                   (int)s_orientationMode,
@@ -1953,6 +2142,43 @@ void processSerialLine(const String& line) {
     cacheClear();
     Serial.printf("{\"status\":\"ok\",\"v\":1,\"multi_zone\":%s}\n", g_multiZone ? "true" : "false");
     fetchAndRender(true);
+  } else if (strcmp(cmd, "scan") == 0 || strcmp(cmd, "wifi_scan") == 0) {
+    Serial.println("[WiFi] Scanning available networks...");
+    WiFi.disconnect(true);
+    delay(200);
+    WiFi.mode(WIFI_STA);
+#if defined(CONFIG_IDF_TARGET_ESP32C6) || defined(ARDUINO_XIAO_ESP32C6)
+    wifi_country_t country = {
+        .cc = "DE",
+        .schan = 1,
+        .nchan = 13,
+        .max_tx_power = 20,
+        .policy = WIFI_COUNTRY_POLICY_MANUAL
+    };
+    esp_wifi_set_country(&country);
+#endif
+    int n = WiFi.scanNetworks(false, true);
+    Serial.printf("{\"status\":\"ok\",\"v\":1,\"count\":%d,\"networks\":[", n);
+    for (int i = 0; i < n; i++) {
+      Serial.printf("{\"ssid\":\"%s\",\"rssi\":%d,\"channel\":%d}%s",
+                    WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i), (i == n - 1) ? "" : ",");
+    }
+    Serial.println("]}");
+    WiFi.scanDelete();
+  } else if (strcmp(cmd, "antenna") == 0) {
+#if defined(PIN_WIFI_ANT_CONFIG)
+    if (!doc["mode"].isNull()) {
+      int mode = doc["mode"].as<int>();
+      pinMode(PIN_WIFI_ANT_CONFIG, OUTPUT);
+      digitalWrite(PIN_WIFI_ANT_CONFIG, mode ? HIGH : LOW);
+      s_prefs.begin("screentinker", false);
+      s_prefs.putUChar("wifi_ant", (uint8_t)mode);
+      s_prefs.end();
+    }
+    Serial.printf("{\"status\":\"ok\",\"v\":1,\"antenna\":\"%s\"}\n", digitalRead(PIN_WIFI_ANT_CONFIG) ? "external" : "internal");
+#else
+    Serial.println("{\"status\":\"error\",\"v\":1,\"message\":\"Antenna switching not supported on this board\"}");
+#endif
   } else if (strcmp(cmd, "reset") == 0) {
     Serial.println("{\"status\":\"ok\",\"v\":1,\"message\":\"NVS wiped. Restarting device.\"}");
     delay(500);
@@ -1981,9 +2207,9 @@ void processSerialLine(const String& line) {
 // ─── Arduino Setup & Main Loop ────────────────────────────────────────────────
 void setup() {
   s_bootMillis = millis();
-  initBoardPowerAndPins();
   Serial.begin(115200);
-  delay(100);
+  delay(50);
+  initBoardPowerAndPins();
 
   diag_log_init();
   diag_log_printf(DIAG_LOG_INFO, "Boot", "ScreenTinker MCU v%s (%s) booting...", FIRMWARE_VERSION, DEVICE_PROFILE_NAME);
@@ -2004,6 +2230,10 @@ void setup() {
   initPsramBuffers();
 
   ensureI2C();
+#if defined(DEVICE_IS_LED_STRIP)
+  led_driver_init(5);
+  oled_status_init();
+#endif
   if (sht40_init()) {
     Serial.println("[SHT40] Sensirion SHT40 temperature & humidity sensor initialized.");
   } else {
@@ -2056,6 +2286,15 @@ void setup() {
   bool isConfigured = (g_wifiSsid.length() > 0 && g_wifiSsid != "Your-WiFi-SSID");
   bool isPaired = (isConfigured && g_deviceId.length() > 0 && g_deviceToken.length() > 0 && g_deviceId != "your-device-uuid");
 
+#if defined(DEVICE_IS_LED_STRIP)
+  static uint32_t lastPulseMillis = 0;
+  if (!isPaired && (millis() - lastPulseMillis > 30)) {
+    lastPulseMillis = millis();
+    float phase = (millis() % 3000) / 3000.0f;
+    led_driver_pulse_status(phase, 255, 140, 0); // Gentle amber breathing while awaiting pairing
+  }
+#endif
+
   if (wakeup_cause == ESP_SLEEP_WAKEUP_EXT1 || wakeup_cause == ESP_SLEEP_WAKEUP_EXT0) {
     // ─── Button Wakeup: Instant Responsiveness & Open System Menu ───
     Serial.println("\n>>> [Wakeup] Woken by Button Press! Opening System Menu in Interactive Mode...");
@@ -2102,7 +2341,7 @@ void setup() {
 
   // ─── Cold Boot / Reset ───
   Serial.println("\n=============================================");
-  Serial.printf("  ScreenTinker v%s — Seeed Studio reTerminal Sticky\n", FIRMWARE_VERSION);
+  Serial.printf("  ScreenTinker v%s — %s\n", FIRMWARE_VERSION, DEVICE_MODEL_NAME);
   Serial.println("  Adaptive Deep Sleep & Ultra-Low-Power Engine");
   Serial.println("=============================================");
 
@@ -2127,7 +2366,11 @@ void setup() {
     }
   } else {
     Serial.println("\n[Setup] No Wi-Fi credentials configured.");
+#if defined(DEVICE_IS_LED_STRIP)
+    Serial.println("[Setup] Displaying Onboarding instructions on OLED / status LED...");
+#else
     Serial.println("[Setup] Displaying Onboarding instructions on E-Paper...");
+#endif
     showOnboardingScreen(s_currentLang);
     startCaptivePortal();
     Serial.println("[Setup] Options: Connect to Wi-Fi 'ScreenTinker-Setup' OR send JSON via Web-Flasher.");
@@ -2141,6 +2384,15 @@ static void executeMenuAction(int selection) {
   s_interactiveUntilMillis = millis() + 30000;
   bool isConfigured = (g_wifiSsid.length() > 0 && g_wifiSsid != "Your-WiFi-SSID");
   bool isPaired = (isConfigured && g_deviceId.length() > 0 && g_deviceToken.length() > 0 && g_deviceId != "your-device-uuid");
+
+#if defined(DEVICE_IS_LED_STRIP)
+  static uint32_t lastPulseMillis = 0;
+  if (!isPaired && (millis() - lastPulseMillis > 30)) {
+    lastPulseMillis = millis();
+    float phase = (millis() % 3000) / 3000.0f;
+    led_driver_pulse_status(phase, 255, 140, 0); // Gentle amber breathing while awaiting pairing
+  }
+#endif
   if (selection == 0) {
     // 0: Status & Info
     s_inSystemMenu = false;
@@ -2281,18 +2533,19 @@ void loop() {
   }
 
   // Check for incoming serial configuration commands
-  if (Serial.available() > 0) {
-    s_inInteractiveMode = true;
-    s_interactiveUntilMillis = millis() + 30000;
-    String line = Serial.readStringUntil('\n');
-    line.trim();
-    if (line.length() > 0) {
-      processSerialLine(line);
-    }
-  }
+  pollSerialInput();
 
   bool isConfigured = (g_wifiSsid.length() > 0 && g_wifiSsid != "Your-WiFi-SSID");
   bool isPaired = (isConfigured && g_deviceId.length() > 0 && g_deviceToken.length() > 0 && g_deviceId != "your-device-uuid");
+
+#if defined(DEVICE_IS_LED_STRIP)
+  static uint32_t lastPulseMillis = 0;
+  if (!isPaired && (millis() - lastPulseMillis > 30)) {
+    lastPulseMillis = millis();
+    float phase = (millis() % 3000) / 3000.0f;
+    led_driver_pulse_status(phase, 255, 140, 0); // Gentle amber breathing while awaiting pairing
+  }
+#endif
 
   // If Wi-Fi is configured but device is not paired yet, poll pairing status periodically (NOT in menu)
   static uint32_t lastPairCheckMillis = 0;
@@ -2361,6 +2614,7 @@ void loop() {
   static uint32_t lastBtnDown = 0;
   static uint32_t okPressStart = 0;
 
+#if defined(PIN_BTN_OK) && (PIN_BTN_OK >= 0)
   // Track OK Button state
   if (digitalRead(PIN_BTN_OK) == LOW) {
     if (okPressStart == 0) okPressStart = millis();
@@ -2418,6 +2672,7 @@ void loop() {
       }
     }
   }
+#endif
 
   // Interactive / Menu Inactivity Timeout: auto-exit to Deep Sleep after 30 seconds
   if (s_inInteractiveMode && (millis() > s_interactiveUntilMillis || ((s_inSystemMenu || s_inStatusScreen) && (millis() - s_menuOpenMillis > 30000)))) {
@@ -2470,6 +2725,7 @@ void loop() {
   }
 #endif
 
+#if defined(PIN_BTN_UP) && (PIN_BTN_UP >= 0)
   // UP Button (GPIO 5)
   if (digitalRead(PIN_BTN_UP) == LOW && millis() - lastBtnUp > 200) {
     lastBtnUp = millis();
@@ -2492,7 +2748,9 @@ void loop() {
       fetchAndRender(true, prev);
     }
   }
+#endif
 
+#if defined(PIN_BTN_DOWN) && (PIN_BTN_DOWN >= 0)
   // DOWN Button (GPIO 6)
   if (digitalRead(PIN_BTN_DOWN) == LOW && millis() - lastBtnDown > 200) {
     lastBtnDown = millis();
@@ -2515,6 +2773,7 @@ void loop() {
       fetchAndRender(true, next);
     }
   }
+#endif
 
   // Periodic Auto-Sync (Fallback if active in loop)
   if (!s_imuDebugScreen && !s_inSystemMenu && !s_inStatusScreen && isPaired && (millis() - s_lastSyncMillis > s_syncIntervalMs)) {

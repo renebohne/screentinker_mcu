@@ -11,6 +11,7 @@
 #define COLOR_MODE_GRAY4       1
 #define COLOR_MODE_GRAY16      2
 #define COLOR_MODE_SPECTRA6    3
+#define COLOR_MODE_RGB888      4
 
 // Note: touch-capable targets (DEVICE_SUPPORTS_TOUCH=1) auto-probe GT911 (0x5D/0x14)
 // and FT6336U (0x38) on the I2C bus at runtime; see src/touch_driver.cpp.
@@ -82,6 +83,24 @@
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   0
   #define DEVICE_SUPPORTS_TOUCH            0
   #define DEVICE_SUPPORTS_IMU              0
+
+#elif defined(DEVICE_XIAO_LED)
+  #include "pins_xiao_led.h"
+  #define DEVICE_PROFILE_NAME              "xiao_led"
+  #define DEVICE_MODEL_NAME                "Seeed Studio XIAO LED Controller"
+  #define DEVICE_SCREEN_PROFILE            "seeed-xiao-led"
+  #define DEVICE_DISPLAY_WIDTH             5
+  #define DEVICE_DISPLAY_HEIGHT            1
+  #define DEVICE_COLOR_MODE                COLOR_MODE_RGB888
+  #define DEVICE_PANEL_MODEL               0
+  #define DEVICE_BUFFER_SIZE               16384
+  #define DEVICE_SUPPORTS_PARTIAL_REFRESH  0
+  #define DEVICE_SUPPORTS_GRAY4            0
+  #define DEVICE_FULL_REFRESH_TIME_MS      20
+  #define DEVICE_PARTIAL_REFRESH_TIME_MS   20
+  #define DEVICE_SUPPORTS_TOUCH            0
+  #define DEVICE_SUPPORTS_IMU              0
+  #define DEVICE_IS_LED_STRIP              1
 
 #else
   // Default Target: Seeed Studio reTerminal Sticky

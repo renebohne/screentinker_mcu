@@ -37,23 +37,25 @@ static void ensureI2C() {
   }
 }
 
-static int readBatteryPercent() {
+static int16_t readBq27220Word(uint8_t cmd) {
   ensureI2C();
-
-  // BQ27220 standard command StateOfCharge() is at 0x2C (16-bit little-endian)
   Wire.beginTransmission(0x55);
-  Wire.write(0x2C);
+  Wire.write(cmd);
   if (Wire.endTransmission(false) != 0) {
     return -1;
   }
-
   if (Wire.requestFrom((uint8_t)0x55, (uint8_t)2) == 2) {
     uint8_t lsb = Wire.read();
     uint8_t msb = Wire.read();
-    int soc = (msb << 8) | lsb;
-    if (soc >= 0 && soc <= 100) {
-      return soc;
-    }
+    return (int16_t)((msb << 8) | lsb);
+  }
+  return -1;
+}
+
+static int readBatteryPercent() {
+  int soc = readBq27220Word(0x2C);
+  if (soc >= 0 && soc <= 100) {
+    return soc;
   }
   return -1;
 }
@@ -69,7 +71,7 @@ static bool isUsbPowerConnected() {
 
 static bool isBatteryCharging() {
 #ifdef PIN_CHG_STAT
-  pinMode(PIN_CHG_STAT, INPUT);
+  pinMode(PIN_CHG_STAT, INPUT_PULLUP);
   return isUsbPowerConnected() && (digitalRead(PIN_CHG_STAT) == LOW);
 #else
   return false;
@@ -266,6 +268,14 @@ void initBoardPowerAndPins() {
   gpio_hold_dis((gpio_num_t)PIN_PWR_LOCK);
   pinMode(PIN_PWR_LOCK, OUTPUT);
   digitalWrite(PIN_PWR_LOCK, HIGH);
+#endif
+#ifdef PIN_CHG_EN
+  gpio_hold_dis((gpio_num_t)PIN_CHG_EN);
+  pinMode(PIN_CHG_EN, OUTPUT);
+  digitalWrite(PIN_CHG_EN, LOW); // Active LOW: enables BQ25616 battery charging
+#endif
+#ifdef PIN_CHG_STAT
+  pinMode(PIN_CHG_STAT, INPUT_PULLUP);
 #endif
 
 #ifdef PIN_SD_CS
@@ -698,6 +708,9 @@ void enterDeepSleepWithWakeup(uint32_t sleepSeconds) {
 #ifdef PIN_PWR_LOCK
   gpio_hold_en((gpio_num_t)PIN_PWR_LOCK);
 #endif
+#ifdef PIN_CHG_EN
+  gpio_hold_en((gpio_num_t)PIN_CHG_EN);
+#endif
   gpio_deep_sleep_hold_en();
 
   // 1. Timer Wakeup
@@ -769,6 +782,10 @@ void powerOffDevice() {
 #endif
 #ifdef PIN_PWR_LOCK
   digitalWrite(PIN_PWR_LOCK, LOW);
+#endif
+#ifdef PIN_CHG_EN
+  digitalWrite(PIN_CHG_EN, LOW);
+  gpio_hold_en((gpio_num_t)PIN_CHG_EN);
 #endif
   
   // Set wakeup on OK button (GPIO 4 is active LOW)
@@ -1720,6 +1737,16 @@ void processSerialLine(const String& line) {
       char detLetter = 'A' + (detected >= 0 && detected <= 3 ? detected : 0);
       Serial.printf("{\"status\":\"ok\",\"v\":1,\"sensor\":\"LSM6DS3\",\"ok\":%s,\"ax\":%d,\"ay\":%d,\"az\":%d,\"detected\":%d,\"detected_letter\":\"%c\",\"active\":%d,\"active_letter\":\"%c\",\"mode\":%d,\"debug_screen\":%s}\n",
                     ok ? "true" : "false", ax, ay, az, detected, detLetter, s_activeOrientation, letter, (int)s_orientationMode, s_imuDebugScreen ? "true" : "false");
+    } else if (line == "battery" || line == "batt") {
+      int soc = readBatteryPercent();
+      int16_t volt = readBq27220Word(0x08);
+      int16_t curr = readBq27220Word(0x0C);
+      int16_t tempK = readBq27220Word(0x06);
+      float tempC = (tempK > 0) ? (tempK / 10.0f - 273.15f) : -999.0f;
+      bool chg = isBatteryCharging();
+      bool usb = isUsbPowerConnected();
+      Serial.printf("{\"status\":\"ok\",\"v\":1,\"battery_pct\":%d,\"voltage_mv\":%d,\"current_ma\":%d,\"temp_c\":%.1f,\"charging\":%s,\"usb\":%s}\n",
+                    soc, volt, curr, tempC, chg ? "true" : "false", usb ? "true" : "false");
     } else if (line == "poweroff" || line == "shutdown" || line == "off") {
       powerOffDevice();
     } else if (line == "menu") {

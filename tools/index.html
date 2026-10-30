@@ -756,10 +756,7 @@
         device_token: deviceToken
       };
 
-      log(t('log_sending_config'));
-      await sendSerial(JSON.stringify(payload));
-
-      // If LED card is visible, configure matrix topology and brightness
+      // If LED card is visible, configure matrix topology and brightness before connecting
       if (ledConfigCard.style.display !== 'none') {
         const w = parseInt(ledWidth.value) || 64;
         const h = parseInt(ledHeight.value) || 64;
@@ -783,16 +780,17 @@
           brightness: brightness
         };
 
-        setTimeout(async () => {
-          log(`${t('log_sending_matrix')} (${w}×${h}, ${wiring}, ${origin}, ${axis})...`);
-          await sendSerial(JSON.stringify(matrixCmd));
-        }, 300);
+        log(`${t('log_sending_matrix')} (${w}×${h}, ${wiring}, ${origin}, ${axis})...`);
+        await sendSerial(JSON.stringify(matrixCmd));
+        await new Promise(r => setTimeout(r, 150));
 
-        setTimeout(async () => {
-          log(`${t('log_sending_brightness')} (${brightness}/255)...`);
-          await sendSerial(JSON.stringify(ledCmd));
-        }, 600);
+        log(`${t('log_sending_brightness')} (${brightness}/255)...`);
+        await sendSerial(JSON.stringify(ledCmd));
+        await new Promise(r => setTimeout(r, 150));
       }
+
+      log(t('log_sending_config'));
+      await sendSerial(JSON.stringify(payload));
     });
 
     btnReset.addEventListener('click', () => {

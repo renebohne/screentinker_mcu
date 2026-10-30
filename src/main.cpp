@@ -1303,8 +1303,14 @@ bool registerAndStartPairing() {
 
   JsonDocument doc;
   doc["screen_profile"] = DEVICE_SCREEN_PROFILE;
+#if defined(DEVICE_IS_LED_STRIP)
+  LedMatrixConfig mcfg = led_driver_get_matrix_config();
+  doc["screen_width"] = mcfg.width;
+  doc["screen_height"] = mcfg.height;
+#else
   doc["screen_width"] = EPD_WIDTH;
   doc["screen_height"] = EPD_HEIGHT;
+#endif
 
   String body;
   serializeJson(doc, body);

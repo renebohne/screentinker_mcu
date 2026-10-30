@@ -12,6 +12,7 @@
 #include <thread>
 #include <vector>
 #include <cstring>
+#include <cmath>
 
 static void monoToNativeBuffer(const uint8_t* monoBuf, uint8_t* nativeBuf, int width, int height, SimColorMode colorMode) {
   if (colorMode == SIM_COLOR_1BPP_MONO) {

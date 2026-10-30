@@ -3,6 +3,7 @@
 #if defined(DEVICE_IS_LED_STRIP)
 #include "led_driver.h"
 #include <Adafruit_NeoPixel.h>
+#include <cmath>
 
 static Adafruit_NeoPixel* s_strip = nullptr;
 static uint16_t s_numLeds = 5;

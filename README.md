@@ -76,7 +76,7 @@ Ultra-low-power, high-performance C++ firmware for the **[Seeed Studio reTermina
 ### Option B: USB-C Web Installer
 1. Connect your reTerminal or XIAO LED Controller to your PC/Mac using a USB-C data cable.
 2. Open the **[ScreenTinker Universal Web Installer](https://www.rene-bohne.de/screentinker_mcu/tools/)** (or [`tools/sticky-installer.html`](tools/sticky-installer.html)) in Google Chrome or Microsoft Edge.
-3. Select your hardware target and click **"🚀 Firmware direkt im Browser installieren"** to flash the latest v1.4.0 firmware.
+3. Select your hardware target and click **"🚀 Firmware direkt im Browser installieren"** to flash the latest v1.4.1 firmware.
 4. Click **"🔌 USB-Verbindung herstellen"**, enter your Wi-Fi SSID, Password, Server URL (and LED matrix dimensions if applicable), and click **"💾 Speichern & Koppeln"**.
 
 ### Step 2: Claim Display in ScreenTinker

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-10-30
+
+### Added
+- **Bilingual Web Flasher UI (`tools/index.html`, `tools/sticky-installer.html`)**:
+  - English as default UI language with an instant `[ 🇬🇧 English | 🇩🇪 Deutsch ]` language toggle persisted in `localStorage`.
+
+### Fixed
+- **Dynamic Matrix Pairing Dimensions (`src/main.cpp`)**:
+  - `registerAndStartPairing()` now transmits the runtime-configured LED matrix `width` and `height` (`led_driver_get_matrix_config()`) instead of the compile-time `5×1` fallback during `POST /api/embedded/pair/register`.
+- **Web Flasher Provisioning Order (`tools/index.html`, `tools/sticky-installer.html`)**:
+  - WebSerial provisioning now sends `matrix` and `led` configuration commands *before* `config`, ensuring NVS matrix dimensions are updated before the device connects to Wi-Fi and registers for pairing.
+- **Linux GCC CI Build Compatibility (`src/led_driver.cpp`)**:
+  - Added `<cmath>` include for `sinf` on Linux host/CI builds.
+
 ## [1.4.0] - 2026-10-30
 
 ### Added

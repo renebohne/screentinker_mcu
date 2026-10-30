@@ -114,7 +114,7 @@ You can flash the latest firmware directly through your web browser without inst
    - *Seeed Studio XIAO ESP32-C3 LED Controller (RISC-V)*
 4. Click **"🚀 Firmware direkt im Browser installieren"**.
 5. In the browser popup, select your serial port (e.g. `USB JTAG/serial debug unit` or `CP2102`) and click **Connect**.
-6. Confirm the installation. In about 30 seconds, the browser will flash the bootloader, partition table, and v1.4.0 firmware!
+6. Confirm the installation. In about 30 seconds, the browser will flash the bootloader, partition table, and v1.4.1 firmware!
 
 *(Alternative: Developers can build and flash locally via PlatformIO: `pio run -e seeed_xiao_esp32c6_led -t upload`).*
 

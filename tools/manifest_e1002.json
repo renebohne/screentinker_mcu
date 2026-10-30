@@ -1,6 +1,6 @@
 {
   "name": "ScreenTinker Seeed Studio reTerminal E1002 (7.3\" Spectra 6)",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "home_assistant_domain": "screentinker",
   "new_install_prompt_erase": false,
   "builds": [

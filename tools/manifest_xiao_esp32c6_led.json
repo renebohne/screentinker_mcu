@@ -1,6 +1,6 @@
 {
   "name": "ScreenTinker Seeed Studio XIAO ESP32-C6 LED Controller",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "home_assistant_domain": "screentinker",
   "new_install_prompt_erase": false,
   "builds": [

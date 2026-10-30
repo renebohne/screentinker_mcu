@@ -25,23 +25,34 @@ ScreenTinker supports the entire Seeed Studio XIAO ESP32 family:
 
 ## 2. Hardware Wiring & Pinout
 
-When paired with the **Seeed Studio LED Driver Expansion Board for XIAO**, all required 5V logic level shifting and screw terminals are turnkey:
+When paired with the **Seeed Studio LED Driver Board for XIAO** (SKU: `105100021`), all required 5V logic level shifting, DC regulation, and screw terminals are turnkey:
+
+<div align="center">
+  <img src="images/seeed_led_driver_board.jpg" alt="Seeed Studio LED Driver Board for XIAO (SKU 105100021)" width="85%" style="border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); margin: 12px 0;" />
+  <p><em>Official Seeed Studio LED Driver Board for XIAO (SKU 105100021): DC 5.5mm Barrel Jack (left), XIAO socket & Grove I2C connector (right), and 4-position screw terminal block (12V, 5V, A0, GND).</em></p>
+</div>
+
+### Why Only 3 Wires for 5V Strips & Matrices?
+The expansion board features a **4-position screw terminal block**:
+* **`12V`**: Dedicated power output for 12V LED strips (e.g. WS2811 / WS2815). **Leave empty / unconnected** when using 5V matrices or strips.
+* **`5V`**: Regulated 5V DC power line for WS2812B / SK6812 (Red wire).
+* **`A0` (DIN)**: Serial data output driven by the XIAO's `D0` pin through the onboard 3.3V ➔ 5V level shifter (Green wire).
+* **`GND`**: Common ground reference (Black wire).
 
 ```text
        ┌────────────────────────────────────────────────────────┐
        │         Seeed Studio LED Driver Board for XIAO         │
        │                                                        │
-       │   [5V] [DIN] [GND]                [Grove I2C Port]     │
-       └─────┬────┬─────┬──────────────────────────┬────────────┘
-             │    │     │                          │
-             │    │     │                          ▼
-             │    │     │                 Optional 0.96" OLED
-             ▼    ▼     ▼                  Status Screen (SSD1306)
-         ┌──────────────────┐             Shows IP, RSSI & PIN
-         │ WS2812B / SK6812 │
-         │   LED Strip /    │
-         │     Matrix       │
-         └──────────────────┘
+       │   [12V]   [5V]   [A0/DIN]  [GND]      [Grove I2C Port] │
+       └─────┬───────┬───────┬────────┬───────────────┬─────────┘
+          (Empty)    │       │        │               │
+                     │       │        │               ▼
+                     │       │        │      Optional 0.96" OLED
+                     ▼       ▼        ▼       Status Screen (SSD1306)
+                 ┌──────────────────────┐      Shows IP, RSSI & PIN
+                 │   WS2812B / SK6812   │
+                 │ 5V LED Strip / Matrix│
+                 └──────────────────────┘
 ```
 
 <div align="center">

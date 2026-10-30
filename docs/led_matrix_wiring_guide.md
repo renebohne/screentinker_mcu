@@ -52,6 +52,14 @@ The corner where the data input pad (`DIN` / `LED[0]`) is physically located:
 | **Waveshare RGB LED Matrix** | 8×8, 16×16 | `SERPENTINE` | `HORIZONTAL` | `TOP_LEFT` |
 | **Custom DIY Strip Matrix** | Any | Configurable | Configurable | Configurable |
 
+> [!IMPORTANT]
+> **3-Wire Connection for 5V Panels:** The Seeed Studio LED Driver Board (SKU 105100021) has a 4-position screw terminal labeled `[12V] [5V] [A0] [GND]`. When connecting standard 5V addressable LED panels or strips (WS2812B / SK6812), connect **exactly three wires**:
+> - **`5V`**: Red wire (5V Logic & Panel Power)
+> - **`A0`**: Green wire (Level-shifted Data stream from XIAO `D0`)
+> - **`GND`**: Black wire (Common ground)
+> 
+> The **`12V`** terminal is dedicated solely to 12V LED strips (e.g. WS2811 / WS2815) and must be left **unconnected / empty** for 5V matrices.
+
 <div align="center">
   <img src="images/xiao_led_wiring_diagram.svg" alt="Seeed Studio XIAO LED Controller Wiring Schematic" width="100%" style="margin: 16px 0;" />
 </div>

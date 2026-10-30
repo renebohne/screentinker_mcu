@@ -9,7 +9,8 @@ enum SimColorMode {
   SIM_COLOR_GRAY4 = 1,
   SIM_COLOR_GRAY16 = 2,
   SIM_COLOR_SPECTRA6 = 3,
-  SIM_COLOR_RGB888 = 4
+  SIM_COLOR_RGB888 = 4,
+  SIM_COLOR_RGB565 = 5
 };
 
 struct SimConfig {

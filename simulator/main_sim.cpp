@@ -59,6 +59,15 @@ static void monoToNativeBuffer(const uint8_t* monoBuf, uint8_t* nativeBuf, int w
         nativeBuf[natIdx] |= (val << shift);
       }
     }
+  } else if (colorMode == SIM_COLOR_RGB565) {
+    uint16_t* dst16 = reinterpret_cast<uint16_t*>(nativeBuf);
+    for (int y = 0; y < height; ++y) {
+      for (int x = 0; x < width; ++x) {
+        size_t monoIdx = ((size_t)y * (width / 8)) + (x / 8);
+        uint8_t bit = (monoBuf[monoIdx] >> (7 - (x & 7))) & 1;
+        dst16[y * width + x] = bit ? 0xFFFF : 0x0000;
+      }
+    }
   }
 }
 
@@ -347,14 +356,20 @@ int main(int argc, char** argv) {
       int serverW = std::atoi(res.getHeader("x-st-screen-width").c_str());
       int serverH = std::atoi(res.getHeader("x-st-screen-height").c_str());
       if (serverW > 0 && serverH > 0 && (serverW != cfg.width || serverH != cfg.height)) {
-        std::cout << "[Sync] Server updated dimensions to " << serverW << "x" << serverH
-                  << " (was " << cfg.width << "x" << cfg.height << ")\n";
-        cfg.width = serverW;
-        cfg.height = serverH;
-        gfx_set_screen_dimensions(cfg.width, cfg.height);
-        display.updateDimensions(cfg.width, cfg.height);
-        frameBuffer.resize(cfg.bufferSize(), 0xFF);
-        monoBuffer.resize(gfx_get_buffer_size(), 0xFF);
+        if (!cfg.isLedDevice && (serverW != cfg.nativeWidth && serverW != cfg.nativeHeight)) {
+          std::cerr << "[Sync] Warning: Server sent dimensions " << serverW << "x" << serverH
+                    << " which do not match target panel hardware (" << cfg.nativeWidth << "x" << cfg.nativeHeight
+                    << "). Ignoring dimension change.\n";
+        } else {
+          std::cout << "[Sync] Server updated dimensions to " << serverW << "x" << serverH
+                    << " (was " << cfg.width << "x" << cfg.height << ")\n";
+          cfg.width = serverW;
+          cfg.height = serverH;
+          gfx_set_screen_dimensions(cfg.width, cfg.height);
+          display.updateDimensions(cfg.width, cfg.height);
+          frameBuffer.resize(cfg.bufferSize(), 0xFF);
+          monoBuffer.resize(gfx_get_buffer_size(), 0xFF);
+        }
       }
     }
     if (res.hasHeader("x-st-rotation")) {

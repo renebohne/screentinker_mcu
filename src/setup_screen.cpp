@@ -1,7 +1,15 @@
 #include "setup_screen.h"
 #include "menu_layout.h"
+#include "device_profile.h"
 #include <string.h>
 #include <qrcode.h>
+
+#ifndef DEVICE_PANEL_REQUIRES_180
+#define DEVICE_PANEL_REQUIRES_180 1
+#endif
+#ifndef COLOR_MODE_RGB565
+#define COLOR_MODE_RGB565 5
+#endif
 
 // 8x8 Basic ASCII Font (characters 32 to 126)
 const uint8_t font8x8_basic[95][8] = {
@@ -258,65 +266,60 @@ void renderSplashScreen(uint8_t* buffer, const char* version, const char* status
   gfx_draw_rect(buffer, margin, margin, s_epd_width - 2 * margin, s_epd_height - 2 * margin, 0);
   gfx_draw_rect(buffer, margin + 4, margin + 4, s_epd_width - 2 * (margin + 4), s_epd_height - 2 * (margin + 4), 0);
 
+  const bool isCompact = (s_epd_height < 400);
   int uiScale = (s_epd_width >= 1200) ? 2 : 1;
-  int logoScale = 4 * uiScale;
-  int titleScale = 4 * uiScale;
-  int subScale = 2 * uiScale;
+  int logoScale = isCompact ? 2 : (4 * uiScale);
+  int titleScale = isCompact ? 2 : (4 * uiScale);
+  int subScale = isCompact ? 1 : (2 * uiScale);
 
   // ScreenTinker Monitor Logo (Scale: 24*scale x 21*scale)
   int logoW = 24 * logoScale;
   int logoH = 21 * logoScale;
 
   // Calculate layout bounds
-  int barH = 56 * uiScale;
-  int barY = s_epd_height - margin - barH - (uiScale > 1 ? 40 : 20);
-  int availTop = margin + (uiScale > 1 ? 40 : 20);
+  int barH = isCompact ? 28 : (56 * uiScale);
+  int barY = s_epd_height - margin - barH - (isCompact ? 6 : (uiScale > 1 ? 40 : 20));
+  int availTop = margin + (isCompact ? 6 : (uiScale > 1 ? 40 : 20));
   int availH = barY - availTop;
 
+  int gap = isCompact ? 6 : (15 * uiScale);
   // Total content height in center
-  int totalContentH = logoH + 20 * uiScale + (8 * titleScale) + 15 * uiScale + (8 * subScale) + 15 * uiScale + (8 * subScale) + 15 * uiScale + (34 * uiScale);
-  int curY = availTop + max(10, (availH - totalContentH) / 2);
+  int totalContentH = logoH + gap + (8 * titleScale) + gap + (8 * subScale) + gap + (8 * subScale) + gap + (isCompact ? 20 : (34 * uiScale));
+  int curY = availTop + max(4, (availH - totalContentH) / 2);
 
   // Logo
   gfx_draw_screentinker_logo(buffer, (s_epd_width - logoW) / 2, curY, logoScale);
-  curY += logoH + 20 * uiScale;
+  curY += logoH + (isCompact ? 8 : (20 * uiScale));
 
   // Header "ScreenTinker"
   int titleLen = 12; // "ScreenTinker"
   int titleW = titleLen * 8 * titleScale;
   gfx_draw_string(buffer, (s_epd_width - titleW) / 2, curY, "ScreenTinker", 0, titleScale);
-  curY += (8 * titleScale) + 15 * uiScale;
+  curY += (8 * titleScale) + gap;
 
   // Subtitle
   const char* subTitle = "Smart Digital Signage";
   int subLen = strlen(subTitle);
   int subW = subLen * 8 * subScale;
   gfx_draw_string(buffer, (s_epd_width - subW) / 2, curY, subTitle, 0, subScale);
-  curY += (8 * subScale) + 15 * uiScale;
+  curY += (8 * subScale) + gap;
 
   // Hardware Model line
-  const char* hwModel = "Seeed Studio reTerminal Sticky";
-  if (s_epd_width == 1872 && s_epd_height == 1404) {
-    hwModel = "Seeed Studio reTerminal E1003";
-  } else if (s_epd_width == 1200 && s_epd_height == 1600) {
-    hwModel = "Seeed Studio reTerminal E1004";
-  } else if (s_epd_width != 800 || s_epd_height != 480) {
-    hwModel = "Seeed Studio reTerminal E-Series";
-  }
+  const char* hwModel = DEVICE_PROFILE_NAME;
   int hwLen = strlen(hwModel);
   int hwW = hwLen * 8 * subScale;
   gfx_draw_string(buffer, (s_epd_width - hwW) / 2, curY, hwModel, 0, subScale);
-  curY += (8 * subScale) + 15 * uiScale;
+  curY += (8 * subScale) + gap;
 
   // Firmware Version Pill
   char verStr[32];
   snprintf(verStr, sizeof(verStr), "Firmware v%s", version ? version : FIRMWARE_VERSION);
   int verLen = strlen(verStr);
-  int verPillW = verLen * 8 * subScale + 32 * uiScale;
-  int verPillH = 34 * uiScale;
+  int verPillW = verLen * 8 * subScale + (isCompact ? 16 : (32 * uiScale));
+  int verPillH = isCompact ? 20 : (34 * uiScale);
   int verX = (s_epd_width - verPillW) / 2;
   gfx_draw_rect(buffer, verX, curY, verPillW, verPillH, 0);
-  gfx_draw_string(buffer, verX + 16 * uiScale, curY + 8 * uiScale, verStr, 0, subScale);
+  gfx_draw_string(buffer, verX + (isCompact ? 8 : (16 * uiScale)), curY + (isCompact ? 6 : (8 * uiScale)), verStr, 0, subScale);
 
   // Status message bar (Inverted)
   int barW = s_epd_width - 2 * (margin + 30);
@@ -335,6 +338,89 @@ void renderSplashScreen(uint8_t* buffer, const char* version, const char* status
 // ─── 2. Pairing Code Screen (Setup / PIN + QR Code) ─────────────────────────
 void renderPairingCodeScreen(uint8_t* buffer, const char* code, const char* serverUrl, Language lang) {
   gfx_fill(buffer, 1);
+
+  const bool isCompact = (s_epd_height < 400);
+
+  if (isCompact) {
+    int headerH = 26;
+    gfx_fill_rect(buffer, 0, 0, s_epd_width, headerH, 0);
+    gfx_draw_screentinker_logo(buffer, 8, 3, 1);
+    gfx_draw_string(buffer, 36, 9, "ScreenTinker — Setup", 1, 1);
+
+    int midX = s_epd_width / 2;
+    int footerH = 22;
+    int contentTop = headerH + 6;
+    int contentH = s_epd_height - footerH - contentTop - 4;
+
+    // Separator line
+    gfx_draw_vline(buffer, midX, contentTop, contentH, 0);
+
+    // Left Column: QR Code & URL
+    char claimUrl[128];
+    if (serverUrl && strlen(serverUrl) > 0) {
+      snprintf(claimUrl, sizeof(claimUrl), "%s/app", serverUrl);
+    } else {
+      snprintf(claimUrl, sizeof(claimUrl), "http://localhost:3001/app");
+    }
+
+    int qrScale = 3; // 33 * 3 = 99px
+    int qrPx = 33 * qrScale;
+    int qrX = (midX - qrPx) / 2;
+    int qrY = contentTop + 4;
+    gfx_draw_qr(buffer, qrX, qrY, claimUrl, qrScale);
+
+    int textY = qrY + qrPx + 6;
+    gfx_draw_string(buffer, 16, textY, (lang == LANG_DE) ? "1. QR scannen oder URL:" : "1. Scan QR or open URL:", 0, 1);
+    gfx_draw_string(buffer, 16, textY + 14, claimUrl, 0, 1);
+
+    // Right Column: PIN Code
+    int rightColW = s_epd_width - midX;
+    int rightX = midX + 16;
+    gfx_draw_string(buffer, rightX, contentTop + 6, (lang == LANG_DE) ? "2. PIN-CODE:" : "2. PIN CODE:", 0, 1);
+
+    char formattedCode[16];
+    if (code && strlen(code) == 6) {
+      snprintf(formattedCode, sizeof(formattedCode), "%c%c%c %c%c%c",
+               code[0], code[1], code[2], code[3], code[4], code[5]);
+    } else {
+      snprintf(formattedCode, sizeof(formattedCode), "%s", code ? code : "------");
+    }
+
+    int pinBoxW = rightColW - 32;
+    int pinBoxH = 46;
+    int pinBoxX = midX + 16;
+    int pinBoxY = contentTop + 24;
+    gfx_fill_rect(buffer, pinBoxX, pinBoxY, pinBoxW, pinBoxH, 0);
+    gfx_draw_rect(buffer, pinBoxX + 2, pinBoxY + 2, pinBoxW - 4, pinBoxH - 4, 1);
+
+    int pinScale = 3;
+    int pinLen = strlen(formattedCode);
+    int pinW = pinLen * 8 * pinScale;
+    int pinX = pinBoxX + (pinBoxW - pinW) / 2;
+    int pinY = pinBoxY + (pinBoxH - 8 * pinScale) / 2;
+    gfx_draw_string(buffer, pinX, pinY, formattedCode, 1, pinScale);
+
+    int stepY = pinBoxY + pinBoxH + 12;
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, rightX, stepY, "3. '+ Add Display' im Dashboard", 0, 1);
+      gfx_draw_string(buffer, rightX, stepY + 16, "4. PIN-Code eingeben", 0, 1);
+      gfx_draw_string(buffer, rightX, stepY + 32, "-> Startet automatisch!", 0, 1);
+    } else {
+      gfx_draw_string(buffer, rightX, stepY, "3. '+ Add Display' in Dashboard", 0, 1);
+      gfx_draw_string(buffer, rightX, stepY + 16, "4. Enter PIN code to pair", 0, 1);
+      gfx_draw_string(buffer, rightX, stepY + 32, "-> Starts automatically!", 0, 1);
+    }
+
+    // Footer
+    int footerY = s_epd_height - footerH;
+    gfx_fill_rect(buffer, 0, footerY, s_epd_width, footerH, 0);
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, 16, footerY + 7, "[ BOOT kurz ]: Refresh   [ Hold ]: Menue", 1, 1);
+    } else {
+      gfx_draw_string(buffer, 16, footerY + 7, "[ BOOT short ]: Refresh   [ Hold ]: Settings", 1, 1);
+    }
+    return;
+  }
 
   int uiScale = (s_epd_width >= 1200) ? 2 : 1;
   int headerH = (uiScale > 1) ? 72 : 54;
@@ -472,15 +558,29 @@ void renderPairingCodeScreen(uint8_t* buffer, const char* code, const char* serv
 void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t wifiTxLevel, uint8_t orientMode, bool hasImu, int batteryPct, bool isCharging, bool isUsbPower, uint8_t refreshMode, bool supportsPartial) {
   gfx_fill(buffer, 1);
 
+  const bool isCompact = (s_epd_height < 400);
+  int headerH = isCompact ? MENU_COMPACT_HEADER_HEIGHT : 54;
+  int startY = isCompact ? MENU_COMPACT_START_Y : MENU_START_Y;
+  int itemH = isCompact ? MENU_COMPACT_ITEM_HEIGHT : MENU_ITEM_HEIGHT;
+  int itemPitch = isCompact ? MENU_COMPACT_ITEM_PITCH : MENU_ITEM_PITCH;
+  int itemW = s_epd_width - (2 * (isCompact ? MENU_COMPACT_ITEM_MARGIN_X : MENU_ITEM_MARGIN_X));
+  int itemX = isCompact ? MENU_COMPACT_ITEM_MARGIN_X : MENU_ITEM_MARGIN_X;
+  int footerH = isCompact ? MENU_COMPACT_FOOTER_HEIGHT : MENU_FOOTER_HEIGHT;
+
   // Header Banner
-  gfx_fill_rect(buffer, 0, 0, s_epd_width, 54, 0);
-  gfx_draw_screentinker_logo(buffer, 20, 12, 1);
-  int titleScale = (batteryPct >= 0 && s_epd_width <= 800) ? 2 : 3;
-  int titleY = (titleScale == 2) ? 19 : 16;
-  if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 56, titleY, "ScreenTinker — Einstellungen", 1, titleScale);
+  gfx_fill_rect(buffer, 0, 0, s_epd_width, headerH, 0);
+  if (isCompact) {
+    gfx_draw_screentinker_logo(buffer, 8, 4, 1);
+    gfx_draw_string(buffer, 36, 10, (lang == LANG_DE) ? "ScreenTinker — Einstellungen" : "ScreenTinker — Settings", 1, 1);
   } else {
-    gfx_draw_string(buffer, 56, titleY, "ScreenTinker — Settings", 1, titleScale);
+    gfx_draw_screentinker_logo(buffer, 20, 12, 1);
+    int titleScale = (batteryPct >= 0 && s_epd_width <= 800) ? 2 : 3;
+    int titleY = (titleScale == 2) ? 19 : 16;
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, 56, titleY, "ScreenTinker — Einstellungen", 1, titleScale);
+    } else {
+      gfx_draw_string(buffer, 56, titleY, "ScreenTinker — Settings", 1, titleScale);
+    }
   }
 
   if (batteryPct >= 0) {
@@ -573,42 +673,160 @@ void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t
 
   const char** menuItems = (lang == LANG_DE) ? menuItemsDE : menuItemsEN;
 
-  int startY = MENU_START_Y;
-  int itemH = MENU_ITEM_HEIGHT;
-  int itemGap = MENU_ITEM_GAP;
-  int itemW = s_epd_width - (2 * MENU_ITEM_MARGIN_X);
-  int itemX = MENU_ITEM_MARGIN_X;
-
   for (int i = 0; i < MENU_ITEM_COUNT; i++) {
-    int y = startY + i * MENU_ITEM_PITCH;
+    int y = startY + i * itemPitch;
+    int textYOffset = isCompact ? 6 : 9;
+    int textScale   = isCompact ? 1 : 2;
+    int textXOffset = isCompact ? 10 : 20;
+
     if (i == selectedIndex) {
       gfx_fill_rect(buffer, itemX, y, itemW, itemH, 0);
       char selText[64];
       snprintf(selText, sizeof(selText), "> %s", menuItems[i]);
-      gfx_draw_string(buffer, itemX + 20, y + 9, selText, 1, 2);
+      gfx_draw_string(buffer, itemX + textXOffset, y + textYOffset, selText, 1, textScale);
     } else {
       gfx_draw_rect(buffer, itemX, y, itemW, itemH, 0);
       char normText[64];
       snprintf(normText, sizeof(normText), "  %s", menuItems[i]);
-      gfx_draw_string(buffer, itemX + 20, y + 9, normText, 0, 2);
+      gfx_draw_string(buffer, itemX + textXOffset, y + textYOffset, normText, 0, textScale);
     }
   }
 
   // Footer Navigation Hint
-  const int footerY = s_epd_height - MENU_FOOTER_HEIGHT;
-  gfx_fill_rect(buffer, 0, footerY, s_epd_width, MENU_FOOTER_HEIGHT, 0);
-  if (lang == LANG_DE) {
-    gfx_draw_string(buffer, 30, footerY + 18, "[ UP / DOWN ]: Navigieren", 1, 2);
-    gfx_draw_string(buffer, 500, footerY + 18, "[ OK ]: Auswaehlen", 1, 2);
+  const int footerY = s_epd_height - footerH;
+  gfx_fill_rect(buffer, 0, footerY, s_epd_width, footerH, 0);
+  if (isCompact) {
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, 16, footerY + 8, "[ Antippen zum Auswaehlen ]", 1, 1);
+      gfx_draw_string(buffer, s_epd_width - 130, footerY + 8, "[ OK ]: Menue", 1, 1);
+    } else {
+      gfx_draw_string(buffer, 16, footerY + 8, "[ Tap item to select ]", 1, 1);
+      gfx_draw_string(buffer, s_epd_width - 130, footerY + 8, "[ OK ]: Menu", 1, 1);
+    }
   } else {
-    gfx_draw_string(buffer, 30, footerY + 18, "[ UP / DOWN ]: Navigate", 1, 2);
-    gfx_draw_string(buffer, 520, footerY + 18, "[ OK ]: Select", 1, 2);
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, 30, footerY + 18, "[ UP / DOWN ]: Navigieren", 1, 2);
+      gfx_draw_string(buffer, 500, footerY + 18, "[ OK ]: Auswaehlen", 1, 2);
+    } else {
+      gfx_draw_string(buffer, 30, footerY + 18, "[ UP / DOWN ]: Navigate", 1, 2);
+      gfx_draw_string(buffer, 520, footerY + 18, "[ OK ]: Select", 1, 2);
+    }
   }
 }
 
 // ─── 4. Status & Diagnostic Info Screen (6 Spacious Rows with Battery) ───────
 void renderStatusInfoScreen(uint8_t* buffer, const char* ip, const char* ssid, int rssi, const char* serverUrl, const char* devId, const char* version, Language lang, float tempC, float humidityPct, int batteryPct, bool isCharging, bool isUsbPower) {
   gfx_fill(buffer, 1);
+
+  const bool isCompact = (s_epd_height < 400);
+
+  if (isCompact) {
+    int headerH = 26;
+    gfx_fill_rect(buffer, 0, 0, s_epd_width, headerH, 0);
+    gfx_draw_screentinker_logo(buffer, 8, 3, 1);
+    gfx_draw_string(buffer, 36, 9, "ScreenTinker — Status & Info", 1, 1);
+
+    if (batteryPct >= 0) {
+      char battBadge[32];
+      if (isCharging) {
+        snprintf(battBadge, sizeof(battBadge), "[ %d%% CHG ]", batteryPct);
+      } else if (isUsbPower) {
+        snprintf(battBadge, sizeof(battBadge), "[ %d%% USB ]", batteryPct);
+      } else {
+        snprintf(battBadge, sizeof(battBadge), "[ %d%% ]", batteryPct);
+      }
+      int bLen = strlen(battBadge);
+      gfx_draw_string(buffer, s_epd_width - (bLen * 8) - 10, 9, battBadge, 1, 1);
+    } else if (isUsbPower) {
+      gfx_draw_string(buffer, s_epd_width - 64, 9, "[ USB ]", 1, 1);
+    }
+
+    int y = 30;
+    int rowH = 32;
+    int rowGap = 3;
+    int boxW = s_epd_width - 16;
+    int boxX = 8;
+    int labelX = boxX + 8;
+    int valueX = boxX + 115;
+
+    // Row 1: IP Address
+    gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
+    gfx_draw_string(buffer, labelX, y + 12, (lang == LANG_DE) ? "IP-Adresse:" : "IP Address:", 0, 1);
+    const char* defIp = (lang == LANG_DE) ? "Standby (Power Save)" : "Standby (Power Save)";
+    const char* ipDisplay = (ip && strlen(ip) > 0 && strcmp(ip, "0.0.0.0") != 0) ? ip : defIp;
+    gfx_draw_string(buffer, valueX, y + 12, ipDisplay, 0, 1);
+
+    // Row 2: Wi-Fi SSID & RSSI
+    y += rowH + rowGap;
+    gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
+    gfx_draw_string(buffer, labelX, y + 12, (lang == LANG_DE) ? "WLAN-Netz:" : "Wi-Fi:", 0, 1);
+    char wifiStr[64];
+    if (rssi != 0) {
+      snprintf(wifiStr, sizeof(wifiStr), "%s (%d dBm)", (ssid && strlen(ssid) > 0) ? ssid : "-", rssi);
+    } else {
+      snprintf(wifiStr, sizeof(wifiStr), "%s", (ssid && strlen(ssid) > 0) ? ssid : "-");
+    }
+    gfx_draw_string(buffer, valueX, y + 12, wifiStr, 0, 1);
+
+    // Row 3: Server URL
+    y += rowH + rowGap;
+    gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
+    gfx_draw_string(buffer, labelX, y + 12, (lang == LANG_DE) ? "Server-URL:" : "Server URL:", 0, 1);
+    gfx_draw_string(buffer, valueX, y + 12, (serverUrl && strlen(serverUrl) > 0) ? serverUrl : "-", 0, 1);
+
+    // Row 4: Firmware Version & Ambient Environment
+    y += rowH + rowGap;
+    gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
+    gfx_draw_string(buffer, labelX, y + 12, "Firmware:", 0, 1);
+    char verStr[64];
+    if (tempC > -90.0f && humidityPct >= 0.0f && humidityPct <= 100.0f) {
+      snprintf(verStr, sizeof(verStr), "v%s (%s) · %.1f C / %.0f%% RH",
+               version ? version : FIRMWARE_VERSION, DEVICE_PROFILE_NAME, tempC, humidityPct);
+    } else {
+      snprintf(verStr, sizeof(verStr), "v%s (%s)",
+               version ? version : FIRMWARE_VERSION, DEVICE_PROFILE_NAME);
+    }
+    gfx_draw_string(buffer, valueX, y + 12, verStr, 0, 1);
+
+    // Row 5: Power Status
+    y += rowH + rowGap;
+    gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
+    gfx_draw_string(buffer, labelX, y + 12, (lang == LANG_DE) ? "Strom:" : "Power:", 0, 1);
+    char battStr[64];
+    if (batteryPct >= 0) {
+      if (isCharging) {
+        snprintf(battStr, sizeof(battStr), (lang == LANG_DE) ? "%d%% (Wird geladen)" : "%d%% (Charging)", batteryPct);
+      } else if (isUsbPower) {
+        snprintf(battStr, sizeof(battStr), (lang == LANG_DE) ? "%d%% (USB verbunden)" : "%d%% (USB Connected)", batteryPct);
+      } else {
+        snprintf(battStr, sizeof(battStr), (lang == LANG_DE) ? "%d%% (Batteriebetrieb)" : "%d%% (Discharging)", batteryPct);
+      }
+    } else {
+      if (isUsbPower) {
+        snprintf(battStr, sizeof(battStr), (lang == LANG_DE) ? "USB-Netzteil (Kein Akku)" : "USB Power (No Battery)");
+      } else {
+        snprintf(battStr, sizeof(battStr), (lang == LANG_DE) ? "Nicht verfuegbar" : "Not available");
+      }
+    }
+    gfx_draw_string(buffer, valueX, y + 12, battStr, 0, 1);
+
+    // Row 6: Device ID
+    y += rowH + rowGap;
+    gfx_draw_rect(buffer, boxX, y, boxW, rowH, 0);
+    gfx_draw_string(buffer, labelX, y + 12, (lang == LANG_DE) ? "Device-ID:" : "Device ID:", 0, 1);
+    gfx_draw_string(buffer, valueX, y + 12, (devId && strlen(devId) > 0) ? devId : "-", 0, 1);
+
+    // Footer Navigation Hint
+    int footerH = 22;
+    int footerY = s_epd_height - footerH;
+    gfx_fill_rect(buffer, 0, footerY, s_epd_width, footerH, 0);
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, 16, footerY + 7, "[ BOOT / OK ]: Zurueck zum Menue", 1, 1);
+    } else {
+      gfx_draw_string(buffer, 16, footerY + 7, "[ BOOT / OK ]: Back to Menu", 1, 1);
+    }
+    return;
+  }
 
   // Header Banner
   gfx_fill_rect(buffer, 0, 0, s_epd_width, 52, 0);
@@ -717,6 +935,43 @@ void renderStatusInfoScreen(uint8_t* buffer, const char* ip, const char* ssid, i
 void renderNoWifiScreen(uint8_t* buffer, const char* ssid, Language lang) {
   gfx_fill(buffer, 1);
 
+  const bool isCompact = (s_epd_height < 400);
+
+  if (isCompact) {
+    int headerH = 26;
+    gfx_fill_rect(buffer, 0, 0, s_epd_width, headerH, 0);
+    gfx_draw_screentinker_logo(buffer, 8, 3, 1);
+    gfx_draw_string(buffer, 36, 9, (lang == LANG_DE) ? "ScreenTinker — Keine Verbindung" : "ScreenTinker — Offline", 1, 1);
+
+    // Warning Banner
+    gfx_fill_rect(buffer, 8, 32, s_epd_width - 16, 30, 0);
+    const char* warnText = (lang == LANG_DE) ? "[!] KEINE WLAN-VERBINDUNG" : "[!] NO WI-FI CONNECTION";
+    int wLen = strlen(warnText);
+    gfx_draw_string(buffer, (s_epd_width - wLen * 8) / 2, 43, warnText, 1, 1);
+
+    // Details Box
+    gfx_draw_rect(buffer, 8, 66, s_epd_width - 16, 48, 0);
+    gfx_draw_string(buffer, 16, 76, (lang == LANG_DE) ? "SSID:" : "SSID:", 0, 1);
+    gfx_draw_string(buffer, 70, 76, (ssid && strlen(ssid) > 0) ? ssid : "-", 0, 1);
+    gfx_draw_string(buffer, 16, 94, (lang == LANG_DE) ? "Status: Verbindung fehlgeschlagen" : "Status: Connection attempt failed", 0, 1);
+
+    // Actions Box
+    gfx_draw_rect(buffer, 8, 118, s_epd_width - 16, 52, 0);
+    gfx_draw_string(buffer, 16, 128, (lang == LANG_DE) ? "* [ BOOT kurz ] : Sofort erneut verbinden" : "* [ BOOT short ] : Retry connection now", 0, 1);
+    gfx_draw_string(buffer, 16, 146, (lang == LANG_DE) ? "* [ BOOT 1.5s ] : Einstellungen oeffnen" : "* [ BOOT 1.5s ] : Open settings menu", 0, 1);
+
+    // Footer
+    int footerH = 22;
+    int footerY = s_epd_height - footerH;
+    gfx_fill_rect(buffer, 0, footerY, s_epd_width, footerH, 0);
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, 16, footerY + 7, "[ BOOT ]: Neu verbinden   [ Lang ]: Menue", 1, 1);
+    } else {
+      gfx_draw_string(buffer, 16, footerY + 7, "[ BOOT ]: Reconnect   [ Hold ]: Settings", 1, 1);
+    }
+    return;
+  }
+
   // Header Banner
   gfx_fill_rect(buffer, 0, 0, s_epd_width, 54, 0);
   gfx_draw_string(buffer, 30, 16, "ScreenTinker — Offline", 1, 3);
@@ -759,6 +1014,77 @@ void renderNoWifiScreen(uint8_t* buffer, const char* ssid, Language lang) {
 // ─── 5b. Empty Playlist Diagnostic Screen ──────────────────────────────────
 void renderEmptyPlaylistScreen(uint8_t* buffer, const char* deviceName, const char* serverUrl, Language lang) {
   gfx_fill(buffer, 1);
+
+  const bool isCompact = (s_epd_height < 400);
+
+  if (isCompact) {
+    int headerH = 26;
+    gfx_fill_rect(buffer, 0, 0, s_epd_width, headerH, 0);
+    gfx_draw_screentinker_logo(buffer, 8, 3, 1);
+    gfx_draw_string(buffer, 36, 9, "ScreenTinker", 1, 1);
+
+    if (deviceName && strlen(deviceName) > 0) {
+      char nameBadge[48];
+      snprintf(nameBadge, sizeof(nameBadge), "[ %s ]", deviceName);
+      int badgeLen = strlen(nameBadge);
+      gfx_draw_string(buffer, s_epd_width - (badgeLen * 8) - 10, 9, nameBadge, 1, 1);
+    }
+
+    // Headline
+    gfx_fill_rect(buffer, 8, 32, s_epd_width - 16, 26, 0);
+    const char* headText = (lang == LANG_DE) ? "KEINE PLAYLIST ZUGEWIESEN" : "NO PLAYLIST ASSIGNED";
+    int hLen = strlen(headText);
+    gfx_draw_string(buffer, (s_epd_width - hLen * 8) / 2, 41, headText, 1, 1);
+
+    char dashboardUrl[128];
+    if (serverUrl && strlen(serverUrl) > 0) {
+      snprintf(dashboardUrl, sizeof(dashboardUrl), "%s", serverUrl);
+    } else {
+      snprintf(dashboardUrl, sizeof(dashboardUrl), "http://localhost:3001");
+    }
+
+    // Left card: Instructions (w: 320)
+    int leftW = 320;
+    gfx_draw_rect(buffer, 8, 64, leftW, 178, 0);
+    gfx_draw_string(buffer, 16, 74, (lang == LANG_DE) ? "1. Geraet ist verbunden!" : "1. Device is connected!", 0, 1);
+    char devLine[64];
+    snprintf(devLine, sizeof(devLine), "   Name: %s", (deviceName && strlen(deviceName) > 0) ? deviceName : "ScreenTinker");
+    gfx_draw_string(buffer, 16, 92, devLine, 0, 1);
+
+    gfx_draw_string(buffer, 16, 116, (lang == LANG_DE) ? "2. Playlist zuweisen:" : "2. Assign playlist:", 0, 1);
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, 16, 134, "   Im Dashboard unter 'Displays'", 0, 1);
+      gfx_draw_string(buffer, 16, 150, "   auswaehlen und 'Publish' druecken.", 0, 1);
+    } else {
+      gfx_draw_string(buffer, 16, 134, "   In dashboard under 'Displays'", 0, 1);
+      gfx_draw_string(buffer, 16, 150, "   select it and click 'Publish'.", 0, 1);
+    }
+
+    gfx_draw_string(buffer, 16, 180, (lang == LANG_DE) ? "3. Dashboard:" : "3. Dashboard:", 0, 1);
+    gfx_draw_string(buffer, 16, 198, dashboardUrl, 0, 1);
+
+    // Right card: QR Code (w: s_epd_width - leftW - 24 = 136)
+    int rightX = leftW + 16;
+    int rightW = s_epd_width - rightX - 8;
+    gfx_draw_rect(buffer, rightX, 64, rightW, 178, 0);
+    int qrScale = 3; // 33 * 3 = 99px
+    int qrPx = 33 * qrScale;
+    int qrX = rightX + (rightW - qrPx) / 2;
+    gfx_draw_qr(buffer, qrX, 72, dashboardUrl, qrScale);
+    gfx_draw_string(buffer, rightX + (rightW - 12 * 8) / 2, 180, "DASHBOARD QR", 0, 1);
+    gfx_draw_string(buffer, rightX + (rightW - 15 * 8) / 2, 202, "Smartphone Scan", 0, 1);
+
+    // Footer
+    int footerH = 22;
+    int footerY = s_epd_height - footerH;
+    gfx_fill_rect(buffer, 0, footerY, s_epd_width, footerH, 0);
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, 16, footerY + 7, "[ BOOT ]: Jetzt pruefen   [ Hold ]: Menue", 1, 1);
+    } else {
+      gfx_draw_string(buffer, 16, footerY + 7, "[ BOOT ]: Check now   [ Hold ]: Settings", 1, 1);
+    }
+    return;
+  }
 
   // Top header banner (54px high)
   gfx_fill_rect(buffer, 0, 0, s_epd_width, 54, 0);
@@ -861,6 +1187,62 @@ void renderEmptyPlaylistScreen(uint8_t* buffer, const char* deviceName, const ch
 // ─── 6. Onboarding / Setup Screen ────────────────────────────────────────────
 void renderOnboardingScreen(uint8_t* buffer, Language lang) {
   gfx_fill(buffer, 1);
+
+  const bool isCompact = (s_epd_height < 400);
+
+  if (isCompact) {
+    int headerH = 26;
+    gfx_fill_rect(buffer, 0, 0, s_epd_width, headerH, 0);
+    gfx_draw_screentinker_logo(buffer, 8, 3, 1);
+    gfx_draw_string(buffer, 36, 9, (lang == LANG_DE) ? "ScreenTinker — Ersteinrichtung" : "ScreenTinker — Setup", 1, 1);
+
+    int midX = s_epd_width / 2;
+    int footerH = 22;
+    int contentTop = headerH + 6;
+    int contentH = s_epd_height - footerH - contentTop - 4;
+
+    gfx_draw_vline(buffer, midX, contentTop, contentH, 0);
+
+    // Left Column: QR Code to http://192.168.4.1
+    int qrScale = 3;
+    int qrPx = 33 * qrScale;
+    int qrX = (midX - qrPx) / 2;
+    int qrY = contentTop + 4;
+    gfx_draw_qr(buffer, qrX, qrY, "http://192.168.4.1", qrScale);
+
+    int textY = qrY + qrPx + 6;
+    gfx_draw_string(buffer, 16, textY, "WLAN: ScreenTinker-Setup", 0, 1);
+    gfx_draw_string(buffer, 16, textY + 14, "URL:  http://192.168.4.1", 0, 1);
+
+    // Right Column: Setup Steps
+    int rightX = midX + 16;
+    gfx_draw_string(buffer, rightX, contentTop + 6, (lang == LANG_DE) ? "SCHRITTE ZUM SETUP:" : "SETUP STEPS:", 0, 1);
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, rightX, contentTop + 24, "1. WLAN verbinden mit:", 0, 1);
+      gfx_draw_string(buffer, rightX, contentTop + 38, "   'ScreenTinker-Setup'", 0, 1);
+      gfx_draw_string(buffer, rightX, contentTop + 58, "2. Browser oeffnen:", 0, 1);
+      gfx_draw_string(buffer, rightX, contentTop + 72, "   http://192.168.4.1", 0, 1);
+      gfx_draw_string(buffer, rightX, contentTop + 92, "3. WLAN konfigurieren", 0, 1);
+      gfx_draw_string(buffer, rightX, contentTop + 110, "-> Display verbindet sich!", 0, 1);
+    } else {
+      gfx_draw_string(buffer, rightX, contentTop + 24, "1. Connect Wi-Fi to:", 0, 1);
+      gfx_draw_string(buffer, rightX, contentTop + 38, "   'ScreenTinker-Setup'", 0, 1);
+      gfx_draw_string(buffer, rightX, contentTop + 58, "2. Open web browser:", 0, 1);
+      gfx_draw_string(buffer, rightX, contentTop + 72, "   http://192.168.4.1", 0, 1);
+      gfx_draw_string(buffer, rightX, contentTop + 92, "3. Enter Wi-Fi credentials", 0, 1);
+      gfx_draw_string(buffer, rightX, contentTop + 110, "-> Display connects!", 0, 1);
+    }
+
+    // Footer
+    int footerY = s_epd_height - footerH;
+    gfx_fill_rect(buffer, 0, footerY, s_epd_width, footerH, 0);
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, 16, footerY + 7, "[ BOOT 1.5s ]: Einstellungen", 1, 1);
+    } else {
+      gfx_draw_string(buffer, 16, footerY + 7, "[ BOOT 1.5s ]: Settings", 1, 1);
+    }
+    return;
+  }
 
   // Header Banner
   gfx_fill_rect(buffer, 0, 0, s_epd_width, 54, 0);
@@ -1291,6 +1673,12 @@ void renderImuDebugScreen(uint8_t* buffer, int orient, int16_t ax, int16_t ay, i
 
 // ─── Display Buffer Rotation Algorithms ──────────────────────────────────────
 void rotate_mono_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height) {
+#if !DEVICE_PANEL_REQUIRES_180
+  if (destination != source) {
+    memcpy(destination, source, ((size_t)width * height) / 8);
+  }
+  return;
+#else
   const size_t stride = width / 8U;
   for (uint16_t y = 0; y < height; ++y) {
     const size_t src_row = y * stride;
@@ -1303,6 +1691,7 @@ void rotate_mono_180(const uint8_t *source, uint8_t *destination, uint16_t width
       destination[dst_row + x] = b;
     }
   }
+#endif
 }
 
 void rotate_nibble_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height) {
@@ -1421,28 +1810,77 @@ void rotate_gray4_portrait(const uint8_t *src, uint8_t *dst, uint16_t src_w, uin
   }
 }
 
+void rotate_rgb565_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height) {
+  if (!source || !destination) return;
+  const uint16_t *src16 = (const uint16_t*)source;
+  uint16_t *dst16 = (uint16_t*)destination;
+  size_t total = (size_t)width * height;
+  for (size_t i = 0; i < total; ++i) {
+    dst16[total - 1 - i] = src16[i];
+  }
+}
+
+void rotate_rgb565_portrait(const uint8_t *src, uint8_t *dst, uint16_t src_w, uint16_t src_h, bool flip) {
+  if (!src || !dst) return;
+  const uint16_t *s = (const uint16_t*)src;
+  uint16_t *d = (uint16_t*)dst;
+  for (uint16_t y = 0; y < src_h; ++y) {
+    for (uint16_t x = 0; x < src_w; ++x) {
+      uint16_t pixel = s[y * src_w + x];
+      uint16_t dx = flip ? (src_h - 1 - y) : y;
+      uint16_t dy = flip ? x : (src_w - 1 - x);
+      d[dy * src_h + dx] = pixel;
+    }
+  }
+}
+
 void rotate_buffer_180(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height) {
-#if (DEVICE_COLOR_MODE == COLOR_MODE_SPECTRA6) || (DEVICE_COLOR_MODE == COLOR_MODE_GRAY16)
+#if !DEVICE_PANEL_REQUIRES_180
+  if (destination != source) {
+    memcpy(destination, source, DEVICE_BUFFER_SIZE);
+  }
+  return;
+#else
+#if (DEVICE_COLOR_MODE == COLOR_MODE_RGB565)
+  rotate_rgb565_180(source, destination, width, height);
+#elif (DEVICE_COLOR_MODE == COLOR_MODE_SPECTRA6) || (DEVICE_COLOR_MODE == COLOR_MODE_GRAY16)
   rotate_nibble_180(source, destination, width, height);
 #elif (DEVICE_COLOR_MODE == COLOR_MODE_GRAY4)
   rotate_gray4_180(source, destination, width, height);
 #else
   rotate_mono_180(source, destination, width, height);
 #endif
+#endif
 }
 
 void rotate_buffer_180_mode(const uint8_t *source, uint8_t *destination, uint16_t width, uint16_t height, uint8_t colorMode) {
-  if (colorMode == COLOR_MODE_GRAY4) {
+#if !DEVICE_PANEL_REQUIRES_180
+  if (destination != source) {
+    size_t sz = 0;
+    if (colorMode == COLOR_MODE_RGB565) sz = (size_t)width * height * 2;
+    else if (colorMode == COLOR_MODE_GRAY4) sz = ((size_t)width * height) / 4;
+    else if (colorMode == COLOR_MODE_SPECTRA6 || colorMode == COLOR_MODE_GRAY16) sz = ((size_t)width * height) / 2;
+    else sz = ((size_t)width * height) / 8;
+    memcpy(destination, source, sz);
+  }
+  return;
+#else
+  if (colorMode == COLOR_MODE_RGB565) {
+    rotate_rgb565_180(source, destination, width, height);
+  } else if (colorMode == COLOR_MODE_GRAY4) {
     rotate_gray4_180(source, destination, width, height);
   } else if (colorMode == COLOR_MODE_SPECTRA6 || colorMode == COLOR_MODE_GRAY16) {
     rotate_nibble_180(source, destination, width, height);
   } else {
     rotate_mono_180(source, destination, width, height);
   }
+#endif
 }
 
 void rotate_buffer_portrait_mode(const uint8_t *src, uint8_t *dst, uint16_t src_w, uint16_t src_h, bool flip, uint8_t colorMode) {
-  if (colorMode == COLOR_MODE_GRAY4) {
+  if (colorMode == COLOR_MODE_RGB565) {
+    rotate_rgb565_portrait(src, dst, src_w, src_h, flip);
+  } else if (colorMode == COLOR_MODE_GRAY4) {
     rotate_gray4_portrait(src, dst, src_w, src_h, flip);
   } else if (colorMode == COLOR_MODE_SPECTRA6 || colorMode == COLOR_MODE_GRAY16) {
     rotate_nibble_portrait(src, dst, src_w, src_h, flip);

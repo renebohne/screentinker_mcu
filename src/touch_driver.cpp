@@ -9,27 +9,34 @@ int touch_hit_test_menu(int x, int y, int screen_width, int screen_height) {
     return -1;
   }
 
-  // Footer Banner: y >= (screen_height - MENU_FOOTER_HEIGHT)
+  const bool isCompact = (screen_height < 400);
+  const int footerH    = isCompact ? MENU_COMPACT_FOOTER_HEIGHT : MENU_FOOTER_HEIGHT;
+  const int marginX    = isCompact ? MENU_COMPACT_ITEM_MARGIN_X : MENU_ITEM_MARGIN_X;
+  const int startY     = isCompact ? MENU_COMPACT_START_Y : MENU_START_Y;
+  const int itemH      = isCompact ? MENU_COMPACT_ITEM_HEIGHT : MENU_ITEM_HEIGHT;
+  const int pitch      = isCompact ? MENU_COMPACT_ITEM_PITCH : MENU_ITEM_PITCH;
+
+  // Footer Banner: y >= (screen_height - footerH)
   // Tapping anywhere in the footer banner corresponds to item 8 (BACK / CLOSE)
-  if (y >= screen_height - MENU_FOOTER_HEIGHT) {
+  if (y >= screen_height - footerH) {
     return 8;
   }
 
-  const int itemW = screen_width - (2 * MENU_ITEM_MARGIN_X);
+  const int itemW = screen_width - (2 * marginX);
 
-  // Boxes span x in [MENU_ITEM_MARGIN_X, MENU_ITEM_MARGIN_X + itemW) like gfx_fill_rect
-  if (x < MENU_ITEM_MARGIN_X || x >= (MENU_ITEM_MARGIN_X + itemW)) {
+  // Boxes span x in [marginX, marginX + itemW) like gfx_fill_rect
+  if (x < marginX || x >= (marginX + itemW)) {
     return -1;
   }
-  if (y < MENU_START_Y) {
+  if (y < startY) {
     return -1;
   }
 
-  int row = (y - MENU_START_Y) / MENU_ITEM_PITCH;
-  int offset = (y - MENU_START_Y) % MENU_ITEM_PITCH;
+  int row = (y - startY) / pitch;
+  int offset = (y - startY) % pitch;
 
-  // offset <= MENU_ITEM_HEIGHT allows an intentional 1px touch tolerance at row bottom border
-  if (row >= 0 && row < MENU_ITEM_COUNT && offset <= MENU_ITEM_HEIGHT) {
+  // offset <= itemH allows an intentional 1px touch tolerance at row bottom border
+  if (row >= 0 && row < MENU_ITEM_COUNT && offset <= itemH) {
     return row;
   }
 
@@ -50,6 +57,14 @@ bool touch_hit_test_status(int x, int y, int screen_width, int screen_height) {
 #define TOUCH_CHIP_NONE    0
 #define TOUCH_CHIP_GT911   1
 #define TOUCH_CHIP_FT6336U 2
+#define TOUCH_CHIP_XPT2046 3
+
+#if defined(PIN_TOUCH_CS) && (PIN_TOUCH_CS >= 0) && defined(PIN_TOUCH_SCK) && (PIN_TOUCH_SCK >= 0)
+  #define HAS_XPT2046_TOUCH 1
+  #include <SPI.h>
+  #include <XPT2046_Touchscreen.h>
+  static XPT2046_Touchscreen* s_xpt = nullptr;
+#endif
 
 #if defined(PIN_TOUCH_SDA) && defined(PIN_I2C_SDA) && (PIN_TOUCH_SDA != PIN_I2C_SDA)
   #define TOUCH_WIRE Wire1
@@ -99,6 +114,25 @@ static bool ft6336_read(uint8_t reg, uint8_t* buf, size_t len) {
 bool touch_init() {
   if (s_initialized) return true;
 
+#if defined(HAS_XPT2046_TOUCH)
+  if (PIN_TOUCH_CS >= 0) {
+    Serial.printf("[Touch] Initializing XPT2046 SPI Touch (SCK=%d, MISO=%d, MOSI=%d, CS=%d, INT=%d)...\n",
+                  PIN_TOUCH_SCK, PIN_TOUCH_MISO, PIN_TOUCH_MOSI, PIN_TOUCH_CS, PIN_TOUCH_INT);
+    SPI.begin(PIN_TOUCH_SCK, PIN_TOUCH_MISO, PIN_TOUCH_MOSI, PIN_TOUCH_CS);
+    s_xpt = new XPT2046_Touchscreen(PIN_TOUCH_CS, (PIN_TOUCH_INT >= 0) ? PIN_TOUCH_INT : 255);
+    if (s_xpt && s_xpt->begin()) {
+      s_xpt->setRotation(0);
+      s_touchChip = TOUCH_CHIP_XPT2046;
+      s_initialized = true;
+      Serial.println("[Touch] XPT2046 Resistive Touch Controller initialized successfully.");
+      return true;
+    } else {
+      Serial.println("[Touch] XPT2046 initialization failed.");
+      return false;
+    }
+  }
+#endif
+
 #ifdef PIN_TOUCH_EN
   gpio_hold_dis((gpio_num_t)PIN_TOUCH_EN);
   pinMode(PIN_TOUCH_EN, OUTPUT);
@@ -140,8 +174,10 @@ bool touch_init() {
   pinMode(PIN_TOUCH_SDA, INPUT_PULLUP);
   pinMode(PIN_TOUCH_SCL, INPUT_PULLUP);
   TOUCH_WIRE.begin(PIN_TOUCH_SDA, PIN_TOUCH_SCL, 100000);
+#elif defined(PIN_I2C_SDA) && defined(PIN_I2C_SCL)
+  TOUCH_WIRE.begin(PIN_I2C_SDA, PIN_I2C_SCL, 100000);
 #else
-  TOUCH_WIRE.begin();
+  return false;
 #endif
 
   // Probe GT911 primary address 0x5D
@@ -192,6 +228,24 @@ bool touch_read(touch_point_t* out_point) {
   out_point->pressed = false;
 
   if (!s_initialized || s_sleeping) return false;
+
+#if defined(HAS_XPT2046_TOUCH)
+  if (s_touchChip == TOUCH_CHIP_XPT2046 && s_xpt) {
+    if (s_xpt->touched()) {
+      TS_Point p = s_xpt->getPoint();
+      // Calibrated coordinates for CrowPanel 4.3 (480x272):
+      // Factory map: X 4000 (left) -> 200 (right), Y 200 (top) -> 4000 (bottom)
+      int x = map(p.x, 4000, 200, 0, DEVICE_DISPLAY_WIDTH - 1);
+      int y = map(p.y, 200, 4000, 0, DEVICE_DISPLAY_HEIGHT - 1);
+
+      out_point->pressed = true;
+      out_point->x = constrain(x, 0, DEVICE_DISPLAY_WIDTH - 1);
+      out_point->y = constrain(y, 0, DEVICE_DISPLAY_HEIGHT - 1);
+      return true;
+    }
+    return true;
+  }
+#endif
 
   if (s_touchChip == TOUCH_CHIP_GT911) {
     uint8_t status = 0;
@@ -280,6 +334,8 @@ void touch_sleep() {
     TOUCH_WIRE.write(0xA5);
     TOUCH_WIRE.write(0x03);
     TOUCH_WIRE.endTransmission();
+  } else if (s_touchChip == TOUCH_CHIP_XPT2046) {
+    // Passive resistive touch digitizer
   }
 
 #ifdef PIN_TOUCH_EN
@@ -292,6 +348,12 @@ void touch_sleep() {
 
 void touch_wake() {
   if (!s_initialized || !s_sleeping) return;
+
+  if (s_touchChip == TOUCH_CHIP_XPT2046) {
+    s_sleeping = false;
+    Serial.println("[Touch] Digitizer awakened from sleep.");
+    return;
+  }
 
 #ifdef PIN_TOUCH_EN
   digitalWrite(PIN_TOUCH_EN, HIGH);

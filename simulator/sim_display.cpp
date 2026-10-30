@@ -67,6 +67,8 @@ SimDisplay::SimDisplay(bool headless, int width, int height, int scale, SimColor
 
 size_t SimDisplay::bufferSize() const {
   switch (m_colorMode) {
+    case SIM_COLOR_RGB565:
+      return (size_t)m_width * m_height * 2;
     case SIM_COLOR_RGB888:
       return (size_t)m_width * m_height * 3;
     case SIM_COLOR_SPECTRA6:
@@ -243,6 +245,17 @@ void SimDisplay::renderBuffer(const uint8_t* buffer) {
             }
           }
         }
+      }
+    }
+  } else if (m_colorMode == SIM_COLOR_RGB565) {
+    const uint16_t* src16 = reinterpret_cast<const uint16_t*>(buffer);
+    for (int y = 0; y < m_height; ++y) {
+      for (int x = 0; x < m_width; ++x) {
+        uint16_t p = src16[y * m_width + x];
+        uint8_t r = ((p >> 11) & 0x1F) * 255 / 31;
+        uint8_t g = ((p >> 5) & 0x3F) * 255 / 63;
+        uint8_t b = (p & 0x1F) * 255 / 31;
+        m_pixelBuffer[y * m_width + x] = 0xFF000000 | (r << 16) | (g << 8) | b;
       }
     }
   } else if (m_colorMode == SIM_COLOR_SPECTRA6) {

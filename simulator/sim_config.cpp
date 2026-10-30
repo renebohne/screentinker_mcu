@@ -121,6 +121,22 @@ bool SimConfig::setModel(const std::string& modelName) {
     if (!orientation.empty()) applyOrientation(orientation);
     else if (rotation != 0) applyRotation(rotation);
     return true;
+  } else if (m == "crowpanel" || m == "crowpanel_43" || m == "crowpanel-43" || m == "elecrow-crowpanel-43") {
+    model = "crowpanel_43";
+    screenProfile = "elecrow-crowpanel-43";
+    nativeWidth = 480;
+    nativeHeight = 272;
+    width = 480;
+    height = 272;
+    colorMode = SIM_COLOR_RGB565;
+    supportsPartialRefresh = false;
+    fullRefreshTimeMs = 20;
+    partialRefreshTimeMs = 20;
+    touchSupported = true;
+    isLedDevice = false;
+    if (!orientation.empty()) applyOrientation(orientation);
+    else if (rotation != 0) applyRotation(rotation);
+    return true;
   }
 
   std::cerr << "[Config] Warning: Unknown hardware model '" << modelName << "'. Defaulting to sticky (800x480).\n";
@@ -198,6 +214,7 @@ void SimConfig::cycleRotation() {
 
 std::string SimConfig::colorModeString() const {
   switch (colorMode) {
+    case SIM_COLOR_RGB565: return "16bit-rgb565";
     case SIM_COLOR_RGB888: return "24bit-rgb888";
     case SIM_COLOR_GRAY4: return "gray4";
     case SIM_COLOR_GRAY16: return "gray16";
@@ -209,6 +226,8 @@ std::string SimConfig::colorModeString() const {
 
 size_t SimConfig::bufferSize() const {
   switch (colorMode) {
+    case SIM_COLOR_RGB565:
+      return (size_t)width * height * 2;
     case SIM_COLOR_RGB888:
       return (size_t)width * height * 3;
     case SIM_COLOR_GRAY4:
@@ -227,6 +246,7 @@ static bool isKnownModelName(const std::string& name) {
   std::transform(m.begin(), m.end(), m.begin(), [](unsigned char c) { return std::tolower(c); });
   return (m == "sticky" || m == "e1001" || m == "e1002" || m == "e1003" || m == "e1004" ||
           m == "led" || m == "xiao_led" || m == "seeed-xiao-led" || m == "matrix" || m == "strip" ||
+          m == "crowpanel" || m == "crowpanel_43" || m == "crowpanel-43" || m == "elecrow-crowpanel-43" ||
           m == "seeed-reterminal-sticky" || m == "seeed-reterminal-e1001" ||
           m == "seeed-reterminal-e1002" || m == "seeed-reterminal-e1003" ||
           m == "seeed-reterminal-e1004" || m == "reterminal-sticky" ||
@@ -291,6 +311,10 @@ SimConfig SimConfig::load(int argc, char** argv) {
           cfg.isLedDevice = true;
           cfg.supportsPartialRefresh = false;
           cfg.touchSupported = false;
+        } else if (cMode == "rgb565" || cMode == "16bit-rgb565" || cMode == "16bpp") {
+          cfg.colorMode = SIM_COLOR_RGB565;
+          cfg.isLedDevice = false;
+          cfg.supportsPartialRefresh = false;
         } else if (cMode == "gray4" || cMode == "2bpp") {
           cfg.colorMode = SIM_COLOR_GRAY4;
         } else if (cMode == "gray16" || cMode == "4bpp") {
@@ -364,23 +388,33 @@ SimConfig SimConfig::load(int argc, char** argv) {
   if (const char* v = std::getenv("ST_ROTATION")) cfg.applyRotation(std::atoi(v));
 
   // 4. CLI Argument overrides
+  std::string fileModel = cfg.model;
+  bool modelExplicitOnCli = false;
+  bool deviceExplicitOnCli = false;
+  bool tokenExplicitOnCli = false;
+
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
     if ((arg == "--server" || arg == "-s") && i + 1 < argc) {
       cfg.serverUrl = argv[++i];
     } else if ((arg == "--model" || arg == "--profile" || arg == "-m") && i + 1 < argc) {
       cfg.setModel(argv[++i]);
+      modelExplicitOnCli = true;
     } else if (arg == "--device-id" && i + 1 < argc) {
       cfg.deviceId = argv[++i];
+      deviceExplicitOnCli = true;
     } else if ((arg == "--device" || arg == "-d") && i + 1 < argc) {
       std::string val = argv[++i];
       if (isKnownModelName(val)) {
         cfg.setModel(val);
+        modelExplicitOnCli = true;
       } else {
         cfg.deviceId = val;
+        deviceExplicitOnCli = true;
       }
     } else if ((arg == "--token" || arg == "-t") && i + 1 < argc) {
       cfg.deviceToken = argv[++i];
+      tokenExplicitOnCli = true;
     } else if ((arg == "--orientation" || arg == "-o") && i + 1 < argc) {
       cfg.applyOrientation(argv[++i]);
     } else if ((arg == "--rotate" || arg == "--rotation" || arg == "-r") && i + 1 < argc) {
@@ -439,6 +473,10 @@ SimConfig SimConfig::load(int argc, char** argv) {
         cfg.isLedDevice = true;
         cfg.supportsPartialRefresh = false;
         cfg.touchSupported = false;
+      } else if (modeStr == "rgb565" || modeStr == "16bit-rgb565" || modeStr == "16bpp") {
+        cfg.colorMode = SIM_COLOR_RGB565;
+        cfg.isLedDevice = false;
+        cfg.supportsPartialRefresh = false;
       } else if (modeStr == "gray4" || modeStr == "2bpp") {
         cfg.colorMode = SIM_COLOR_GRAY4;
       } else if (modeStr == "gray16" || modeStr == "4bpp") {
@@ -448,6 +486,10 @@ SimConfig SimConfig::load(int argc, char** argv) {
       } else if (modeStr == "mono" || modeStr == "1bit" || modeStr == "1bpp") {
         cfg.colorMode = SIM_COLOR_1BPP_MONO;
       }
+    } else if (arg == "--rgb565" || arg == "--16bit-rgb565") {
+      cfg.colorMode = SIM_COLOR_RGB565;
+      cfg.isLedDevice = false;
+      cfg.supportsPartialRefresh = false;
     } else if (arg == "--gray4") {
       cfg.colorMode = SIM_COLOR_GRAY4;
     } else if (arg == "--rgb888" || arg == "--24bit-rgb888" || arg == "--led") {
@@ -473,7 +515,7 @@ SimConfig SimConfig::load(int argc, char** argv) {
                 << "Usage: ./screentinker_sim [options]\n\n"
                 << "Options:\n"
                 << "  -s, --server <url>       Server URL (default: " << cfg.serverUrl << ")\n"
-                << "  -m, --model <name>       Hardware model: sticky, e1001, e1002, e1003, e1004, xiao_led (default: " << cfg.model << ")\n"
+                << "  -m, --model <name>       Hardware model: sticky, e1001, e1002, e1003, e1004, crowpanel_43, xiao_led (default: " << cfg.model << ")\n"
                 << "  -w, --width <px>         Display or LED matrix width (e.g. 5, 32, 64)\n"
                 << "  -H, --height <px>        Display or LED matrix height (e.g. 1, 8, 64)\n"
                 << "  -d, --device <uuid|name> Device ID or hardware model name\n"
@@ -483,7 +525,7 @@ SimConfig SimConfig::load(int argc, char** argv) {
                 << "  -r, --rotate <deg>       Rotation: 0, 90, 180, 270 degrees\n"
                 << "      --portrait           Shortcut for --orientation portrait\n"
                 << "      --landscape          Shortcut for --orientation landscape\n"
-                << "      --color-mode <mode>  Color mode: mono, gray4, gray16, spectra6, rgb888\n"
+                << "      --color-mode <mode>  Color mode: mono, gray4, gray16, spectra6, rgb565, rgb888\n"
                 << "      --gray4              Shortcut for --color-mode gray4 (2bpp)\n"
                 << "      --rgb888, --led      Shortcut for --color-mode rgb888 (LED Strip/Matrix)\n"
                 << "  --mock-temp <degC>       Simulated ambient temperature (default: 21.5)\n"
@@ -502,6 +544,17 @@ SimConfig SimConfig::load(int argc, char** argv) {
                 << "  -c, --config <path>      Path to JSON configuration\n"
                 << "  -h, --help               Show this help message\n";
       std::exit(0);
+    }
+  }
+
+  if (modelExplicitOnCli && cfg.model != fileModel) {
+    if (!deviceExplicitOnCli) cfg.deviceId = "";
+    if (!tokenExplicitOnCli) cfg.deviceToken = "";
+    if (cfg.deviceId.empty() || cfg.deviceToken.empty()) {
+      cfg.pairMode = true;
+      std::cout << "[Config] Model switched to '" << cfg.model
+                << "'. Starting fresh pairing flow (cached tokens in " << cfg.configFilePath
+                << " belonged to '" << fileModel << "').\n";
     }
   }
 
@@ -541,9 +594,10 @@ void SimConfig::print() const {
             << " (" << rotation << "°)\n"
             << " • Color Mode:        " << colorModeString() << " ("
             << (colorMode == SIM_COLOR_RGB888 ? "24bpp, 24-Bit RGB888 LED Matrix/Strip" :
+                (colorMode == SIM_COLOR_RGB565 ? "16bpp, 16-Bit RGB565 Parallel LCD" :
                 (colorMode == SIM_COLOR_SPECTRA6 ? "4bpp, 6-Color Spectra 6" :
                  (colorMode == SIM_COLOR_GRAY16 ? "4bpp, 16-Level Grayscale" :
-                  (colorMode == SIM_COLOR_GRAY4 ? "2bpp, 4-Level Grayscale" : "1bpp Monochrome")))) << ")\n"
+                  (colorMode == SIM_COLOR_GRAY4 ? "2bpp, 4-Level Grayscale" : "1bpp Monochrome"))))) << ")\n"
             << " • Refresh Support:   " << (supportsPartialRefresh ? "Full & Fast Partial (" + std::to_string(partialRefreshTimeMs) + "ms)" : "Full Refresh Only (" + std::to_string(fullRefreshTimeMs / 1000) + "s)") << "\n"
             << " • Server URL:        " << serverUrl << "\n"
             << " • Device ID:         " << deviceId << "\n"

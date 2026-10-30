@@ -31,6 +31,10 @@ float sht40_raw_to_humidity_pct(uint16_t raw_rh) {
 static bool s_sht40Available = false;
 
 bool sht40_init() {
+#if !defined(PIN_I2C_SDA) || !defined(PIN_I2C_SCL)
+  s_sht40Available = false;
+  return false;
+#else
   Wire.beginTransmission(SHT40_I2C_ADDR);
   Wire.write(SHT40_CMD_SOFT_RESET);
   if (Wire.endTransmission() != 0) {
@@ -40,6 +44,7 @@ bool sht40_init() {
   delay(2);
   s_sht40Available = true;
   return true;
+#endif
 }
 
 bool sht40_is_available() {
@@ -47,6 +52,9 @@ bool sht40_is_available() {
 }
 
 bool sht40_read(float* temp_c, float* humidity_pct) {
+#if !defined(PIN_I2C_SDA) || !defined(PIN_I2C_SCL)
+  return false;
+#else
   if (!s_sht40Available) {
     // Attempt re-detection once if previously unavailable
     if (!sht40_init()) return false;
@@ -88,6 +96,7 @@ bool sht40_read(float* temp_c, float* humidity_pct) {
   if (humidity_pct) *humidity_pct = sht40_raw_to_humidity_pct(raw_rh);
 
   return true;
+#endif
 }
 
 #else

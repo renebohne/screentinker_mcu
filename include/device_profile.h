@@ -12,6 +12,7 @@
 #define COLOR_MODE_GRAY16      2
 #define COLOR_MODE_SPECTRA6    3
 #define COLOR_MODE_RGB888      4
+#define COLOR_MODE_RGB565      5
 
 // Note: touch-capable targets (DEVICE_SUPPORTS_TOUCH=1) auto-probe GT911 (0x5D/0x14)
 // and FT6336U (0x38) on the I2C bus at runtime; see src/touch_driver.cpp.
@@ -102,6 +103,24 @@
   #define DEVICE_SUPPORTS_IMU              0
   #define DEVICE_IS_LED_STRIP              1
 
+#elif defined(DEVICE_CROWPANEL_43)
+  #include "pins_crowpanel_43.h"
+  #define DEVICE_PROFILE_NAME              "crowpanel_43"
+  #define DEVICE_MODEL_NAME                "Elecrow CrowPanel 4.3\" HMI"
+  #define DEVICE_SCREEN_PROFILE            "elecrow-crowpanel-43"
+  #define DEVICE_DISPLAY_WIDTH             480
+  #define DEVICE_DISPLAY_HEIGHT            272
+  #define DEVICE_COLOR_MODE                COLOR_MODE_RGB565
+  #define DEVICE_PANEL_MODEL               0
+  #define DEVICE_BUFFER_SIZE               261120 // 480 * 272 * 2 bytes (RGB565)
+  #define DEVICE_SUPPORTS_PARTIAL_REFRESH  0
+  #define DEVICE_SUPPORTS_GRAY4            0
+  #define DEVICE_FULL_REFRESH_TIME_MS      20
+  #define DEVICE_PARTIAL_REFRESH_TIME_MS   20
+  #define DEVICE_SUPPORTS_TOUCH            1
+  #define DEVICE_SUPPORTS_IMU              0
+  #define DEVICE_IS_RGB_LCD                1
+
 #else
   // Default Target: Seeed Studio reTerminal Sticky
   #ifndef DEVICE_RETERMINAL_STICKY
@@ -122,6 +141,15 @@
   #define DEVICE_PARTIAL_REFRESH_TIME_MS   350
   #define DEVICE_SUPPORTS_TOUCH            1
   #define DEVICE_SUPPORTS_IMU              1
+#endif
+
+// ─── Panel Orientation & Hardware Fallbacks ──────────────────────────────────
+#ifndef DEVICE_PANEL_REQUIRES_180
+  #if defined(DEVICE_IS_RGB_LCD) || defined(DEVICE_IS_LED_STRIP)
+    #define DEVICE_PANEL_REQUIRES_180      0
+  #else
+    #define DEVICE_PANEL_REQUIRES_180      1
+  #endif
 #endif
 
 // ─── Default Fallbacks for Optional Hardware Pins ─────────────────────────────

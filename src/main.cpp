@@ -10,15 +10,19 @@
 
 #include "device_profile.h"
 
-#if !defined(DEVICE_IS_LED_STRIP)
-extern "C" {
-#include "epaper_panel.h"
-}
-#else
+#if defined(DEVICE_IS_LED_STRIP)
 #include "led_driver.h"
 #include "oled_status.h"
 typedef void* seeed_epaper_panel_handle_t;
 inline void seeed_epaper_panel_sleep(seeed_epaper_panel_handle_t) {}
+#elif defined(DEVICE_IS_RGB_LCD)
+#include "lcd_driver.h"
+typedef void* seeed_epaper_panel_handle_t;
+inline void seeed_epaper_panel_sleep(seeed_epaper_panel_handle_t) { lcd_driver_sleep(); }
+#else
+extern "C" {
+#include "epaper_panel.h"
+}
 #endif
 #include "config.h"
 #include "setup_screen.h"
@@ -34,19 +38,21 @@ inline void seeed_epaper_panel_sleep(seeed_epaper_panel_handle_t) {}
 
 // ─── Hardware I2C & Fuel Gauge (TI BQ27220) ──────────────────────────────────
 static bool s_wireInitialized = false;
-static void ensureI2C() {
-  if (!s_wireInitialized) {
+static bool ensureI2C() {
 #if defined(PIN_I2C_SDA) && defined(PIN_I2C_SCL)
+  if (!s_wireInitialized) {
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL, 100000);
-#else
-    Wire.begin();
-#endif
     s_wireInitialized = true;
   }
+  return true;
+#else
+  return false;
+#endif
 }
 
 static int16_t readBq27220Word(uint8_t cmd) {
-  ensureI2C();
+#if defined(PIN_I2C_SDA) && defined(PIN_I2C_SCL)
+  if (!ensureI2C()) return -1;
   Wire.beginTransmission(0x55);
   Wire.write(cmd);
   if (Wire.endTransmission(false) != 0) {
@@ -57,6 +63,7 @@ static int16_t readBq27220Word(uint8_t cmd) {
     uint8_t msb = Wire.read();
     return (int16_t)((msb << 8) | lsb);
   }
+#endif
   return -1;
 }
 
@@ -376,6 +383,14 @@ void initBoardPowerAndPins() {
 static bool initDisplayPanel() {
 #if defined(DEVICE_IS_LED_STRIP)
   return true;
+#elif defined(DEVICE_IS_RGB_LCD)
+  if (s_epdInitialized) return true;
+  if (!lcd_driver_init()) {
+    Serial.println("[LCD] Failed to initialize CrowPanel RGB LCD!");
+    return false;
+  }
+  s_epdInitialized = true;
+  return true;
 #else
   if (s_epdInitialized && s_panel != NULL) return true;
 
@@ -460,6 +475,14 @@ static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = fa
   if (!rotatedBuf) return false;
   size_t bytesToShow = (s_lastFrameBytes > 0) ? s_lastFrameBytes : (led_driver_get_count() * 3);
   return led_driver_show_rgb(rotatedBuf, bytesToShow, "GRB");
+#elif defined(DEVICE_IS_RGB_LCD)
+  if (!initDisplayPanel()) return false;
+  if (!rotatedBuf) return false;
+  if (colorMode == COLOR_MODE_1BPP_MONO) {
+    return lcd_driver_draw_mono_buffer(rotatedBuf, EPD_WIDTH, EPD_HEIGHT, 0x0000, 0xFFFF);
+  }
+  size_t bytesToShow = (s_lastFrameBytes > 0) ? s_lastFrameBytes : EPD_BUFFER_SIZE;
+  return lcd_driver_draw_rgb565(rotatedBuf, bytesToShow);
 #else
   if (!initDisplayPanel()) return false;
 
@@ -578,7 +601,7 @@ void showImuDebugLetterScreen(int orient) {
     rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   }
 
-  renderRotatedBuffer(s_rotatedBuffer, false);
+  renderRotatedBuffer(s_rotatedBuffer, false, COLOR_MODE_1BPP_MONO);
 }
 
 void showSplashScreen(const char* version, const char* statusMsg) {
@@ -590,7 +613,7 @@ void showSplashScreen(const char* version, const char* statusMsg) {
   Serial.printf("[Display] Rendering Splash Screen (v%s, %s)...\n", version ? version : FIRMWARE_VERSION, statusMsg ? statusMsg : "");
   renderSplashScreen(s_rawBuffer, version, statusMsg, s_currentLang);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
-  renderRotatedBuffer(s_rotatedBuffer, false);
+  renderRotatedBuffer(s_rotatedBuffer, false, COLOR_MODE_1BPP_MONO);
 #endif
 }
 
@@ -604,7 +627,7 @@ void showOnboardingScreen(Language lang = LANG_EN) {
   Serial.println("[Display] Rendering Onboarding Screen on E-Paper...");
   renderOnboardingScreen(s_rawBuffer, lang);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
-  renderRotatedBuffer(s_rotatedBuffer, false);
+  renderRotatedBuffer(s_rotatedBuffer, false, COLOR_MODE_1BPP_MONO);
 #endif
 }
 
@@ -618,7 +641,7 @@ void showNoWifiScreen(Language lang = LANG_EN) {
   Serial.println("[Display] Rendering No Wi-Fi Screen on E-Paper...");
   renderNoWifiScreen(s_rawBuffer, g_wifiSsid.c_str(), lang);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
-  renderRotatedBuffer(s_rotatedBuffer, false);
+  renderRotatedBuffer(s_rotatedBuffer, false, COLOR_MODE_1BPP_MONO);
 #endif
 }
 
@@ -632,7 +655,7 @@ void showEmptyPlaylistScreen(const char* deviceName = "", Language lang = LANG_E
   Serial.printf("[Display] Rendering Empty Playlist Screen for '%s' on E-Paper...\n", deviceName ? deviceName : "");
   renderEmptyPlaylistScreen(s_rawBuffer, deviceName, g_serverUrl.c_str(), lang);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
-  renderRotatedBuffer(s_rotatedBuffer, false);
+  renderRotatedBuffer(s_rotatedBuffer, false, COLOR_MODE_1BPP_MONO);
 #endif
 }
 
@@ -646,7 +669,7 @@ void showOtaUpdateScreen(const char* statusMsg = nullptr, Language lang = LANG_E
   Serial.println("[Display] Rendering OTA Update Screen on E-Paper...");
   renderOtaUpdateScreen(s_rawBuffer, statusMsg, lang);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
-  renderRotatedBuffer(s_rotatedBuffer, false);
+  renderRotatedBuffer(s_rotatedBuffer, false, COLOR_MODE_1BPP_MONO);
 #endif
 }
 
@@ -676,7 +699,7 @@ void showPairingCodeScreen(const char* code, Language lang = LANG_EN) {
   Serial.printf("[Display] Rendering Pairing Code Screen (Code: %s)...\n", code ? code : "");
   renderPairingCodeScreen(s_rawBuffer, code, g_serverUrl.c_str(), lang);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
-  renderRotatedBuffer(s_rotatedBuffer, false);
+  renderRotatedBuffer(s_rotatedBuffer, false, COLOR_MODE_1BPP_MONO);
 #endif
 }
 
@@ -705,7 +728,7 @@ void showSystemMenu(int selectedIndex, bool fastPartial = false) {
                 selectedIndex, fastPartial ? 1 : 0, (s_currentLang == LANG_DE) ? "DE" : "EN", s_wifiTxPowerLevel, (int)s_orientationMode, s_refreshMode, battPct);
   renderSystemMenu(s_rawBuffer, selectedIndex, s_currentLang, s_wifiTxPowerLevel, (uint8_t)s_orientationMode, s_hasImu, battPct, charging, usb, s_refreshMode, DEVICE_SUPPORTS_PARTIAL_REFRESH);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
-  renderRotatedBuffer(s_rotatedBuffer, fastPartial);
+  renderRotatedBuffer(s_rotatedBuffer, fastPartial, COLOR_MODE_1BPP_MONO);
 }
 
 static String s_lastIp = "";
@@ -743,7 +766,7 @@ void showStatusInfoScreen() {
     usb
   );
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
-  renderRotatedBuffer(s_rotatedBuffer, false);
+  renderRotatedBuffer(s_rotatedBuffer, false, COLOR_MODE_1BPP_MONO);
 }
 
 // ─── Adaptive Deep Sleep & RTC State ──────────────────────────────────────────
@@ -829,12 +852,18 @@ void enterDeepSleepWithWakeup(uint32_t sleepSeconds) {
 static uint32_t s_nextSyncMillis = 0;
 
 void scheduleNextSync(uint32_t sleepSeconds) {
+#if defined(DEVICE_IS_LED_STRIP) || defined(DEVICE_IS_RGB_LCD)
+  Serial.printf("\n[Power] Mains/Continuous Mode (LED/LCD). Staying awake with active Wi-Fi. Next sync in %u s.\n", sleepSeconds);
+  s_nextSyncMillis = millis() + (sleepSeconds * 1000UL);
+  return;
+#else
   if (isUsbPowerConnected()) {
     Serial.printf("\n[Power] USB Power Supply Detected (Mains Mode). Staying awake with active Wi-Fi. Next sync in %u s.\n", sleepSeconds);
     s_nextSyncMillis = millis() + (sleepSeconds * 1000UL);
     return;
   }
   enterDeepSleepWithWakeup(sleepSeconds);
+#endif
 }
 
 void powerOffDevice(bool batteryDepleted = false) {
@@ -851,7 +880,7 @@ void powerOffDevice(bool batteryDepleted = false) {
   if (s_rawBuffer && s_rotatedBuffer) {
     renderPowerOffScreen(s_rawBuffer, s_currentLang, batteryDepleted);
     rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
-    renderRotatedBuffer(s_rotatedBuffer);
+    renderRotatedBuffer(s_rotatedBuffer, false, COLOR_MODE_1BPP_MONO);
   }
 
   delay(200);
@@ -1447,19 +1476,28 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
       showNoWifiScreen(s_currentLang);
     } else {
       int offlineTarget = (requestedItemIndex >= 0) ? requestedItemIndex : getNextCachedItemIndex(s_currentItemIndex);
-      if (cacheGet(offlineTarget, s_rotatedBuffer)) {
+      uint8_t cachedColorMode = DEVICE_COLOR_MODE;
+      size_t cachedFrameSize = 0;
+      if (cacheGet(offlineTarget, s_rotatedBuffer, &cachedColorMode, &cachedFrameSize)) {
         s_currentItemIndex = offlineTarget;
-        Serial.printf("[Sync] Offline mode: Displaying cached item %d with Offline Badge...\n", offlineTarget);
-        rotate_buffer_180(s_rotatedBuffer, s_rawBuffer, EPD_WIDTH, EPD_HEIGHT);
-        gfx_draw_offline_badge(s_rawBuffer);
+        s_lastFrameBytes = cachedFrameSize;
+        Serial.printf("[Sync] Offline mode: Displaying cached item %d (mode=%d)...\n", offlineTarget, (int)cachedColorMode);
         int battPct = readBatteryPercent();
         bool charging = isBatteryCharging();
         bool usb = isUsbPowerConnected();
-        if (battPct >= 0 && battPct < 10 && !charging && !usb) {
-          gfx_draw_low_battery_icon(s_rawBuffer, EPD_WIDTH - 210, 14, battPct);
+        if (cachedColorMode == COLOR_MODE_1BPP_MONO) {
+          rotate_mono_180(s_rotatedBuffer, s_rawBuffer, EPD_WIDTH, EPD_HEIGHT);
+          gfx_draw_offline_badge(s_rawBuffer);
+          if (battPct >= 0 && battPct < 10 && !charging && !usb) {
+            gfx_draw_low_battery_icon(s_rawBuffer, EPD_WIDTH - 210, 14, battPct);
+          }
+          rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
+        } else if (battPct >= 0 && battPct < 10 && !charging && !usb) {
+          rotate_buffer_180_mode(s_rotatedBuffer, s_rawBuffer, EPD_WIDTH, EPD_HEIGHT, cachedColorMode);
+          gfx_draw_low_battery_icon_native(s_rawBuffer, EPD_WIDTH, EPD_HEIGHT, cachedColorMode, -1, -1, battPct);
+          rotate_buffer_180_mode(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT, cachedColorMode);
         }
-        rotate_buffer_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
-        renderRotatedBuffer(s_rotatedBuffer);
+        renderRotatedBuffer(s_rotatedBuffer, false, cachedColorMode);
       }
     }
     disconnectWiFiIfPowerSave();
@@ -1724,6 +1762,24 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     } else {
       expectedSize = DEVICE_BUFFER_SIZE;
     }
+#elif defined(DEVICE_IS_RGB_LCD)
+    int httpContentLen = http.getSize();
+    if (colorModeHdr == "rgb565" || colorModeHdr == "16bit-rgb565" || colorModeHdr == "16bpp") {
+      activeColorMode = COLOR_MODE_RGB565;
+      expectedSize = EPD_BUFFER_SIZE;
+    } else if (colorModeHdr == "mono" || colorModeHdr == "1bpp" || colorModeHdr == "1bit") {
+      activeColorMode = COLOR_MODE_1BPP_MONO;
+      expectedSize = ((size_t)EPD_WIDTH * EPD_HEIGHT) / 8;
+    } else if (httpContentLen > 0) {
+      expectedSize = (size_t)httpContentLen;
+      if (httpContentLen == (int)(((size_t)EPD_WIDTH * EPD_HEIGHT) / 8)) {
+        activeColorMode = COLOR_MODE_1BPP_MONO;
+      } else {
+        activeColorMode = COLOR_MODE_RGB565;
+      }
+    } else {
+      expectedSize = EPD_BUFFER_SIZE;
+    }
 #elif DEVICE_SUPPORTS_GRAY4
     const size_t monoExpectedSize = ((size_t)EPD_WIDTH * EPD_HEIGHT) / 8;
     const size_t gray4ExpectedSize = ((size_t)EPD_WIDTH * EPD_HEIGHT) / 4;
@@ -1752,22 +1808,30 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     WiFiClient* stream = http.getStreamPtr();
     size_t totalReceived = 0;
     uint32_t streamStart = millis();
+    static uint8_t s_netChunk[4096]; // Buffer network packets in fast internal SRAM to avoid PSRAM bus contention
 
     while (http.connected() && totalReceived < expectedSize) {
       size_t available = stream->available();
       if (available > 0) {
-        size_t toRead = min(available, (size_t)(expectedSize - totalReceived));
-        int readBytes = stream->readBytes((char*)(s_rawBuffer + totalReceived), toRead);
-        if (readBytes > 0) totalReceived += readBytes;
+        size_t toRead = min(available, sizeof(s_netChunk));
+        toRead = min(toRead, (size_t)(expectedSize - totalReceived));
+        int readBytes = stream->readBytes((char*)s_netChunk, toRead);
+        if (readBytes > 0) {
+          memcpy(s_rawBuffer + totalReceived, s_netChunk, readBytes);
+          totalReceived += readBytes;
+        }
       } else {
-        delay(5);
+        delay(2);
         if (millis() - streamStart > 10000) break;
       }
     }
 
     http.end();
     Serial.printf("[Sync] Received %u / %u bytes (colorMode=%s).\n",
-                  totalReceived, expectedSize, (activeColorMode == COLOR_MODE_GRAY4) ? "gray4" : ((activeColorMode == COLOR_MODE_RGB888) ? "rgb888" : "mono"));
+                  totalReceived, expectedSize,
+                  (activeColorMode == COLOR_MODE_GRAY4) ? "gray4" :
+                  ((activeColorMode == COLOR_MODE_RGB888) ? "rgb888" :
+                  ((activeColorMode == COLOR_MODE_RGB565) ? "rgb565" : "mono")));
 
 #if defined(DEVICE_IS_LED_STRIP)
     if (totalReceived > 0) {
@@ -1872,7 +1936,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     if (s_rawBuffer && s_rotatedBuffer) {
       renderUnsupportedContentScreen(s_rawBuffer, reason.c_str(), s_currentLang);
       rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
-      renderRotatedBuffer(s_rotatedBuffer);
+      renderRotatedBuffer(s_rotatedBuffer, false, COLOR_MODE_1BPP_MONO);
     }
     ota_confirm_running_partition();
     return;
@@ -2330,6 +2394,9 @@ void setup() {
   led_driver_init(totalLeds);
   led_driver_set_matrix_config(matW, matH, (MatrixWiring)matWir, (MatrixAxis)matAxis, (MatrixOrigin)matOrig);
   oled_status_init();
+#elif defined(DEVICE_IS_RGB_LCD)
+  lcd_driver_init();
+  lcd_driver_set_backlight(255);
 #endif
   if (sht40_init()) {
     Serial.println("[SHT40] Sensirion SHT40 temperature & humidity sensor initialized.");
@@ -2712,13 +2779,13 @@ void loop() {
   static uint32_t okPressStart = 0;
 
 #if defined(PIN_BTN_OK) && (PIN_BTN_OK >= 0)
-  // Track OK Button state
+  // Track OK / BOOT Button state
   if (digitalRead(PIN_BTN_OK) == LOW) {
     if (okPressStart == 0) okPressStart = millis();
 
-    // If held for 1.5 seconds while outside menu -> Open System Menu immediately!
-    if (!s_inSystemMenu && !s_inStatusScreen && okPressStart > 0 && (millis() - okPressStart >= 1500)) {
-      Serial.println("\n>>> [Button] Long press (1.5s) on OK detected -> Opening System Menu!");
+    // If held for 1 second while outside menu -> Open System Menu immediately!
+    if (!s_inSystemMenu && !s_inStatusScreen && okPressStart > 0 && (millis() - okPressStart >= 1000)) {
+      Serial.println("\n>>> [Button] BOOT button held -> Opening System Menu!");
       okPressStart = 0; // Reset so it doesn't re-trigger while held
       s_inInteractiveMode = true;
       s_interactiveUntilMillis = millis() + 30000;
@@ -2727,6 +2794,12 @@ void loop() {
       s_menuSelection = 0; // Default: 1. Status & Info
       s_menuOpenMillis = millis();
       showSystemMenu(s_menuSelection, false);
+    } else if (s_inSystemMenu && okPressStart > 0 && (millis() - okPressStart >= 1200)) {
+#if (!defined(PIN_BTN_UP) || PIN_BTN_UP < 0) && (!defined(PIN_BTN_DOWN) || PIN_BTN_DOWN < 0)
+      Serial.printf("\n>>> [SystemMenu] Long press on BOOT button -> Executing selection %d!\n", s_menuSelection);
+      okPressStart = 0;
+      executeMenuAction(s_menuSelection);
+#endif
     }
   } else {
     // Button released
@@ -2734,8 +2807,8 @@ void loop() {
       uint32_t duration = millis() - okPressStart;
       okPressStart = 0;
 
-      // Valid Short Press (between 40ms and 1400ms)
-      if (duration > 40 && duration < 1400) {
+      // Valid Short Press (between 40ms and 1000ms)
+      if (duration > 40 && duration < 1000) {
         s_inInteractiveMode = true;
         s_interactiveUntilMillis = millis() + 30000;
 
@@ -2747,24 +2820,25 @@ void loop() {
           s_menuOpenMillis = millis();
           showSystemMenu(s_menuSelection, false);
         } else if (s_inSystemMenu) {
-          // Inside System Menu: Execute selection!
+#if (!defined(PIN_BTN_UP) || PIN_BTN_UP < 0) && (!defined(PIN_BTN_DOWN) || PIN_BTN_DOWN < 0)
+          // Single-button device (like CrowPanel): short press cycles through menu items
+          s_menuSelection = (s_menuSelection + 1) % 9;
+          s_menuOpenMillis = millis();
+          Serial.printf("\n>>> [SystemMenu] BOOT pressed -> Selection: %d\n", s_menuSelection);
+          showSystemMenu(s_menuSelection, true);
+#else
+          // Multi-button device: short press executes selection!
           Serial.printf("\n>>> [SystemMenu] Selection %d confirmed!\n", s_menuSelection);
           executeMenuAction(s_menuSelection);
+#endif
         } else {
-          // Outside Menu: Normal Short Press -> Open menu or refresh
-          if (!isConfigured) {
-            showOnboardingScreen(s_currentLang);
-          } else if (!isPaired) {
-            Serial.println("\n>>> [Button] OK pressed -> Refreshing pairing code...");
-            registerAndStartPairing();
-          } else {
-            Serial.println("\n>>> [Button] OK pressed -> Opening System Menu!");
-            s_inSystemMenu = true;
-            s_inStatusScreen = false;
-            s_menuSelection = 0;
-            s_menuOpenMillis = millis();
-            showSystemMenu(s_menuSelection, false);
-          }
+          // Outside Menu: Normal Short Press -> Open System Menu!
+          Serial.println("\n>>> [Button] BOOT button pressed -> Opening System Menu!");
+          s_inSystemMenu = true;
+          s_inStatusScreen = false;
+          s_menuSelection = 0;
+          s_menuOpenMillis = millis();
+          showSystemMenu(s_menuSelection, false);
         }
       }
     }
@@ -2788,8 +2862,7 @@ void loop() {
   }
 
 #if DEVICE_SUPPORTS_TOUCH
-  // Capacitive Touch Digitizer Handling (Sticky & E1003)
-  // Only active while in System Menu or Status Screen; image display is not affected by touch
+  // Touch Digitizer Handling: only active while inside System Menu or Status Screen
   if (s_inSystemMenu || s_inStatusScreen) {
     touch_point_t tp;
     if (touch_read(&tp)) {

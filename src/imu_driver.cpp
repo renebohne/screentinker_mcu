@@ -33,6 +33,10 @@ static bool readBytes(uint8_t addr, uint8_t reg, uint8_t* buffer, size_t length)
 }
 
 bool imu_init() {
+#if !defined(PIN_I2C_SDA) || !defined(PIN_I2C_SCL)
+  s_imuInitialized = false;
+  return false;
+#else
   uint8_t who = 0;
   s_imuAddr = LSM6DS3_DEFAULT_ADDR;
   if (!readReg(s_imuAddr, LSM6DS3_REG_WHO_AM_I, &who)) {
@@ -56,6 +60,7 @@ bool imu_init() {
 
   s_imuInitialized = true;
   return true;
+#endif
 }
 
 bool imu_is_available() {

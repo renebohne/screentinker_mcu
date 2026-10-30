@@ -17,4 +17,6 @@ def after_build(source, target, env):
     except Exception as e:
         print(f"[Simulator] Warning: Could not copy binary to root: {e}")
 
+env.AddPostAction("$PROGPATH", after_build)
+env.AddPostAction(env.File("$PROGPATH"), after_build)
 env.AddPostAction("$BUILD_DIR/${PROGNAME}", after_build)

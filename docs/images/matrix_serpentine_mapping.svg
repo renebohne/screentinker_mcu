@@ -52,67 +52,81 @@
         <text x="267" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 3</text>
       </g>
 
-      <!-- Curve down from 3 to 4 -->
-      <path d="M 267 45 C 295 55, 295 70, 267 75" fill="none" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
+      <!-- Curve down from 3 to 4 (Right side turnaround) -->
+      <path d="M 295 22.5 C 325 22.5, 325 82.5, 295 82.5" fill="none" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
 
-      <!-- Row 1: 7 <- 6 <- 5 <- 4 (Reversed!) -->
+      <!-- Row 1: 7 <- 6 <- 5 <- 4 (Reversed / Right-to-Left!) -->
       <g transform="translate(0, 60)">
-        <rect x="0" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
-        <text x="27" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 7</text>
-
-        <line x1="135" y1="22" x2="110" y2="22" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
-        <rect x="80" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
-        <text x="107" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 6</text>
-
-        <line x1="215" y1="22" x2="190" y2="22" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
-        <rect x="160" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
-        <text x="187" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 5</text>
-
-        <line x1="267" y1="22" x2="240" y2="22" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
+        <!-- LED 4 -->
         <rect x="240" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
         <text x="267" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 4</text>
+        <!-- Arrow 4 -> 5 -->
+        <line x1="240" y1="22.5" x2="215" y2="22.5" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
+
+        <!-- LED 5 -->
+        <rect x="160" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
+        <text x="187" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 5</text>
+        <!-- Arrow 5 -> 6 -->
+        <line x1="160" y1="22.5" x2="135" y2="22.5" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
+
+        <!-- LED 6 -->
+        <rect x="80" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
+        <text x="107" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 6</text>
+        <!-- Arrow 6 -> 7 -->
+        <line x1="80" y1="22.5" x2="55" y2="22.5" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
+
+        <!-- LED 7 -->
+        <rect x="0" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
+        <text x="27" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 7</text>
       </g>
 
-      <!-- Curve down from 7 to 8 -->
-      <path d="M 27 105 C 0 115, 0 130, 27 135" fill="none" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
+      <!-- Curve down from 7 to 8 (Left side turnaround) -->
+      <path d="M 0 82.5 C -30 82.5, -30 142.5, 0 142.5" fill="none" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
 
       <!-- Row 2: 8 -> 9 -> 10 -> 11 -->
       <g transform="translate(0, 120)">
         <rect x="0" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
         <text x="27" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 8</text>
-        <line x1="55" y1="22" x2="80" y2="22" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
+        <line x1="55" y1="22.5" x2="80" y2="22.5" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
 
         <rect x="80" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
         <text x="107" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 9</text>
-        <line x1="135" y1="22" x2="160" y2="22" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
+        <line x1="135" y1="22.5" x2="160" y2="22.5" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
 
         <rect x="160" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
         <text x="187" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 10</text>
-        <line x1="215" y1="22" x2="240" y2="22" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
+        <line x1="215" y1="22.5" x2="240" y2="22.5" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
 
         <rect x="240" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
         <text x="267" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 11</text>
       </g>
 
-      <!-- Curve down from 11 to 12 -->
-      <path d="M 267 165 C 295 175, 295 190, 267 195" fill="none" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
+      <!-- Curve down from 11 to 12 (Right side turnaround) -->
+      <path d="M 295 142.5 C 325 142.5, 325 202.5, 295 202.5" fill="none" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
 
-      <!-- Row 3: 15 <- 14 <- 13 <- 12 -->
+      <!-- Row 3: 15 <- 14 <- 13 <- 12 (Reversed / Right-to-Left!) -->
       <g transform="translate(0, 180)">
-        <rect x="0" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
-        <text x="27" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 15</text>
-
-        <line x1="135" y1="22" x2="110" y2="22" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
-        <rect x="80" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
-        <text x="107" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 14</text>
-
-        <line x1="215" y1="22" x2="190" y2="22" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
-        <rect x="160" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
-        <text x="187" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 13</text>
-
-        <line x1="267" y1="22" x2="240" y2="22" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
+        <!-- LED 12 -->
         <rect x="240" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
         <text x="267" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 12</text>
+        <!-- Arrow 12 -> 13 -->
+        <line x1="240" y1="22.5" x2="215" y2="22.5" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
+
+        <!-- LED 13 -->
+        <rect x="160" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
+        <text x="187" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 13</text>
+        <!-- Arrow 13 -> 14 -->
+        <line x1="160" y1="22.5" x2="135" y2="22.5" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
+
+        <!-- LED 14 -->
+        <rect x="80" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
+        <text x="107" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 14</text>
+        <!-- Arrow 14 -> 15 -->
+        <line x1="80" y1="22.5" x2="55" y2="22.5" stroke="#10b981" stroke-width="3" marker-end="url(#arrowGreen)"/>
+
+        <!-- LED 15 -->
+        <rect x="0" y="0" width="55" height="45" rx="6" fill="#065f46" stroke="#10b981"/>
+        <text x="27" y="27" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">LED 15</text>
       </g>
     </g>
 

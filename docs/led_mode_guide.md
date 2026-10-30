@@ -4,11 +4,6 @@ ScreenTinker LED Mode turns compact Seeed Studio XIAO microcontrollers into high
 
 Instead of running hardcoded light patterns, LED Mode connects directly to your ScreenTinker digital signage server over Wi-Fi, downloading pixel art, color gradients, ambient lighting themes, and live tickers rendered dynamically by the server in 24-bit raw RGB888.
 
-<div align="center">
-  <img src="images/xiao_led_matrix_setup.jpg" alt="Seeed Studio XIAO LED Controller Workbench Setup" width="100%" style="border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); margin: 16px 0;" />
-  <p><em>Turnkey Smart Signage: Seeed Studio XIAO ESP32-C6 seated in the LED Driver Expansion Board, driving an illuminated 64×64 RGB LED Matrix and Grove OLED status display.</em></p>
-</div>
-
 ---
 
 ## 1. Supported Microcontrollers

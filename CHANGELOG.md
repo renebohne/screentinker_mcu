@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-10-30
+
+### Added
+- **Elecrow CrowPanel 4.3" HMI Support (`elecrow_crowpanel_43`)**:
+  - 480×272 RGB LCD support with NV3047 controller over 16-bit parallel RGB interface.
+  - ESP-IDF RGB bounce-buffer driver in internal SRAM (19.2 KB bounce buffer @ 6 MHz PCLK) to prevent PSRAM bandwidth starvation and visual tearing during Wi-Fi and TLS transfers.
+  - On-the-fly promotion of 1bpp local system UI (setup screen, System Menu, Status Screen) to RGB565.
+  - Physical BOOT button single-button navigation (Short Press: cycle menu, Long Press: select, Very Long Press: factory reset).
+  - Compact adaptive UI layout for displays with height < 350px.
+  - Web Flasher manifest and precompiled binaries for 1-click browser flashing (`tools/manifest_crowpanel_43.json`).
+- **Web Flasher Target Expansion (`tools/index.html`, `tools/sticky-installer.html`)**:
+  - Added RGB LCD Display target group featuring the Elecrow CrowPanel 4.3".
+
+### Fixed
+- **Multi-bit Offline Fallback Badge Safety (`src/main.cpp`)**:
+  - Gated 1-bit monochrome offline badge drawing and rotation strictly to `COLOR_MODE_1BPP_MONO`, preventing visual buffer scrambling when multi-bit displays (RGB565, Spectra 6, Gray16) are offline.
+
 ## [1.4.1] - 2026-10-30
 
 ### Added

@@ -232,6 +232,9 @@
             <option value="manifest_xiao_esp32s3_led.json" data-type="led">Seeed Studio XIAO ESP32-S3 LED Controller (Dual-Core, 8MB PSRAM)</option>
             <option value="manifest_xiao_esp32c3_led.json" data-type="led">Seeed Studio XIAO ESP32-C3 LED Controller (RISC-V)</option>
           </optgroup>
+          <optgroup id="optgroupLcd" label="RGB LCD Displays">
+            <option value="manifest_crowpanel_43.json" data-type="lcd">Elecrow CrowPanel 4.3" HMI Display (480×272 RGB LCD, ESP32-S3)</option>
+          </optgroup>
         </select>
         <div id="boardBadge" style="margin-top: 8px; font-size: 12px; color: #94a3b8; background: #0f172a; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border);"></div>
       </div>
@@ -382,11 +385,12 @@
       en: {
         page_title: 'ScreenTinker — Universal Web Installer & Onboarding',
         header_title: 'ScreenTinker — Web Installer & Setup',
-        header_desc: '1-Click WebSerial Flasher & Configuration for Seeed Studio reTerminal & XIAO LED Controller',
+        header_desc: '1-Click WebSerial Flasher & Configuration for Seeed Studio reTerminal, Smart LEDs & Elecrow CrowPanel',
         step1_title: 'Select Hardware Target & Flash Firmware',
         target_label: 'Target Device / Microcontroller *',
         optgroup_epaper: 'Seeed Studio reTerminal E-Paper Displays',
         optgroup_led: 'Seeed Studio XIAO Smart LED Controller (WS2812 / SK6812)',
+        optgroup_lcd: 'RGB LCD Displays',
         usb_notice: 'Connect your device to your computer via USB-C cable (Google Chrome or Microsoft Edge required).',
         flash_btn: '🚀 Install Firmware Directly in Browser',
         step2_title: 'Configure Device & Connect Server',
@@ -446,11 +450,12 @@
       de: {
         page_title: 'ScreenTinker — Universal Web Installer & Onboarding',
         header_title: 'ScreenTinker — Web Installer & Setup',
-        header_desc: '1-Klick WebSerial Flasher & Konfiguration für Seeed Studio reTerminal & XIAO LED Controller',
+        header_desc: '1-Klick WebSerial Flasher & Konfiguration für Seeed Studio reTerminal, Smart LEDs & Elecrow CrowPanel',
         step1_title: 'Hardware-Ziel wählen & Firmware flashen',
         target_label: 'Zielgerät / Microcontroller *',
         optgroup_epaper: 'Seeed Studio reTerminal E-Paper Displays',
         optgroup_led: 'Seeed Studio XIAO Smart LED Controller (WS2812 / SK6812)',
+        optgroup_lcd: 'RGB LCD Displays',
         usb_notice: 'Verbinde dein Gerät per USB-C-Kabel mit dem Computer (Google Chrome oder Microsoft Edge erforderlich).',
         flash_btn: '🚀 Firmware direkt im Browser installieren',
         step2_title: 'Gerät konfigurieren & Server verbinden',
@@ -518,7 +523,8 @@
         'manifest_e1004.json': 'ℹ️ <strong>reTerminal E1004:</strong> 13.3" 6-Color Spectra 6 E-Paper (T133A01, 1200×1600), ESP32-S3, RTC, SHT40.',
         'manifest_xiao_esp32c6_led.json': 'ℹ️ <strong>XIAO ESP32-C6 LED Controller:</strong> Wi-Fi 6 (802.11ax), RISC-V @ 160MHz, 24-Bit RGB888 WS2812/SK6812, Grove I2C.',
         'manifest_xiao_esp32s3_led.json': 'ℹ️ <strong>XIAO ESP32-S3 LED Controller:</strong> Dual-Core Xtensa @ 240MHz, 8MB PSRAM (for ultra-large matrices), WS2812/SK6812.',
-        'manifest_xiao_esp32c3_led.json': 'ℹ️ <strong>XIAO ESP32-C3 LED Controller:</strong> Compact RISC-V Controller, WS2812/SK6812 Strip & Matrix.'
+        'manifest_xiao_esp32c3_led.json': 'ℹ️ <strong>XIAO ESP32-C3 LED Controller:</strong> Compact RISC-V Controller, WS2812/SK6812 Strip & Matrix.',
+        'manifest_crowpanel_43.json': 'ℹ️ <strong>Elecrow CrowPanel 4.3":</strong> 4.3" RGB LCD (NV3047, 480×272, 16-Bit RGB565), ESP32-S3 (4MB Flash / 2MB PSRAM), BOOT button menu navigation.'
       },
       de: {
         'manifest_sticky.json': 'ℹ️ <strong>reTerminal Sticky:</strong> 3.97" Schwarz/Weiß E-Paper (SSD1677), ESP32-S3 (8MB Flash / 8MB PSRAM), SHT40 Umweltsensor.',
@@ -528,7 +534,8 @@
         'manifest_e1004.json': 'ℹ️ <strong>reTerminal E1004:</strong> 13.3" 6-Farben Spectra 6 E-Paper (T133A01, 1200×1600), ESP32-S3, RTC, SHT40.',
         'manifest_xiao_esp32c6_led.json': 'ℹ️ <strong>XIAO ESP32-C6 LED Controller:</strong> Wi-Fi 6 (802.11ax), RISC-V @ 160MHz, 24-Bit RGB888 WS2812/SK6812, Grove I2C.',
         'manifest_xiao_esp32s3_led.json': 'ℹ️ <strong>XIAO ESP32-S3 LED Controller:</strong> Dual-Core Xtensa @ 240MHz, 8MB PSRAM (für große Matrizen), WS2812/SK6812.',
-        'manifest_xiao_esp32c3_led.json': 'ℹ️ <strong>XIAO ESP32-C3 LED Controller:</strong> Kompakter RISC-V Controller, WS2812/SK6812 Strip & Matrix.'
+        'manifest_xiao_esp32c3_led.json': 'ℹ️ <strong>XIAO ESP32-C3 LED Controller:</strong> Kompakter RISC-V Controller, WS2812/SK6812 Strip & Matrix.',
+        'manifest_crowpanel_43.json': 'ℹ️ <strong>Elecrow CrowPanel 4.3":</strong> 4.3" Farb-LCD (NV3047, 480×272, 16-Bit RGB565), ESP32-S3 (4MB Flash / 2MB PSRAM), Menü-Navigation per BOOT-Taste.'
       }
     };
 
@@ -570,6 +577,7 @@
       // Update optgroup labels
       document.getElementById('optgroupEpaper').label = t('optgroup_epaper');
       document.getElementById('optgroupLed').label = t('optgroup_led');
+      document.getElementById('optgroupLcd').label = t('optgroup_lcd');
 
       updateBoardUI();
     }

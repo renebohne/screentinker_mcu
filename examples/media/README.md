@@ -29,11 +29,29 @@ Designed for 64×64 RGB LED matrices (HUB75, WS2812, etc.) using `24bit-rgb888` 
 
 ---
 
+## 3. 32×8 LED Matrix Pixel Art & Status Badges (`examples/media/32x8/`)
+
+Designed for 32×8 LED pixel matrix displays (e.g. WS2812 / SK6812 flexible 32×8 panels or 4× 8×8 chained modules) using `24bit-rgb888` color depth.
+
+| File | Resolution | Description |
+| :--- | :--- | :--- |
+| [`matrix_32x8_clock.png`](file:///Users/rene/Documents/github/screentinker_mcu/examples/media/32x8/matrix_32x8_clock.png) | 32×8 | **Neon Digital Clock**: Crisp 5×7 cyan digital clock reading `14:35` with amber colons. |
+| [`matrix_32x8_weather.png`](file:///Users/rene/Documents/github/screentinker_mcu/examples/media/32x8/matrix_32x8_weather.png) | 32×8 | **Weather & Temperature**: Radiant 8×8 golden sun glyph with orange corona and `+23°C` readout. |
+| [`matrix_32x8_on_air.png`](file:///Users/rene/Documents/github/screentinker_mcu/examples/media/32x8/matrix_32x8_on_air.png) | 32×8 | **Studio ON AIR Sign**: High-contrast illuminated studio door sign framed in deep crimson red. |
+| [`matrix_32x8_pacman.png`](file:///Users/rene/Documents/github/screentinker_mcu/examples/media/32x8/matrix_32x8_pacman.png) | 32×8 | **Arcade Pac-Chase**: Classic yellow Pac-Man sprite pursuing pellets and a red arcade ghost. |
+
+---
+
 ## Testing with the ScreenTinker MCU Simulator
 
 ### Running the 5×1 Strip Simulator
 ```bash
 ./screentinker_sim --width 5 --height 1
+```
+
+### Running the 32×8 Matrix Simulator
+```bash
+./screentinker_sim --width 32 --height 8 --rgb888
 ```
 
 ### Running the 64×64 Matrix Simulator

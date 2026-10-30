@@ -7,6 +7,7 @@ bilingual diagnostic screens, 6-digit PIN pairing, and BMP output.
 
 import json
 import os
+import re
 import struct
 import subprocess
 import tempfile
@@ -18,6 +19,13 @@ from mock_server import MockServer
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SIMULATOR_BIN = REPO_ROOT / "screentinker_sim"
+
+
+def get_expected_firmware_version() -> str:
+    """Reads FIRMWARE_VERSION from include/config.h so tests stay synced with releases."""
+    config_h = (REPO_ROOT / "include" / "config.h").read_text(encoding="utf-8")
+    m = re.search(r'#define\s+FIRMWARE_VERSION\s+"([^"]+)"', config_h)
+    return m.group(1) if m else "1.4.2"
 
 
 def parse_bmp_header(filepath: str):
@@ -96,6 +104,9 @@ class TestScreenTinkerSimulator(unittest.TestCase):
             "--headless",
             "--server", self.server_url,
         ]
+        if not any(arg in ("--config", "-c") for arg in extra_args):
+            default_cfg = os.path.join(self.temp_dir.name, "_default_empty_sim_config.json")
+            cmd.extend(["--config", default_cfg])
         if not any(arg.startswith("--cycles") for arg in extra_args):
             cmd.append("--oneshot")
         cmd.extend(extra_args)
@@ -138,7 +149,7 @@ class TestScreenTinkerSimulator(unittest.TestCase):
         last = self.mock_server.state.last_telemetry
         self.assertIsNotNone(last)
         headers = {k.lower(): v for k, v in last["headers"].items()}
-        self.assertEqual(headers.get("x-st-firmware-version"), "1.2.0")
+        self.assertEqual(headers.get("x-st-firmware-version"), get_expected_firmware_version())
         self.assertEqual(headers.get("x-st-device-battery"), "84")
         self.assertEqual(headers.get("x-st-device-rssi"), "-64")
         self.assertEqual(headers.get("x-st-power-source"), "battery")
@@ -424,11 +435,12 @@ class TestScreenTinkerSimulator(unittest.TestCase):
     def test_13_hardware_capabilities_pairing_registration(self):
         """Tests that --pair announces color_mode, supports_partial_refresh, and refresh durations."""
         capabilities_matrix = [
-            ("sticky", "mono", True, 1800),
-            ("e1001", "mono", True, 3000),
+            ("sticky", "1bit", True, 1800),
+            ("e1001", "1bit", True, 3000),
             ("e1002", "spectra6", False, 14000),
             ("e1003", "gray16", True, 1200),
             ("e1004", "spectra6", False, 22000),
+            ("crowpanel_43", "16bit-rgb565", False, 20),
         ]
         for model_name, exp_color, exp_partial, exp_full_ms in capabilities_matrix:
             with self.subTest(model=model_name):

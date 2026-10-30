@@ -198,12 +198,12 @@ void SimConfig::cycleRotation() {
 
 std::string SimConfig::colorModeString() const {
   switch (colorMode) {
-    case SIM_COLOR_RGB888: return "rgb888";
+    case SIM_COLOR_RGB888: return "24bit-rgb888";
     case SIM_COLOR_GRAY4: return "gray4";
     case SIM_COLOR_GRAY16: return "gray16";
     case SIM_COLOR_SPECTRA6: return "spectra6";
     case SIM_COLOR_1BPP_MONO:
-    default: return "mono";
+    default: return "1bit";
   }
 }
 
@@ -279,6 +279,28 @@ SimConfig SimConfig::load(int argc, char** argv) {
       if (doc["simulator"]["fast_forward_sleep"].is<bool>()) cfg.fastForwardSleep = doc["simulator"]["fast_forward_sleep"].as<bool>();
       if (doc["simulator"]["sync_interval_sec"].is<int>()) cfg.syncIntervalSec = doc["simulator"]["sync_interval_sec"].as<int>();
       if (doc["simulator"]["scale"].is<int>()) cfg.scale = doc["simulator"]["scale"].as<int>();
+
+      std::string cMode = "";
+      if (doc["color_mode"].is<const char*>()) cMode = doc["color_mode"].as<std::string>();
+      else if (doc["colorMode"].is<const char*>()) cMode = doc["colorMode"].as<std::string>();
+      else if (doc["hardware"]["color_mode"].is<const char*>()) cMode = doc["hardware"]["color_mode"].as<std::string>();
+      else if (doc["simulator"]["color_mode"].is<const char*>()) cMode = doc["simulator"]["color_mode"].as<std::string>();
+      if (!cMode.empty()) {
+        if (cMode == "rgb888" || cMode == "24bit-rgb888" || cMode == "rgb" || cMode == "led") {
+          cfg.colorMode = SIM_COLOR_RGB888;
+          cfg.isLedDevice = true;
+          cfg.supportsPartialRefresh = false;
+          cfg.touchSupported = false;
+        } else if (cMode == "gray4" || cMode == "2bpp") {
+          cfg.colorMode = SIM_COLOR_GRAY4;
+        } else if (cMode == "gray16" || cMode == "4bpp") {
+          cfg.colorMode = SIM_COLOR_GRAY16;
+        } else if (cMode == "spectra6" || cMode == "color") {
+          cfg.colorMode = SIM_COLOR_SPECTRA6;
+        } else if (cMode == "mono" || cMode == "1bit" || cMode == "1bpp") {
+          cfg.colorMode = SIM_COLOR_1BPP_MONO;
+        }
+      }
 
       if (doc["orientation"].is<const char*>()) cfg.applyOrientation(doc["orientation"].as<std::string>());
       if (doc["hardware"]["orientation"].is<const char*>()) cfg.applyOrientation(doc["hardware"]["orientation"].as<std::string>());
@@ -412,7 +434,7 @@ SimConfig SimConfig::load(int argc, char** argv) {
       }
     } else if ((arg == "--color-mode" || arg == "--color") && i + 1 < argc) {
       std::string modeStr = argv[++i];
-      if (modeStr == "rgb888" || modeStr == "rgb" || modeStr == "led") {
+      if (modeStr == "rgb888" || modeStr == "24bit-rgb888" || modeStr == "rgb" || modeStr == "led") {
         cfg.colorMode = SIM_COLOR_RGB888;
         cfg.isLedDevice = true;
         cfg.supportsPartialRefresh = false;
@@ -423,12 +445,12 @@ SimConfig SimConfig::load(int argc, char** argv) {
         cfg.colorMode = SIM_COLOR_GRAY16;
       } else if (modeStr == "spectra6" || modeStr == "color") {
         cfg.colorMode = SIM_COLOR_SPECTRA6;
-      } else if (modeStr == "mono" || modeStr == "1bpp") {
+      } else if (modeStr == "mono" || modeStr == "1bit" || modeStr == "1bpp") {
         cfg.colorMode = SIM_COLOR_1BPP_MONO;
       }
     } else if (arg == "--gray4") {
       cfg.colorMode = SIM_COLOR_GRAY4;
-    } else if (arg == "--rgb888" || arg == "--led") {
+    } else if (arg == "--rgb888" || arg == "--24bit-rgb888" || arg == "--led") {
       cfg.colorMode = SIM_COLOR_RGB888;
       cfg.isLedDevice = true;
       cfg.supportsPartialRefresh = false;

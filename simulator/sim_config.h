@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <cstdint>
+#include "config.h"
 #include "led_matrix_map.h"
 
 enum SimColorMode {
@@ -15,7 +16,11 @@ struct SimConfig {
   std::string serverUrl = "http://192.168.100.222:3001";
   std::string deviceId = "06813352-374a-476b-bca9-986ebdb1ff2c";
   std::string deviceToken = "";
-  std::string firmwareVersion = "1.2.0";
+#ifdef FIRMWARE_VERSION
+  std::string firmwareVersion = FIRMWARE_VERSION;
+#else
+  std::string firmwareVersion = "1.4.1";
+#endif
   int batteryPercent = 100;
   std::string powerSource = "battery"; // "battery" or "usb"
   bool isCharging = false;

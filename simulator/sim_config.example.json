@@ -8,7 +8,7 @@
   "hardware": {
     "battery_percent": 100,
     "wifi_rssi_dbm": -68,
-    "firmware_version": "1.2.0"
+    "firmware_version": "1.4.1"
   },
   "simulator": {
     "headless": false,

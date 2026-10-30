@@ -1,12 +1,14 @@
 #pragma once
 #include <string>
 #include <cstdint>
+#include "led_matrix_map.h"
 
 enum SimColorMode {
   SIM_COLOR_1BPP_MONO = 0,
   SIM_COLOR_GRAY4 = 1,
   SIM_COLOR_GRAY16 = 2,
-  SIM_COLOR_SPECTRA6 = 3
+  SIM_COLOR_SPECTRA6 = 3,
+  SIM_COLOR_RGB888 = 4
 };
 
 struct SimConfig {
@@ -43,6 +45,11 @@ struct SimConfig {
   int fullRefreshTimeMs = 1800;
   int partialRefreshTimeMs = 350;
   bool touchSupported = true;
+  bool isLedDevice = false;
+  bool customDimensions = false;
+  MatrixWiring matrixWiring = MATRIX_WIRING_SERPENTINE;
+  MatrixAxis matrixAxis = MATRIX_AXIS_HORIZONTAL;
+  MatrixOrigin matrixOrigin = MATRIX_ORIGIN_TOP_LEFT;
 
   // Sensirion SHT40 Temperature & Humidity Telemetry
   bool hasSht40 = true;

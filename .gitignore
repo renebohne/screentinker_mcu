@@ -1,6 +1,7 @@
 .pio
 .vscode
 .idea
+.DS_Store
 *.pyc
 __pycache__/
 
@@ -8,6 +9,9 @@ __pycache__/
 screentinker_sim
 *.bmp
 *.png
+!docs/screens/*.png
+!examples/**/*.png
 simulator/build/
 simulator/sim_config.json
+sim_config*.json
 SESSION.md

@@ -32,6 +32,8 @@ bool SimConfig::setModel(const std::string& modelName) {
     fullRefreshTimeMs = 1800;
     partialRefreshTimeMs = 350;
     touchSupported = true;
+    isLedDevice = false;
+    customDimensions = false;
     if (!orientation.empty()) applyOrientation(orientation);
     else if (rotation != 0) applyRotation(rotation);
     return true;
@@ -47,6 +49,8 @@ bool SimConfig::setModel(const std::string& modelName) {
     fullRefreshTimeMs = 3000;
     partialRefreshTimeMs = 450;
     touchSupported = false;
+    isLedDevice = false;
+    customDimensions = false;
     if (!orientation.empty()) applyOrientation(orientation);
     else if (rotation != 0) applyRotation(rotation);
     return true;
@@ -62,6 +66,8 @@ bool SimConfig::setModel(const std::string& modelName) {
     fullRefreshTimeMs = 14000;
     partialRefreshTimeMs = 0;
     touchSupported = false;
+    isLedDevice = false;
+    customDimensions = false;
     if (!orientation.empty()) applyOrientation(orientation);
     else if (rotation != 0) applyRotation(rotation);
     return true;
@@ -77,6 +83,8 @@ bool SimConfig::setModel(const std::string& modelName) {
     fullRefreshTimeMs = 1200;
     partialRefreshTimeMs = 180;
     touchSupported = true;
+    isLedDevice = false;
+    customDimensions = false;
     if (!orientation.empty()) applyOrientation(orientation);
     else if (rotation != 0) applyRotation(rotation);
     return true;
@@ -92,6 +100,24 @@ bool SimConfig::setModel(const std::string& modelName) {
     fullRefreshTimeMs = 22000;
     partialRefreshTimeMs = 0;
     touchSupported = false;
+    isLedDevice = false;
+    customDimensions = false;
+    if (!orientation.empty()) applyOrientation(orientation);
+    else if (rotation != 0) applyRotation(rotation);
+    return true;
+  } else if (m == "led" || m == "xiao_led" || m == "seeed-xiao-led" || m == "matrix" || m == "strip") {
+    model = "xiao_led";
+    screenProfile = "seeed-xiao-led";
+    nativeWidth = (customDimensions && width > 0) ? width : 5;
+    nativeHeight = (customDimensions && height > 0) ? height : 1;
+    width = nativeWidth;
+    height = nativeHeight;
+    colorMode = SIM_COLOR_RGB888;
+    supportsPartialRefresh = false;
+    fullRefreshTimeMs = 20;
+    partialRefreshTimeMs = 20;
+    touchSupported = false;
+    isLedDevice = true;
     if (!orientation.empty()) applyOrientation(orientation);
     else if (rotation != 0) applyRotation(rotation);
     return true;
@@ -172,6 +198,7 @@ void SimConfig::cycleRotation() {
 
 std::string SimConfig::colorModeString() const {
   switch (colorMode) {
+    case SIM_COLOR_RGB888: return "rgb888";
     case SIM_COLOR_GRAY4: return "gray4";
     case SIM_COLOR_GRAY16: return "gray16";
     case SIM_COLOR_SPECTRA6: return "spectra6";
@@ -182,6 +209,8 @@ std::string SimConfig::colorModeString() const {
 
 size_t SimConfig::bufferSize() const {
   switch (colorMode) {
+    case SIM_COLOR_RGB888:
+      return (size_t)width * height * 3;
     case SIM_COLOR_GRAY4:
       return ((size_t)width * height) / 4;
     case SIM_COLOR_GRAY16:
@@ -197,6 +226,7 @@ static bool isKnownModelName(const std::string& name) {
   std::string m = name;
   std::transform(m.begin(), m.end(), m.begin(), [](unsigned char c) { return std::tolower(c); });
   return (m == "sticky" || m == "e1001" || m == "e1002" || m == "e1003" || m == "e1004" ||
+          m == "led" || m == "xiao_led" || m == "seeed-xiao-led" || m == "matrix" || m == "strip" ||
           m == "seeed-reterminal-sticky" || m == "seeed-reterminal-e1001" ||
           m == "seeed-reterminal-e1002" || m == "seeed-reterminal-e1003" ||
           m == "seeed-reterminal-e1004" || m == "reterminal-sticky" ||
@@ -260,6 +290,41 @@ SimConfig SimConfig::load(int argc, char** argv) {
       if (doc["hardware"]["mock_temp"].is<float>()) cfg.mockTemp = doc["hardware"]["mock_temp"].as<float>();
       if (doc["hardware"]["mock_humidity"].is<float>()) cfg.mockHumidity = doc["hardware"]["mock_humidity"].as<float>();
       if (doc["hardware"]["has_sht40"].is<bool>()) cfg.hasSht40 = doc["hardware"]["has_sht40"].as<bool>();
+
+      int loadedW = 0;
+      int loadedH = 0;
+      if (doc["simulator"]["width"].is<int>()) loadedW = doc["simulator"]["width"].as<int>();
+      if (doc["simulator"]["height"].is<int>()) loadedH = doc["simulator"]["height"].as<int>();
+      if (doc["hardware"]["width"].is<int>()) loadedW = doc["hardware"]["width"].as<int>();
+      if (doc["hardware"]["height"].is<int>()) loadedH = doc["hardware"]["height"].as<int>();
+      if (doc["width"].is<int>()) loadedW = doc["width"].as<int>();
+      if (doc["height"].is<int>()) loadedH = doc["height"].as<int>();
+
+      if (loadedW > 0 && loadedH > 0) {
+        cfg.customDimensions = true;
+        cfg.width = loadedW;
+        cfg.height = loadedH;
+        cfg.nativeWidth = loadedW;
+        cfg.nativeHeight = loadedH;
+      }
+
+      if (doc["matrix"]["wiring"].is<const char*>()) {
+        std::string w = doc["matrix"]["wiring"].as<std::string>();
+        cfg.matrixWiring = (w == "progressive" || w == "linear") ? MATRIX_WIRING_PROGRESSIVE : MATRIX_WIRING_SERPENTINE;
+      } else if (doc["matrix"]["serpentine"].is<bool>()) {
+        cfg.matrixWiring = doc["matrix"]["serpentine"].as<bool>() ? MATRIX_WIRING_SERPENTINE : MATRIX_WIRING_PROGRESSIVE;
+      }
+      if (doc["matrix"]["axis"].is<const char*>()) {
+        std::string a = doc["matrix"]["axis"].as<std::string>();
+        cfg.matrixAxis = (a == "vertical" || a == "col") ? MATRIX_AXIS_VERTICAL : MATRIX_AXIS_HORIZONTAL;
+      }
+      if (doc["matrix"]["origin"].is<const char*>()) {
+        std::string o = doc["matrix"]["origin"].as<std::string>();
+        if (o == "top_right" || o == "top-right") cfg.matrixOrigin = MATRIX_ORIGIN_TOP_RIGHT;
+        else if (o == "bottom_left" || o == "bottom-left") cfg.matrixOrigin = MATRIX_ORIGIN_BOTTOM_LEFT;
+        else if (o == "bottom_right" || o == "bottom-right") cfg.matrixOrigin = MATRIX_ORIGIN_BOTTOM_RIGHT;
+        else cfg.matrixOrigin = MATRIX_ORIGIN_TOP_LEFT;
+      }
     } else {
       std::cerr << "[Config] Warning: Failed to parse " << cfg.configFilePath << " (" << err.c_str() << ")\n";
     }
@@ -333,9 +398,26 @@ SimConfig SimConfig::load(int argc, char** argv) {
       cfg.maxCycles = 1;
     } else if (arg == "--cycles" && i + 1 < argc) {
       cfg.maxCycles = std::atoi(argv[++i]);
+    } else if ((arg == "--width" || arg == "-w") && i + 1 < argc) {
+      int w = std::atoi(argv[++i]);
+      if (w > 0) {
+        cfg.width = cfg.nativeWidth = w;
+        cfg.customDimensions = true;
+      }
+    } else if ((arg == "--height" || arg == "-H") && i + 1 < argc) {
+      int h = std::atoi(argv[++i]);
+      if (h > 0) {
+        cfg.height = cfg.nativeHeight = h;
+        cfg.customDimensions = true;
+      }
     } else if ((arg == "--color-mode" || arg == "--color") && i + 1 < argc) {
       std::string modeStr = argv[++i];
-      if (modeStr == "gray4" || modeStr == "2bpp") {
+      if (modeStr == "rgb888" || modeStr == "rgb" || modeStr == "led") {
+        cfg.colorMode = SIM_COLOR_RGB888;
+        cfg.isLedDevice = true;
+        cfg.supportsPartialRefresh = false;
+        cfg.touchSupported = false;
+      } else if (modeStr == "gray4" || modeStr == "2bpp") {
         cfg.colorMode = SIM_COLOR_GRAY4;
       } else if (modeStr == "gray16" || modeStr == "4bpp") {
         cfg.colorMode = SIM_COLOR_GRAY16;
@@ -346,12 +428,32 @@ SimConfig SimConfig::load(int argc, char** argv) {
       }
     } else if (arg == "--gray4") {
       cfg.colorMode = SIM_COLOR_GRAY4;
+    } else if (arg == "--rgb888" || arg == "--led") {
+      cfg.colorMode = SIM_COLOR_RGB888;
+      cfg.isLedDevice = true;
+      cfg.supportsPartialRefresh = false;
+      cfg.touchSupported = false;
+    } else if (arg == "--matrix-serpentine") {
+      cfg.matrixWiring = MATRIX_WIRING_SERPENTINE;
+    } else if (arg == "--matrix-progressive" || arg == "--matrix-linear") {
+      cfg.matrixWiring = MATRIX_WIRING_PROGRESSIVE;
+    } else if (arg == "--matrix-axis" && i + 1 < argc) {
+      std::string a = argv[++i];
+      cfg.matrixAxis = (a == "vertical" || a == "col") ? MATRIX_AXIS_VERTICAL : MATRIX_AXIS_HORIZONTAL;
+    } else if (arg == "--matrix-origin" && i + 1 < argc) {
+      std::string o = argv[++i];
+      if (o == "top_right" || o == "top-right") cfg.matrixOrigin = MATRIX_ORIGIN_TOP_RIGHT;
+      else if (o == "bottom_left" || o == "bottom-left") cfg.matrixOrigin = MATRIX_ORIGIN_BOTTOM_LEFT;
+      else if (o == "bottom_right" || o == "bottom-right") cfg.matrixOrigin = MATRIX_ORIGIN_BOTTOM_RIGHT;
+      else cfg.matrixOrigin = MATRIX_ORIGIN_TOP_LEFT;
     } else if (arg == "--help" || arg == "-h") {
       std::cout << "ScreenTinker MCU Host Simulator (" << PLATFORM_OS << ")\n"
                 << "Usage: ./screentinker_sim [options]\n\n"
                 << "Options:\n"
                 << "  -s, --server <url>       Server URL (default: " << cfg.serverUrl << ")\n"
-                << "  -m, --model <name>       Hardware model: sticky, e1001, e1002, e1003, e1004 (default: " << cfg.model << ")\n"
+                << "  -m, --model <name>       Hardware model: sticky, e1001, e1002, e1003, e1004, xiao_led (default: " << cfg.model << ")\n"
+                << "  -w, --width <px>         Display or LED matrix width (e.g. 5, 32, 64)\n"
+                << "  -H, --height <px>        Display or LED matrix height (e.g. 1, 8, 64)\n"
                 << "  -d, --device <uuid|name> Device ID or hardware model name\n"
                 << "      --device-id <uuid>   Explicit Device ID\n"
                 << "  -t, --token <token>      Device Token\n"
@@ -359,8 +461,9 @@ SimConfig SimConfig::load(int argc, char** argv) {
                 << "  -r, --rotate <deg>       Rotation: 0, 90, 180, 270 degrees\n"
                 << "      --portrait           Shortcut for --orientation portrait\n"
                 << "      --landscape          Shortcut for --orientation landscape\n"
-                << "      --color-mode <mode>  Color mode: mono, gray4, gray16, spectra6\n"
+                << "      --color-mode <mode>  Color mode: mono, gray4, gray16, spectra6, rgb888\n"
                 << "      --gray4              Shortcut for --color-mode gray4 (2bpp)\n"
+                << "      --rgb888, --led      Shortcut for --color-mode rgb888 (LED Strip/Matrix)\n"
                 << "  --mock-temp <degC>       Simulated ambient temperature (default: 21.5)\n"
                 << "  --mock-humidity <pct>    Simulated relative humidity (default: 45.0)\n"
                 << "  --no-sht40               Disable simulated SHT40 sensor telemetry\n"
@@ -380,6 +483,17 @@ SimConfig SimConfig::load(int argc, char** argv) {
     }
   }
 
+  if (cfg.customDimensions) {
+    if (cfg.model == "xiao_led" || cfg.colorMode == SIM_COLOR_RGB888) {
+      cfg.model = "xiao_led";
+      cfg.screenProfile = "seeed-xiao-led";
+      cfg.colorMode = SIM_COLOR_RGB888;
+      cfg.isLedDevice = true;
+      cfg.supportsPartialRefresh = false;
+      cfg.touchSupported = false;
+    }
+  }
+
   if (cfg.powerSource == "usb") {
     cfg.isCharging = (cfg.batteryPercent < 100);
   }
@@ -391,13 +505,23 @@ void SimConfig::print() const {
   std::cout << "───────────────────────────────────────────────────────\n"
             << " ScreenTinker MCU Simulator (" << PLATFORM_OS << " Host)\n"
             << "───────────────────────────────────────────────────────\n"
-            << " • Target Hardware:   " << model << " (" << width << "x" << height << ", " << screenProfile << ")\n"
-            << " • Orientation:       " << (orientation.empty() ? (width > height ? "landscape" : "portrait") : orientation)
+            << " • Target Hardware:   " << model << " (" << width << "x" << height << ", " << screenProfile << ")\n";
+  if (isLedDevice || colorMode == SIM_COLOR_RGB888) {
+    std::cout << " • LED Matrix Wiring: "
+              << (matrixWiring == MATRIX_WIRING_SERPENTINE ? "Serpentine (Zig-Zag)" : "Progressive (Linear)")
+              << ", " << (matrixAxis == MATRIX_AXIS_VERTICAL ? "Vertical" : "Horizontal")
+              << ", Origin: " << (matrixOrigin == MATRIX_ORIGIN_TOP_RIGHT ? "Top-Right" :
+                                 (matrixOrigin == MATRIX_ORIGIN_BOTTOM_LEFT ? "Bottom-Left" :
+                                  (matrixOrigin == MATRIX_ORIGIN_BOTTOM_RIGHT ? "Bottom-Right" : "Top-Left")))
+              << "\n";
+  }
+  std::cout << " • Orientation:       " << (orientation.empty() ? (width > height ? "landscape" : "portrait") : orientation)
             << " (" << rotation << "°)\n"
             << " • Color Mode:        " << colorModeString() << " ("
-            << (colorMode == SIM_COLOR_SPECTRA6 ? "4bpp, 6-Color Spectra 6" :
-                (colorMode == SIM_COLOR_GRAY16 ? "4bpp, 16-Level Grayscale" :
-                 (colorMode == SIM_COLOR_GRAY4 ? "2bpp, 4-Level Grayscale" : "1bpp Monochrome"))) << ")\n"
+            << (colorMode == SIM_COLOR_RGB888 ? "24bpp, 24-Bit RGB888 LED Matrix/Strip" :
+                (colorMode == SIM_COLOR_SPECTRA6 ? "4bpp, 6-Color Spectra 6" :
+                 (colorMode == SIM_COLOR_GRAY16 ? "4bpp, 16-Level Grayscale" :
+                  (colorMode == SIM_COLOR_GRAY4 ? "2bpp, 4-Level Grayscale" : "1bpp Monochrome")))) << ")\n"
             << " • Refresh Support:   " << (supportsPartialRefresh ? "Full & Fast Partial (" + std::to_string(partialRefreshTimeMs) + "ms)" : "Full Refresh Only (" + std::to_string(fullRefreshTimeMs / 1000) + "s)") << "\n"
             << " • Server URL:        " << serverUrl << "\n"
             << " • Device ID:         " << deviceId << "\n"
@@ -421,6 +545,8 @@ bool SimConfig::save(const std::string& path) const {
   doc["server"]["timeout_ms"] = timeoutMs;
 
   doc["hardware"]["device_model"] = model;
+  doc["hardware"]["width"] = width;
+  doc["hardware"]["height"] = height;
   doc["hardware"]["battery_percent"] = batteryPercent;
   doc["hardware"]["wifi_rssi_dbm"] = wifiRssi;
   doc["hardware"]["firmware_version"] = firmwareVersion;
@@ -433,8 +559,18 @@ bool SimConfig::save(const std::string& path) const {
   doc["simulator"]["fast_forward_sleep"] = fastForwardSleep;
   doc["simulator"]["sync_interval_sec"] = syncIntervalSec;
   doc["simulator"]["scale"] = scale;
+  doc["simulator"]["width"] = width;
+  doc["simulator"]["height"] = height;
   doc["simulator"]["orientation"] = orientation;
   doc["simulator"]["rotation"] = rotation;
+
+  if (isLedDevice || customDimensions) {
+    doc["matrix"]["wiring"] = (matrixWiring == MATRIX_WIRING_SERPENTINE) ? "serpentine" : "progressive";
+    doc["matrix"]["axis"] = (matrixAxis == MATRIX_AXIS_VERTICAL) ? "vertical" : "horizontal";
+    doc["matrix"]["origin"] = (matrixOrigin == MATRIX_ORIGIN_TOP_RIGHT) ? "top-right" :
+                              (matrixOrigin == MATRIX_ORIGIN_BOTTOM_LEFT) ? "bottom-left" :
+                              (matrixOrigin == MATRIX_ORIGIN_BOTTOM_RIGHT) ? "bottom-right" : "top-left";
+  }
 
   std::ofstream f(target);
   if (!f.is_open()) return false;

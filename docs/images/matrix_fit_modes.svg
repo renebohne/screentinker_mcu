@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 480" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="cardGrad3" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="artGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ec4899"/>
+      <stop offset="50%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+    <filter id="shadow3" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <rect width="960" height="480" rx="16" fill="url(#bgGrad3)"/>
+  <rect x="1" y="1" width="958" height="478" rx="15" fill="none" stroke="#334155" stroke-width="1.5"/>
+
+  <!-- Title -->
+  <text x="40" y="44" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="20" font-weight="700" fill="#f8fafc">ScreenTinker Image Fit Modes: High-Res 16:9 on 1:1 LED Matrix</text>
+  <text x="40" y="68" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="13" fill="#94a3b8">The server always scales images down to the target resolution before applying layout geometry</text>
+
+  <!-- ==================== 1. COVER ==================== -->
+  <g transform="translate(40, 100)" filter="url(#shadow3)">
+    <rect width="270" height="340" rx="12" fill="url(#cardGrad3)" stroke="#10b981" stroke-width="2"/>
+    <rect x="20" y="16" width="230" height="32" rx="6" fill="rgba(16, 185, 129, 0.15)"/>
+    <text x="135" y="38" font-family="sans-serif" font-size="14" font-weight="700" fill="#34d399" text-anchor="middle">1. COVER (Default)</text>
+
+    <!-- Matrix 64x64 Frame (180x180 px on screen) -->
+    <g transform="translate(45, 65)">
+      <!-- Target 1:1 Box -->
+      <rect x="0" y="0" width="180" height="180" rx="8" fill="#090d16" stroke="#334155"/>
+
+      <!-- Scaled 16:9 Image (Width: 320, Height: 180, centered) -->
+      <!-- Overflow cropped portions -->
+      <g clip-path="url(#coverClip)">
+        <clipPath id="coverClip">
+          <rect x="0" y="0" width="180" height="180" rx="8"/>
+        </clipPath>
+        <rect x="-70" y="0" width="320" height="180" fill="url(#artGrad)"/>
+        <circle cx="90" cy="90" r="45" fill="#fff" opacity="0.3"/>
+        <text x="90" y="96" font-family="sans-serif" font-size="18" font-weight="bold" fill="#fff" text-anchor="middle">CONTENT</text>
+      </g>
+    </g>
+
+    <!-- Crop indicator badges -->
+    <text x="135" y="270" font-family="sans-serif" font-size="12" font-weight="bold" fill="#34d399" text-anchor="middle">Scales &amp; Fills 100%</text>
+    <text x="135" y="292" font-family="sans-serif" font-size="11" fill="#94a3b8" text-anchor="middle">Aspect ratio preserved</text>
+    <text x="135" y="310" font-family="sans-serif" font-size="11" fill="#94a3b8" text-anchor="middle">Left &amp; right edges trimmed</text>
+    <rect x="20" y="322" width="230" height="2" fill="#10b981" opacity="0.4"/>
+  </g>
+
+  <!-- ==================== 2. CONTAIN ==================== -->
+  <g transform="translate(345, 100)" filter="url(#shadow3)">
+    <rect width="270" height="340" rx="12" fill="url(#cardGrad3)" stroke="#38bdf8" stroke-width="2"/>
+    <rect x="20" y="16" width="230" height="32" rx="6" fill="rgba(56, 189, 248, 0.15)"/>
+    <text x="135" y="38" font-family="sans-serif" font-size="14" font-weight="700" fill="#38bdf8" text-anchor="middle">2. CONTAIN</text>
+
+    <!-- Matrix 64x64 Frame (180x180 px on screen) -->
+    <g transform="translate(45, 65)">
+      <!-- Target 1:1 Box with black letterbox -->
+      <rect x="0" y="0" width="180" height="180" rx="8" fill="#000000" stroke="#334155"/>
+
+      <!-- Scaled 16:9 Image (Width: 180, Height: 101, vertically centered) -->
+      <rect x="0" y="39" width="180" height="102" fill="url(#artGrad)"/>
+      <circle cx="90" cy="90" r="28" fill="#fff" opacity="0.3"/>
+      <text x="90" y="95" font-family="sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">CONTENT</text>
+
+      <!-- Letterbox indicators -->
+      <text x="90" y="24" font-family="sans-serif" font-size="9" fill="#64748b" text-anchor="middle">Black Bar (Letterbox)</text>
+      <text x="90" y="162" font-family="sans-serif" font-size="9" fill="#64748b" text-anchor="middle">Black Bar (Letterbox)</text>
+    </g>
+
+    <text x="135" y="270" font-family="sans-serif" font-size="12" font-weight="bold" fill="#38bdf8" text-anchor="middle">100% Image Visible</text>
+    <text x="135" y="292" font-family="sans-serif" font-size="11" fill="#94a3b8" text-anchor="middle">Aspect ratio preserved</text>
+    <text x="135" y="310" font-family="sans-serif" font-size="11" fill="#94a3b8" text-anchor="middle">Top &amp; bottom letterboxed</text>
+    <rect x="20" y="322" width="230" height="2" fill="#38bdf8" opacity="0.4"/>
+  </g>
+
+  <!-- ==================== 3. FILL ==================== -->
+  <g transform="translate(650, 100)" filter="url(#shadow3)">
+    <rect width="270" height="340" rx="12" fill="url(#cardGrad3)" stroke="#f59e0b" stroke-width="2"/>
+    <rect x="20" y="16" width="230" height="32" rx="6" fill="rgba(245, 158, 11, 0.15)"/>
+    <text x="135" y="38" font-family="sans-serif" font-size="14" font-weight="700" fill="#fbbf24" text-anchor="middle">3. FILL (Stretch)</text>
+
+    <!-- Matrix 64x64 Frame (180x180 px on screen) -->
+    <g transform="translate(45, 65)">
+      <!-- Target 1:1 Box with squished image -->
+      <rect x="0" y="0" width="180" height="180" rx="8" fill="url(#artGrad)" stroke="#334155"/>
+      <!-- Squished circle (ellipse) -->
+      <ellipse cx="90" cy="90" rx="30" ry="50" fill="#fff" opacity="0.3"/>
+      <text x="90" y="96" font-family="sans-serif" font-size="16" font-weight="bold" fill="#fff" text-anchor="middle">SQUISHED</text>
+    </g>
+
+    <text x="135" y="270" font-family="sans-serif" font-size="12" font-weight="bold" fill="#fbbf24" text-anchor="middle">Stretched to 64×64</text>
+    <text x="135" y="292" font-family="sans-serif" font-size="11" fill="#94a3b8" text-anchor="middle">Ignores aspect ratio</text>
+    <text x="135" y="310" font-family="sans-serif" font-size="11" fill="#94a3b8" text-anchor="middle">For abstract color themes</text>
+    <rect x="20" y="322" width="230" height="2" fill="#f59e0b" opacity="0.4"/>
+  </g>
+</svg>

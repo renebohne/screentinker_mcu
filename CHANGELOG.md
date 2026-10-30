@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-10-30
+
+### Added
+- **Smart LED Strip & Matrix Support (WS2812 / SK6812 RGB888)**:
+  - Universal physical LED matrix coordinate mapping engine (`include/led_matrix_map.h`) supporting serpentine (zig-zag) and progressive (linear) wiring, row-major and column-major axes, and arbitrary starting origins (`TOP_LEFT`, `TOP_RIGHT`, `BOTTOM_LEFT`, `BOTTOM_RIGHT`).
+  - Runtime matrix topology configuration via USB/WebSerial JSON command `matrix`, ESP32 NVS persistence across reboots, and dynamic server pairing profiles.
+  - Comprehensive documentation guides in `docs/led_mode_guide.md` and `docs/led_matrix_wiring_guide.md` covering physical wiring, power injection, commercial matrix standards, and content fit modes (`cover`, `contain`, `fill`).
+  - Arbitrary matrix and strip dimension support via `--width <px>` and `--height <px>` (e.g. 5×1 strips, 32×8 banners, 64×64 matrices).
+  - Authentic SMD LED package renderer in SDL2 simulator: rounded-square diode beads, dark bezels, unlit emitter chips, and glowing lens center highlights.
+  - Parametric pairing registration: transmits custom matrix dimensions within the `screen_profile` object (`{"preset":"seeed-xiao-led","width":W,"height":H,...}`) so the server persists arbitrary resolutions without needing dedicated preset entries.
+  - Sample LED test patterns and pixel art in `examples/media/5x1/` and `examples/pixel_art_64x64/`.
+
+### Fixed
+- **Simulator Dimension Persistence**:
+  - `SimConfig::load` and `SimConfig::save` now parse and persist custom `width` and `height` in JSON configs, preventing accidental reversion to 5×1 on restarts.
+- **Physical ESP32-C6 LED Strip**:
+  - Restored pin configurations (`PIN_NEOPIXEL = 20`, `NUM_LEDS = 5`) and initialized WS2812 RMT driver for real Seeed Studio XIAO hardware.
+- **Unit Test Modularization**:
+  - Separated `test_matrix` into its own isolated test environment under `test/test_matrix/`, resolving duplicate symbol link collisions with `test_imu`.
+
 ## [1.3.1] - 2026-10-29
 
 ### Added

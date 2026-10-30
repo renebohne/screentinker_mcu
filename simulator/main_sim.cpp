@@ -70,8 +70,25 @@ static bool runPairingFlow(SimConfig& cfg, SimHttp& http, SimDisplay& display, s
             << " • Color Mode:     " << cfg.colorModeString() << "\n";
 
   std::string registerUrl = cfg.serverUrl + "/api/embedded/pair/register";
-  std::string regBody = "{\"screen_profile\":\"" + cfg.screenProfile +
-                        "\",\"screen_width\":" + std::to_string(cfg.width) +
+  std::string profilePayload;
+  if (cfg.customDimensions || cfg.isLedDevice) {
+    std::string originStr = (cfg.matrixOrigin == MATRIX_ORIGIN_TOP_RIGHT) ? "top-right" :
+                            (cfg.matrixOrigin == MATRIX_ORIGIN_BOTTOM_LEFT) ? "bottom-left" :
+                            (cfg.matrixOrigin == MATRIX_ORIGIN_BOTTOM_RIGHT) ? "bottom-right" : "top-left";
+    profilePayload = "{\"preset\":\"" + cfg.screenProfile +
+                     "\",\"width\":" + std::to_string(cfg.width) +
+                     ",\"height\":" + std::to_string(cfg.height) +
+                     ",\"colorDepth\":\"" + cfg.colorModeString() +
+                     "\",\"outputFormat\":\"raw\"" +
+                     ",\"matrix\":{\"wiring\":\"" + (cfg.matrixWiring == MATRIX_WIRING_SERPENTINE ? "serpentine" : "progressive") +
+                     "\",\"axis\":\"" + (cfg.matrixAxis == MATRIX_AXIS_VERTICAL ? "vertical" : "horizontal") +
+                     "\",\"origin\":\"" + originStr + "\"}}";
+  } else {
+    profilePayload = "\"" + cfg.screenProfile + "\"";
+  }
+
+  std::string regBody = "{\"screen_profile\":" + profilePayload +
+                        ",\"screen_width\":" + std::to_string(cfg.width) +
                         ",\"screen_height\":" + std::to_string(cfg.height) +
                         ",\"color_mode\":\"" + cfg.colorModeString() +
                         "\",\"supports_partial_refresh\":" + (cfg.supportsPartialRefresh ? "true" : "false") +
@@ -102,16 +119,28 @@ static bool runPairingFlow(SimConfig& cfg, SimHttp& http, SimDisplay& display, s
             << " >>> Please enter the 6-digit PIN [" << pairingCode << "] in your ScreenTinker web dashboard <<<\n"
             << "=======================================================\n";
 
-  // Render Pairing PIN + QR code on E-Paper display
-  std::vector<uint8_t> monoBuffer(gfx_get_buffer_size(), 0xFF);
-  renderPairingCodeScreen(monoBuffer.data(), pairingCode.c_str(), cfg.serverUrl.c_str(), LANG_EN);
-  monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
-  display.renderBuffer(frameBuffer.data());
-  display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
+  // Render Pairing PIN (or pulse amber on LED matrix/strip)
+  std::vector<uint8_t> monoBuffer;
+  if (cfg.isLedDevice || cfg.colorMode == SIM_COLOR_RGB888) {
+    for (size_t p = 0; p < (size_t)cfg.width * cfg.height; p++) {
+      frameBuffer[p * 3 + 0] = 255;
+      frameBuffer[p * 3 + 1] = 140;
+      frameBuffer[p * 3 + 2] = 0;
+    }
+    display.renderBuffer(frameBuffer.data());
+    display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
+  } else {
+    monoBuffer.resize(gfx_get_buffer_size(), 0xFF);
+    renderPairingCodeScreen(monoBuffer.data(), pairingCode.c_str(), cfg.serverUrl.c_str(), LANG_EN);
+    monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+    display.renderBuffer(frameBuffer.data());
+    display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
+  }
 
   // Poll pairing status every 2.5 seconds until claimed
   std::string statusUrl = cfg.serverUrl + "/api/embedded/pair/status?device_id=" + deviceId;
   bool paired = false;
+  int pulseStep = 0;
 
   while (!paired) {
     bool wakeRequested = false;
@@ -128,11 +157,27 @@ static bool runPairingFlow(SimConfig& cfg, SimHttp& http, SimDisplay& display, s
       gfx_set_screen_dimensions(cfg.width, cfg.height);
       display.updateDimensions(cfg.width, cfg.height);
       frameBuffer = std::vector<uint8_t>(cfg.bufferSize(), 0xFF);
-      monoBuffer.resize(gfx_get_buffer_size(), 0xFF);
-      renderPairingCodeScreen(monoBuffer.data(), pairingCode.c_str(), cfg.serverUrl.c_str(), LANG_EN);
-      monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
-      display.renderBuffer(frameBuffer.data());
+      if (cfg.isLedDevice || cfg.colorMode == SIM_COLOR_RGB888) {
+        display.renderBuffer(frameBuffer.data());
+      } else {
+        monoBuffer.resize(gfx_get_buffer_size(), 0xFF);
+        renderPairingCodeScreen(monoBuffer.data(), pairingCode.c_str(), cfg.serverUrl.c_str(), LANG_EN);
+        monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+        display.renderBuffer(frameBuffer.data());
+      }
       display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
+    }
+
+    if (cfg.isLedDevice || cfg.colorMode == SIM_COLOR_RGB888) {
+      float phase = (float)(pulseStep++ % 20) / 20.0f;
+      float factor = 0.5f * (1.0f + sinf(phase * 6.2831853f));
+      float scale = 0.05f + 0.75f * factor;
+      for (size_t p = 0; p < (size_t)cfg.width * cfg.height; p++) {
+        frameBuffer[p * 3 + 0] = (uint8_t)(255 * scale);
+        frameBuffer[p * 3 + 1] = (uint8_t)(140 * scale);
+        frameBuffer[p * 3 + 2] = 0;
+      }
+      display.renderBuffer(frameBuffer.data());
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
@@ -175,7 +220,7 @@ int main(int argc, char** argv) {
 
   gfx_set_screen_dimensions(cfg.width, cfg.height);
 
-  SimDisplay display(cfg.headless, cfg.width, cfg.height, cfg.scale, cfg.colorMode);
+  SimDisplay display(cfg.headless, cfg.width, cfg.height, cfg.scale, cfg.colorMode, cfg.isLedDevice);
   if (!display.init()) {
     std::cerr << "[Simulator] Failed to initialize display.\n";
     return 1;
@@ -208,16 +253,31 @@ int main(int argc, char** argv) {
     // Small delay after pairing success before syncing first frame
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
   } else {
-    // 1. Show Splash Screen at boot
-    std::cout << "[Simulator] Booting: Displaying Firmware v" << cfg.firmwareVersion << " Splash Screen...\n";
-    renderSplashScreen(monoBuffer.data(), cfg.firmwareVersion.c_str(), "Connecting to ScreenTinker...", LANG_EN);
-    monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
-    display.renderBuffer(frameBuffer.data());
-    display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
+    if (cfg.isLedDevice || cfg.colorMode == SIM_COLOR_RGB888) {
+      std::cout << "[Simulator] Booting: Initializing LED Matrix/Strip (" << cfg.width << "x" << cfg.height << ")...\n";
+      for (size_t p = 0; p < (size_t)cfg.width * cfg.height; p++) {
+        float t = (float)p / std::max(1, cfg.width * cfg.height - 1);
+        frameBuffer[p * 3 + 0] = (uint8_t)(255 * (1.0f - t * 0.5f));
+        frameBuffer[p * 3 + 1] = (uint8_t)(140 * t);
+        frameBuffer[p * 3 + 2] = (uint8_t)(255 * t);
+      }
+      display.renderBuffer(frameBuffer.data());
+      display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
+      if (!cfg.headless && !cfg.oneShot) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(800));
+      }
+    } else {
+      // 1. Show Splash Screen at boot
+      std::cout << "[Simulator] Booting: Displaying Firmware v" << cfg.firmwareVersion << " Splash Screen...\n";
+      renderSplashScreen(monoBuffer.data(), cfg.firmwareVersion.c_str(), "Connecting to ScreenTinker...", LANG_EN);
+      monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+      display.renderBuffer(frameBuffer.data());
+      display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
 
-    // Small delay so user can see splash screen in window
-    if (!cfg.headless && !cfg.oneShot) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+      // Small delay so user can see splash screen in window
+      if (!cfg.headless && !cfg.oneShot) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+      }
     }
   }
 
@@ -396,7 +456,19 @@ int main(int argc, char** argv) {
         }
       }
 
-      if (res.body.size() == cfg.bufferSize()) {
+      if (cfg.colorMode == SIM_COLOR_RGB888) {
+        size_t expected = (size_t)cfg.width * cfg.height * 3;
+        if (res.body.size() >= expected) {
+          std::memcpy(frameBuffer.data(), res.body.data(), expected);
+        } else if (!res.body.empty()) {
+          size_t copyBytes = std::min(frameBuffer.size(), res.body.size());
+          std::memcpy(frameBuffer.data(), res.body.data(), copyBytes);
+        }
+        std::cout << "[Sync] 200 OK — Downloaded new LED frame (" << res.body.size() << " bytes). Updating display.\n";
+        display.renderBuffer(frameBuffer.data());
+        display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
+        ota_confirm_running_partition();
+      } else if (res.body.size() == cfg.bufferSize()) {
         std::memcpy(frameBuffer.data(), res.body.data(), cfg.bufferSize());
         if (cfg.batteryPercent >= 0 && cfg.batteryPercent < 10 && !cfg.isCharging && cfg.powerSource != "usb") {
           std::cout << "[Power] Low battery warning (" << cfg.batteryPercent << "%)! Drawing low battery icon.\n";
@@ -459,13 +531,19 @@ int main(int argc, char** argv) {
       std::cout << "[Sync] 404 No Active Playlist — Rendering Empty Playlist card for '"
                 << (deviceName.empty() ? "(unnamed)" : deviceName) << "'...\n";
 
-      renderEmptyPlaylistScreen(monoBuffer.data(), deviceName.c_str(), cfg.serverUrl.c_str(), LANG_EN);
-      monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
-      if (cfg.batteryPercent >= 0 && cfg.batteryPercent < 10 && !cfg.isCharging && cfg.powerSource != "usb") {
-        gfx_draw_low_battery_icon_native(frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode, -1, -1, cfg.batteryPercent);
+      if (cfg.isLedDevice || cfg.colorMode == SIM_COLOR_RGB888) {
+        std::fill(frameBuffer.begin(), frameBuffer.end(), 0);
+        display.renderBuffer(frameBuffer.data());
+        display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
+      } else {
+        renderEmptyPlaylistScreen(monoBuffer.data(), deviceName.c_str(), cfg.serverUrl.c_str(), LANG_EN);
+        monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+        if (cfg.batteryPercent >= 0 && cfg.batteryPercent < 10 && !cfg.isCharging && cfg.powerSource != "usb") {
+          gfx_draw_low_battery_icon_native(frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode, -1, -1, cfg.batteryPercent);
+        }
+        display.renderBuffer(frameBuffer.data());
+        display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
       }
-      display.renderBuffer(frameBuffer.data());
-      display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
       ota_confirm_running_partition();
       lastEtag = ""; // Reset ETag on empty playlist
     } else if (res.statusCode == 501) {
@@ -481,24 +559,44 @@ int main(int argc, char** argv) {
         }
       }
       std::cout << "[Sync] 501 Unsupported Content — " << detail << "\n";
-      renderUnsupportedContentScreen(monoBuffer.data(), detail.c_str(), LANG_EN);
-      monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
-      if (cfg.batteryPercent >= 0 && cfg.batteryPercent < 10 && !cfg.isCharging && cfg.powerSource != "usb") {
-        gfx_draw_low_battery_icon_native(frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode, -1, -1, cfg.batteryPercent);
+      if (cfg.isLedDevice || cfg.colorMode == SIM_COLOR_RGB888) {
+        for (size_t p = 0; p < (size_t)cfg.width * cfg.height; p++) {
+          frameBuffer[p * 3 + 0] = 120; // Dim Red
+          frameBuffer[p * 3 + 1] = 0;
+          frameBuffer[p * 3 + 2] = 0;
+        }
+        display.renderBuffer(frameBuffer.data());
+        display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
+      } else {
+        renderUnsupportedContentScreen(monoBuffer.data(), detail.c_str(), LANG_EN);
+        monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+        if (cfg.batteryPercent >= 0 && cfg.batteryPercent < 10 && !cfg.isCharging && cfg.powerSource != "usb") {
+          gfx_draw_low_battery_icon_native(frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode, -1, -1, cfg.batteryPercent);
+        }
+        display.renderBuffer(frameBuffer.data());
+        display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
       }
-      display.renderBuffer(frameBuffer.data());
-      display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
       ota_confirm_running_partition();
       lastEtag = "";
     } else {
       std::cerr << "[Sync] Connection failed (code " << res.statusCode << "). Rendering No Wi-Fi / Offline warning...\n";
-      renderNoWifiScreen(monoBuffer.data(), "ScreenTinker Server", LANG_EN);
-      monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
-      if (cfg.batteryPercent >= 0 && cfg.batteryPercent < 10 && !cfg.isCharging && cfg.powerSource != "usb") {
-        gfx_draw_low_battery_icon_native(frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode, -1, -1, cfg.batteryPercent);
+      if (cfg.isLedDevice || cfg.colorMode == SIM_COLOR_RGB888) {
+        for (size_t p = 0; p < (size_t)cfg.width * cfg.height; p++) {
+          frameBuffer[p * 3 + 0] = 180; // Amber alert
+          frameBuffer[p * 3 + 1] = 40;
+          frameBuffer[p * 3 + 2] = 0;
+        }
+        display.renderBuffer(frameBuffer.data());
+        display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
+      } else {
+        renderNoWifiScreen(monoBuffer.data(), "ScreenTinker Server", LANG_EN);
+        monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+        if (cfg.batteryPercent >= 0 && cfg.batteryPercent < 10 && !cfg.isCharging && cfg.powerSource != "usb") {
+          gfx_draw_low_battery_icon_native(frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode, -1, -1, cfg.batteryPercent);
+        }
+        display.renderBuffer(frameBuffer.data());
+        display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
       }
-      display.renderBuffer(frameBuffer.data());
-      display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
     }
 
     if (cfg.oneShot) {

@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include "led_matrix_map.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,6 +18,12 @@ void led_driver_set_count(uint16_t numLeds);
 // Get current configured LED count
 uint16_t led_driver_get_count();
 
+// Set LED matrix topology mapping
+void led_driver_set_matrix_config(uint16_t width, uint16_t height, MatrixWiring wiring, MatrixAxis axis, MatrixOrigin origin);
+
+// Get active LED matrix topology configuration
+LedMatrixConfig led_driver_get_matrix_config();
+
 // Set all LEDs to a single color
 void led_driver_show_solid(uint8_t r, uint8_t g, uint8_t b);
 
@@ -25,6 +32,7 @@ void led_driver_clear();
 
 // Render raw RGB888 byte stream (length = numPixels * 3)
 // Supported color orders: "GRB", "RGB", "BRG", "RBG", "BGR", "GBR"
+// Automatically maps 2D Cartesian (x,y) to physical 1D serial chain based on matrix config
 bool led_driver_show_rgb(const uint8_t* rgbData, size_t dataLen, const char* colorOrder = "GRB");
 
 // Animated breathing / status effect during pairing/onboarding

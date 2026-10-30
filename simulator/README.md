@@ -13,6 +13,8 @@ It compiles the firmware's graphics rendering engine (`setup_screen.cpp`), senso
   - `e1002`: 800×480 6-color E-Ink Spectra 6
   - `e1003`: 1872×1404 16-level grayscale (touch supported)
   - `e1004`: 1200×1600 6-color E-Ink Spectra 6 (portrait native)
+  - `xiao_led`: RGB888 smart addressable LED strips and matrices (WS2812 / SK6812)
+- **LED Strip & Matrix Simulation:** Simulate arbitrary LED layouts using `--width <w>` and `--height <h>` (e.g. `--width 5 --height 1` for strips, `--width 32 --height 8` or `--width 64 --height 64` for matrices). Renders realistic rounded-square SMD LED beads with authentic dark PCB bezels, unlit diode chips, and glowing center highlights in SDL2.
 - **Orientation & Rotation Support:** Seamlessly test landscape and portrait displays (`--orientation portrait` or `--rotate 90`). Dimensions and coordinate axes automatically transpose.
 - **Dynamic Server-Driven Adaptation:** Automatically detects server response headers (`X-ST-Screen-Width`, `X-ST-Screen-Height`, `X-ST-Orientation`, `X-ST-Rotation`) and live-resizes window and framebuffers.
 - **Window Scaling (`--scale 2`):** Crisp nearest-neighbor integer scaling (1x–4x) for High-DPI Linux / macOS monitors.
@@ -169,3 +171,23 @@ Opens a scaled window while preserving crisp pixel geometry.
 ```bash
 ./screentinker_sim --model e1001 --token <token> --headless --oneshot --snapshot frame.bmp
 ```
+
+### 9. Smart LED Strip & Matrix Simulation (WS2812 / SK6812 RGB888)
+
+Simulate smart LED light strips or matrices with authentic SDL2 physical visualization (rounded-square SMD LED beads, dark bezels, inner dies, and glowing lens cores):
+
+```bash
+# 5x1 LED Strip (Desk light / ticker)
+./screentinker_sim --width 5 --height 1 --pair
+
+# 64x64 LED Pixel Matrix (e.g. HUB75 / WS2812) with custom config
+./screentinker_sim --config sim_config_64x64.json --width 64 --height 64 --pair
+
+# Run active 64x64 matrix simulation using saved configuration
+./screentinker_sim --config sim_config_64x64.json
+```
+
+**Arbitrary Resolution Support:**
+ScreenTinker supports any arbitrary matrix dimension (e.g. 8×8, 16×16, 32×8, 64×64, 128×64) dynamically without needing pre-baked server presets. During pairing, the simulator transmits a dynamic profile containing the exact width and height (`{"preset":"seeed-xiao-led","width":W,"height":H,"colorDepth":"24bit-rgb888","outputFormat":"raw"}`).
+
+Sample media for testing 5×1 strips and 64×64 matrices are available in `examples/media/`.

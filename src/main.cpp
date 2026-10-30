@@ -453,10 +453,13 @@ static bool initDisplayPanel() {
 #endif
 }
 
+static size_t s_lastFrameBytes = 0;
+
 static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = false, uint8_t colorMode = DEVICE_COLOR_MODE) {
 #if defined(DEVICE_IS_LED_STRIP)
   if (!rotatedBuf) return false;
-  return led_driver_show_rgb(rotatedBuf, DEVICE_BUFFER_SIZE, "GRB");
+  size_t bytesToShow = (s_lastFrameBytes > 0) ? s_lastFrameBytes : (led_driver_get_count() * 3);
+  return led_driver_show_rgb(rotatedBuf, bytesToShow, "GRB");
 #else
   if (!initDisplayPanel()) return false;
 
@@ -1665,6 +1668,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     if (resolvedIndex != s_currentItemIndex && cacheGet(resolvedIndex, s_rotatedBuffer, &cachedColorMode, &cachedFrameSize)) {
       s_currentItemIndex = resolvedIndex;
       rtc_currentItemIndex = resolvedIndex;
+      s_lastFrameBytes = s_cache[resolvedIndex].frameSize;
       Serial.printf("[Sync] Switched display to cached item %d (mode=%d).\n", resolvedIndex, (int)cachedColorMode);
       int battPct = readBatteryPercent();
       bool charging = isBatteryCharging();
@@ -1791,6 +1795,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
       } else {
         rotate_buffer_180_mode(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT, activeColorMode);
       }
+      s_lastFrameBytes = totalReceived;
       cachePut(s_currentItemIndex, newEtag, s_rotatedBuffer, totalReceived, activeColorMode);
       bool useFastPartial = decideRefreshMode(forceRefresh, serverRefreshMode);
       if (renderRotatedBuffer(s_rotatedBuffer, useFastPartial, activeColorMode)) {
@@ -1924,6 +1929,35 @@ void processSerialLine(const String& line) {
       showOnboardingScreen(LANG_DE);
     } else if (line == "nowifi") {
       showNoWifiScreen(s_currentLang);
+#if defined(DEVICE_IS_LED_STRIP)
+    } else if (line == "led_test") {
+      Serial.println("[LED] Running LED test sequence (Red, Green, Blue, White)...");
+      led_driver_show_solid(255, 0, 0);
+      delay(500);
+      led_driver_show_solid(0, 255, 0);
+      delay(500);
+      led_driver_show_solid(0, 0, 255);
+      delay(500);
+      led_driver_show_solid(255, 255, 255);
+      delay(500);
+      led_driver_clear();
+      Serial.println("[LED] Test sequence complete.");
+    } else if (line == "led_red") {
+      led_driver_show_solid(255, 0, 0);
+      Serial.println("{\"status\":\"ok\",\"color\":\"red\"}");
+    } else if (line == "led_green") {
+      led_driver_show_solid(0, 255, 0);
+      Serial.println("{\"status\":\"ok\",\"color\":\"green\"}");
+    } else if (line == "led_blue") {
+      led_driver_show_solid(0, 0, 255);
+      Serial.println("{\"status\":\"ok\",\"color\":\"blue\"}");
+    } else if (line == "led_white") {
+      led_driver_show_solid(255, 255, 255);
+      Serial.println("{\"status\":\"ok\",\"color\":\"white\"}");
+    } else if (line == "led_off") {
+      led_driver_clear();
+      Serial.println("{\"status\":\"ok\",\"color\":\"off\"}");
+#endif
     } else if (line == "pair") {
       registerAndStartPairing();
     } else if (line == "debug" || line == "imu_debug") {
@@ -2187,6 +2221,53 @@ void processSerialLine(const String& line) {
     fetchAndRender(true, s_currentItemIndex);
   } else if (strcmp(cmd, "instructions") == 0) {
     showOnboardingScreen(s_currentLang);
+#if defined(DEVICE_IS_LED_STRIP)
+  } else if (strcmp(cmd, "led") == 0) {
+    uint8_t r = doc["r"] | 0;
+    uint8_t g = doc["g"] | 0;
+    uint8_t b = doc["b"] | 0;
+    if (doc.containsKey("brightness")) {
+      led_driver_set_brightness(doc["brightness"].as<uint8_t>());
+    }
+    led_driver_show_solid(r, g, b);
+    Serial.printf("{\"status\":\"ok\",\"v\":1,\"r\":%d,\"g\":%d,\"b\":%d}\n", r, g, b);
+  } else if (strcmp(cmd, "matrix") == 0 || strcmp(cmd, "set_matrix") == 0) {
+    LedMatrixConfig cur = led_driver_get_matrix_config();
+    if (doc["wiring"].is<const char*>()) {
+      const char* w = doc["wiring"].as<const char*>();
+      cur.wiring = (strcasecmp(w, "progressive") == 0 || strcasecmp(w, "linear") == 0)
+                     ? MATRIX_WIRING_PROGRESSIVE : MATRIX_WIRING_SERPENTINE;
+    }
+    if (doc["origin"].is<const char*>()) {
+      const char* o = doc["origin"].as<const char*>();
+      if (strcasecmp(o, "top_right") == 0 || strcasecmp(o, "top-right") == 0) cur.origin = MATRIX_ORIGIN_TOP_RIGHT;
+      else if (strcasecmp(o, "bottom_left") == 0 || strcasecmp(o, "bottom-left") == 0) cur.origin = MATRIX_ORIGIN_BOTTOM_LEFT;
+      else if (strcasecmp(o, "bottom_right") == 0 || strcasecmp(o, "bottom-right") == 0) cur.origin = MATRIX_ORIGIN_BOTTOM_RIGHT;
+      else cur.origin = MATRIX_ORIGIN_TOP_LEFT;
+    }
+    if (doc["axis"].is<const char*>()) {
+      const char* a = doc["axis"].as<const char*>();
+      cur.axis = (strcasecmp(a, "vertical") == 0 || strcasecmp(a, "col") == 0)
+                   ? MATRIX_AXIS_VERTICAL : MATRIX_AXIS_HORIZONTAL;
+    }
+    if (doc["width"].is<int>()) cur.width = doc["width"].as<int>();
+    if (doc["height"].is<int>()) cur.height = doc["height"].as<int>();
+
+    s_prefs.begin("screentinker", false);
+    s_prefs.putUShort("mat_w", cur.width);
+    s_prefs.putUShort("mat_h", cur.height);
+    s_prefs.putUChar("mat_wir", (uint8_t)cur.wiring);
+    s_prefs.putUChar("mat_orig", (uint8_t)cur.origin);
+    s_prefs.putUChar("mat_axis", (uint8_t)cur.axis);
+    s_prefs.end();
+
+    led_driver_set_matrix_config(cur.width, cur.height, cur.wiring, cur.axis, cur.origin);
+    Serial.printf("{\"status\":\"ok\",\"v\":1,\"width\":%d,\"height\":%d,\"wiring\":\"%s\",\"origin\":%d,\"axis\":\"%s\"}\n",
+                  cur.width, cur.height,
+                  cur.wiring == MATRIX_WIRING_SERPENTINE ? "serpentine" : "progressive",
+                  (int)cur.origin,
+                  cur.axis == MATRIX_AXIS_VERTICAL ? "vertical" : "horizontal");
+#endif
   } else if (strcmp(cmd, "nowifi") == 0) {
     showNoWifiScreen(s_currentLang);
   } else if (strcmp(cmd, "pair") == 0) {
@@ -2231,7 +2312,17 @@ void setup() {
 
   ensureI2C();
 #if defined(DEVICE_IS_LED_STRIP)
-  led_driver_init(5);
+  s_prefs.begin("screentinker", true);
+  uint16_t matW = s_prefs.getUShort("mat_w", (uint16_t)DEVICE_DISPLAY_WIDTH);
+  uint16_t matH = s_prefs.getUShort("mat_h", (uint16_t)DEVICE_DISPLAY_HEIGHT);
+  uint8_t matWir = s_prefs.getUChar("mat_wir", (uint8_t)MATRIX_WIRING_SERPENTINE);
+  uint8_t matAxis = s_prefs.getUChar("mat_axis", (uint8_t)MATRIX_AXIS_HORIZONTAL);
+  uint8_t matOrig = s_prefs.getUChar("mat_orig", (uint8_t)MATRIX_ORIGIN_TOP_LEFT);
+  s_prefs.end();
+
+  uint16_t totalLeds = (matW > 0 && matH > 0) ? (matW * matH) : 5;
+  led_driver_init(totalLeds);
+  led_driver_set_matrix_config(matW, matH, (MatrixWiring)matWir, (MatrixAxis)matAxis, (MatrixOrigin)matOrig);
   oled_status_init();
 #endif
   if (sht40_init()) {

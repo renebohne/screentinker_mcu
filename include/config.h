@@ -1,6 +1,6 @@
 #pragma once
 
-#define FIRMWARE_VERSION      "1.3.1"
+#define FIRMWARE_VERSION      "1.4.0"
 
 // ─── Network & Wi-Fi Configuration ───────────────────────────────────────────
 #define WIFI_SSID             "Your-WiFi-SSID"

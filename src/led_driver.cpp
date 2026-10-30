@@ -9,6 +9,13 @@ static uint16_t s_numLeds = 5;
 static uint8_t s_brightness = 180; // Default ~70% to avoid excessive power draw
 static neoPixelType s_pixelType = NEO_GRB + NEO_KHZ800;
 
+static LedMatrixConfig s_matrixCfg = {
+  5, 1,
+  MATRIX_ORIGIN_TOP_LEFT,
+  MATRIX_AXIS_HORIZONTAL,
+  MATRIX_WIRING_PROGRESSIVE
+};
+
 static neoPixelType parseColorOrder(const char* order) {
   if (!order) return NEO_GRB + NEO_KHZ800;
   if (strcasecmp(order, "RGB") == 0) return NEO_RGB + NEO_KHZ800;
@@ -63,6 +70,28 @@ uint16_t led_driver_get_count() {
   return s_numLeds;
 }
 
+void led_driver_set_matrix_config(uint16_t width, uint16_t height, MatrixWiring wiring, MatrixAxis axis, MatrixOrigin origin) {
+  s_matrixCfg.width = (width > 0) ? width : 1;
+  s_matrixCfg.height = (height > 0) ? height : 1;
+  s_matrixCfg.wiring = wiring;
+  s_matrixCfg.axis = axis;
+  s_matrixCfg.origin = origin;
+
+  uint16_t total = s_matrixCfg.width * s_matrixCfg.height;
+  if (total != s_numLeds && total > 0) {
+    led_driver_set_count(total);
+  }
+  Serial.printf("[LED] Matrix topology configured: %dx%d (%s, %s, origin=%d)\n",
+                s_matrixCfg.width, s_matrixCfg.height,
+                s_matrixCfg.wiring == MATRIX_WIRING_SERPENTINE ? "Serpentine" : "Progressive",
+                s_matrixCfg.axis == MATRIX_AXIS_VERTICAL ? "Vertical" : "Horizontal",
+                (int)s_matrixCfg.origin);
+}
+
+LedMatrixConfig led_driver_get_matrix_config() {
+  return s_matrixCfg;
+}
+
 void led_driver_show_solid(uint8_t r, uint8_t g, uint8_t b) {
   if (!s_strip) return;
   for (uint16_t i = 0; i < s_numLeds; i++) {
@@ -97,12 +126,30 @@ bool led_driver_show_rgb(const uint8_t* rgbData, size_t dataLen, const char* col
     s_strip->updateType(s_pixelType);
   }
 
-  // Set individual pixel colors from RGB888 stream
-  for (size_t i = 0; i < pixelCount; i++) {
-    uint8_t r = rgbData[i * 3 + 0];
-    uint8_t g = rgbData[i * 3 + 1];
-    uint8_t b = rgbData[i * 3 + 2];
-    s_strip->setPixelColor(i, r, g, b);
+  // Check if active 2D matrix mapping applies
+  if (s_matrixCfg.width > 1 && s_matrixCfg.height > 1 &&
+      ((size_t)s_matrixCfg.width * s_matrixCfg.height == pixelCount)) {
+    // 2D Matrix coordinate mapping: (x, y) Cartesian -> sequential physical LED index
+    for (uint16_t y = 0; y < s_matrixCfg.height; y++) {
+      for (uint16_t x = 0; x < s_matrixCfg.width; x++) {
+        size_t srcOffset = ((size_t)y * s_matrixCfg.width + x) * 3;
+        uint16_t physicalIndex = led_matrix_xy_to_index(x, y, &s_matrixCfg);
+        if (physicalIndex < s_numLeds) {
+          s_strip->setPixelColor(physicalIndex,
+                                rgbData[srcOffset + 0],
+                                rgbData[srcOffset + 1],
+                                rgbData[srcOffset + 2]);
+        }
+      }
+    }
+  } else {
+    // 1D Linear strip mapping: sequential 1:1
+    for (size_t i = 0; i < pixelCount; i++) {
+      s_strip->setPixelColor(i,
+                            rgbData[i * 3 + 0],
+                            rgbData[i * 3 + 1],
+                            rgbData[i * 3 + 2]);
+    }
   }
 
   s_strip->show();

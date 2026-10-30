@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScreenTinker — Universal Web Installer & Onboarding</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 32px 16px;
+      display: flex;
+      justify-content: center;
+    }
+    .container {
+      max-width: 680px;
+      width: 100%;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+    .header h1 {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: #fff;
+    }
+    .header p {
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .step-badge {
+      background: var(--primary);
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    input[type="text"], input[type="password"], input[type="number"], select {
+      width: 100%;
+      padding: 10px 12px;
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: white;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    select {
+      cursor: pointer;
+    }
+    optgroup {
+      background: #1e293b;
+      color: #94a3b8;
+      font-weight: 700;
+    }
+    option {
+      background: #0f172a;
+      color: white;
+      font-weight: normal;
+    }
+    input:focus, select:focus {
+      border-color: var(--primary);
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    button {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 10px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background 0.15s;
+      width: 100%;
+    }
+    button:hover { background: var(--primary-hover); }
+    button:disabled {
+      background: var(--border);
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+    button.btn-secondary {
+      background: #334155;
+    }
+    button.btn-secondary:hover { background: #475569; }
+    button.btn-danger {
+      background: #991b1b;
+    }
+    button.btn-danger:hover { background: #b91c1c; }
+    .status-box {
+      background: #0b1120;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      font-family: ui-monospace, monospace;
+      font-size: 12px;
+      color: #a5f3fc;
+      max-height: 140px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      margin-top: 12px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      background: rgba(59, 130, 246, 0.2);
+      color: #93c5fd;
+    }
+  </style>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>ScreenTinker — Web Installer & Setup</h1>
+      <p>1-Klick WebSerial Flasher & Konfiguration für Seeed Studio reTerminal & XIAO LED Controller</p>
+    </div>
+
+    <!-- Step 1: Flash Firmware -->
+    <div class="card">
+      <div class="card-title">
+        <span class="step-badge">1</span>
+        <span>Hardware-Ziel wählen & Firmware flashen</span>
+      </div>
+
+      <div class="form-group">
+        <label for="boardSelect"><strong>Zielgerät / Microcontroller *</strong></label>
+        <select id="boardSelect">
+          <optgroup label="Seeed Studio reTerminal E-Paper Displays">
+            <option value="manifest_sticky.json" data-type="epaper" selected>Seeed Studio reTerminal Sticky (3.97" Mono, 800×480)</option>
+            <option value="manifest_e1001.json" data-type="epaper">Seeed Studio reTerminal E1001 (7.5" Mono, 800×480)</option>
+            <option value="manifest_e1002.json" data-type="epaper">Seeed Studio reTerminal E1002 (7.3" Spectra 6, 800×480)</option>
+            <option value="manifest_e1003.json" data-type="epaper">Seeed Studio reTerminal E1003 (10.3" Gray16, 1872×1404)</option>
+            <option value="manifest_e1004.json" data-type="epaper">Seeed Studio reTerminal E1004 (13.3" Spectra 6, 1200×1600)</option>
+          </optgroup>
+          <optgroup label="Seeed Studio XIAO Smart LED Controller (WS2812 / SK6812)">
+            <option value="manifest_xiao_esp32c6_led.json" data-type="led">Seeed Studio XIAO ESP32-C6 LED Controller (Wi-Fi 6, RISC-V)</option>
+            <option value="manifest_xiao_esp32s3_led.json" data-type="led">Seeed Studio XIAO ESP32-S3 LED Controller (Dual-Core, 8MB PSRAM)</option>
+            <option value="manifest_xiao_esp32c3_led.json" data-type="led">Seeed Studio XIAO ESP32-C3 LED Controller (RISC-V)</option>
+          </optgroup>
+        </select>
+        <div id="boardBadge" style="margin-top: 8px; font-size: 12px; color: #94a3b8; background: #0f172a; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border);">
+          ℹ️ <strong>reTerminal Sticky:</strong> 3.97" Schwarz/Weiß E-Paper (SSD1677), ESP32-S3 (8MB Flash / 8MB PSRAM), SHT40 Umweltsensor.
+        </div>
+      </div>
+
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+        Verbinde dein Gerät per USB-C-Kabel mit dem Computer (Google Chrome oder Microsoft Edge erforderlich).
+      </p>
+      <esp-web-install-button id="installBtn" manifest="./manifest_sticky.json">
+        <button slot="activate" style="margin-bottom: 8px;">🚀 Firmware direkt im Browser installieren</button>
+      </esp-web-install-button>
+    </div>
+
+    <!-- Step 2: WebSerial Configuration -->
+    <div class="card">
+      <div class="card-title">
+        <span class="step-badge">2</span>
+        <span>Gerät konfigurieren & Server verbinden</span>
+      </div>
+
+      <div id="connSection" style="margin-bottom: 16px;">
+        <button id="btnConnect" type="button">🔌 USB-Verbindung zum Gerät herstellen</button>
+      </div>
+
+      <div id="configForm" style="display: none;">
+        <div class="row">
+          <div class="form-group">
+            <label for="ssid">WLAN Name (SSID) *</label>
+            <input type="text" id="ssid" placeholder="z. B. MeinHeimnetz" required>
+          </div>
+          <div class="form-group">
+            <label for="pass">WLAN Passwort</label>
+            <input type="password" id="pass" placeholder="••••••••">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="server">ScreenTinker Server URL *</label>
+          <input type="text" id="server" value="http://192.168.100.199:3001" placeholder="http://192.168.1.100:3001" required>
+        </div>
+
+        <!-- Dynamic LED Configuration Section -->
+        <div id="ledConfigCard" style="display: none; background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+          <div style="font-weight: 600; font-size: 14px; color: #34d399; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
+            <span>💡 LED Matrix & Strip Konfiguration</span>
+            <span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #6ee7b7;">WS2812B / SK6812</span>
+          </div>
+
+          <div class="form-group">
+            <label for="ledPresetSelect">Schnellauswahl / Template</label>
+            <select id="ledPresetSelect">
+              <option value="64x64_serpentine" selected>64×64 LED Matrix (BTF-Lighting / Adafruit NeoMatrix)</option>
+              <option value="32x8_serpentine">32×8 Flexible Matrix</option>
+              <option value="16x16_serpentine">16×16 Quadratische Matrix</option>
+              <option value="5x1_strip">5-LED Desk Strip (Seeed XIAO Board Default)</option>
+              <option value="30x1_strip">30-LED Lichtleiste (1D Strip)</option>
+              <option value="144x1_strip">144-LED Lichtband (1D Strip)</option>
+              <option value="custom">Benutzerdefiniert (Manuell)</option>
+            </select>
+          </div>
+
+          <div class="row">
+            <div class="form-group">
+              <label for="ledWidth">Breite (Pixel / Spalten)</label>
+              <input type="number" id="ledWidth" value="64" min="1" max="512">
+            </div>
+            <div class="form-group">
+              <label for="ledHeight">Höhe (Pixel / Zeilen)</label>
+              <input type="number" id="ledHeight" value="64" min="1" max="512">
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="form-group">
+              <label for="ledWiring">Verdrahtung (Topology)</label>
+              <select id="ledWiring">
+                <option value="serpentine" selected>Serpentine (Zick-Zack / Schlangenlinie)</option>
+                <option value="progressive">Progressive (Linear / Raster)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="ledOrigin">Start-Ecke (LED[0])</label>
+              <select id="ledOrigin">
+                <option value="top-left" selected>Oben Links (Top-Left)</option>
+                <option value="bottom-left">Unten Links (Bottom-Left)</option>
+                <option value="top-right">Oben Rechts (Top-Right)</option>
+                <option value="bottom-right">Unten Rechts (Bottom-Right)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="form-group">
+              <label for="ledAxis">Ausrichtung (Routing-Achse)</label>
+              <select id="ledAxis">
+                <option value="horizontal" selected>Horizontal (Zeilenweise)</option>
+                <option value="vertical">Vertikal (Spaltenweise)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="ledBrightness">Helligkeit (10–255): <span id="ledBrightnessVal" style="color: #fff; font-weight: bold;">120</span></label>
+              <input type="range" id="ledBrightness" min="10" max="255" value="120" style="width: 100%; margin-top: 8px;">
+            </div>
+          </div>
+        </div>
+
+        <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; padding: 12px; margin-bottom: 16px; font-size: 13px; color: #93c5fd;">
+          💡 <strong>So einfach geht's:</strong> Nach dem Klick auf <em>„Speichern & Koppeln“</em> verbindet sich das Gerät mit dem WLAN und zeigt einen <strong>6-stelligen Kopplungscode</strong> auf dem Bildschirm an (LED-Strips pulsieren bernsteinfarben oder zeigen den PIN auf dem Grove-OLED). Klicke dann im ScreenTinker-Dashboard einfach auf <strong>„Bildschirm hinzufügen“</strong> und tippe die 6 Ziffern ein.
+        </div>
+
+        <details style="margin-bottom: 16px; font-size: 12px; color: var(--text-muted);">
+          <summary style="cursor: pointer; margin-bottom: 8px;">⚙️ Erweiterte Einstellungen (Manuelle Device-ID, Token & LED-Toggle)</summary>
+          <div class="row" style="margin-top: 8px;">
+            <div class="form-group">
+              <label for="deviceId">Manuelle Device ID (optional)</label>
+              <input type="text" id="deviceId" placeholder="Automatisch via Pairing-Code">
+            </div>
+            <div class="form-group">
+              <label for="deviceToken">Manuelles Device Token (optional)</label>
+              <input type="password" id="deviceToken" placeholder="Automatisch via Pairing-Code">
+            </div>
+          </div>
+          <div style="margin-top: 8px;">
+            <label style="cursor: pointer; display: flex; align-items: center; gap: 8px;">
+              <input type="checkbox" id="forceLedToggle">
+              <span>LED-Einstellungen immer einblenden</span>
+            </label>
+          </div>
+        </details>
+
+        <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-top: 8px;">
+          <button id="btnSave" type="button">💾 Speichern & Koppeln</button>
+          <button id="btnStatus" type="button" class="btn-secondary">📡 Status</button>
+          <button id="btnReset" type="button" class="btn-danger">🗑️ Reset</button>
+        </div>
+      </div>
+
+      <div id="logBox" class="status-box" style="display: none;"></div>
+    </div>
+  </div>
+
+  <script>
+    let port = null;
+    let reader = null;
+    let inputDone = null;
+
+    const boardSelect = document.getElementById('boardSelect');
+    const boardBadge = document.getElementById('boardBadge');
+    const installBtn = document.getElementById('installBtn');
+    const btnConnect = document.getElementById('btnConnect');
+    const configForm = document.getElementById('configForm');
+    const logBox = document.getElementById('logBox');
+    const btnSave = document.getElementById('btnSave');
+    const btnStatus = document.getElementById('btnStatus');
+    const btnReset = document.getElementById('btnReset');
+
+    const ledConfigCard = document.getElementById('ledConfigCard');
+    const ledPresetSelect = document.getElementById('ledPresetSelect');
+    const ledWidth = document.getElementById('ledWidth');
+    const ledHeight = document.getElementById('ledHeight');
+    const ledWiring = document.getElementById('ledWiring');
+    const ledOrigin = document.getElementById('ledOrigin');
+    const ledAxis = document.getElementById('ledAxis');
+    const ledBrightness = document.getElementById('ledBrightness');
+    const ledBrightnessVal = document.getElementById('ledBrightnessVal');
+    const forceLedToggle = document.getElementById('forceLedToggle');
+
+    const BOARD_INFO = {
+      'manifest_sticky.json': 'ℹ️ <strong>reTerminal Sticky:</strong> 3.97" Schwarz/Weiß E-Paper (SSD1677), ESP32-S3 (8MB Flash / 8MB PSRAM), SHT40 Umweltsensor.',
+      'manifest_e1001.json': 'ℹ️ <strong>reTerminal E1001:</strong> 7.5" Schwarz/Weiß E-Paper (UC8179, 800×480), ESP32-S3, RTC PCF8563, SHT40.',
+      'manifest_e1002.json': 'ℹ️ <strong>reTerminal E1002:</strong> 7.3" 6-Farben Spectra 6 E-Paper (ED2208, 800×480), ESP32-S3, RTC, SHT40.',
+      'manifest_e1003.json': 'ℹ️ <strong>reTerminal E1003:</strong> 10.3" 16-Stufen Grayscale E-Paper (IT8951, 1872×1404), Touchscreen (GT911), ESP32-S3.',
+      'manifest_e1004.json': 'ℹ️ <strong>reTerminal E1004:</strong> 13.3" 6-Farben Spectra 6 E-Paper (T133A01, 1200×1600), ESP32-S3, RTC, SHT40.',
+      'manifest_xiao_esp32c6_led.json': 'ℹ️ <strong>XIAO ESP32-C6 LED Controller:</strong> Wi-Fi 6 (802.11ax), RISC-V @ 160MHz, 24-Bit RGB888 WS2812/SK6812, Grove I2C.',
+      'manifest_xiao_esp32s3_led.json': 'ℹ️ <strong>XIAO ESP32-S3 LED Controller:</strong> Dual-Core Xtensa @ 240MHz, 8MB PSRAM (für große Matrizen), WS2812/SK6812.',
+      'manifest_xiao_esp32c3_led.json': 'ℹ️ <strong>XIAO ESP32-C3 LED Controller:</strong> Kompakter RISC-V Controller, WS2812/SK6812 Strip & Matrix.'
+    };
+
+    function updateBoardUI() {
+      const selected = boardSelect.value;
+      const opt = boardSelect.options[boardSelect.selectedIndex];
+      const isLed = opt.getAttribute('data-type') === 'led';
+
+      installBtn.setAttribute('manifest', './' + selected);
+      boardBadge.innerHTML = BOARD_INFO[selected] || '';
+
+      if (isLed || forceLedToggle.checked) {
+        ledConfigCard.style.display = 'block';
+      } else {
+        ledConfigCard.style.display = 'none';
+      }
+    }
+
+    boardSelect.addEventListener('change', updateBoardUI);
+    forceLedToggle.addEventListener('change', updateBoardUI);
+
+    // LED Preset Templates
+    const LED_TEMPLATES = {
+      '64x64_serpentine': { w: 64, h: 64, wiring: 'serpentine', origin: 'top-left', axis: 'horizontal' },
+      '32x8_serpentine':  { w: 32, h: 8,  wiring: 'serpentine', origin: 'top-left', axis: 'horizontal' },
+      '16x16_serpentine': { w: 16, h: 16, wiring: 'serpentine', origin: 'top-left', axis: 'horizontal' },
+      '5x1_strip':        { w: 5,  h: 1,  wiring: 'progressive', origin: 'top-left', axis: 'horizontal' },
+      '30x1_strip':       { w: 30, h: 1,  wiring: 'progressive', origin: 'top-left', axis: 'horizontal' },
+      '144x1_strip':      { w: 144, h: 1, wiring: 'progressive', origin: 'top-left', axis: 'horizontal' }
+    };
+
+    ledPresetSelect.addEventListener('change', () => {
+      const t = LED_TEMPLATES[ledPresetSelect.value];
+      if (t) {
+        ledWidth.value = t.w;
+        ledHeight.value = t.h;
+        ledWiring.value = t.wiring;
+        ledOrigin.value = t.origin;
+        ledAxis.value = t.axis;
+      }
+    });
+
+    [ledWidth, ledHeight, ledWiring, ledOrigin, ledAxis].forEach(el => {
+      el.addEventListener('input', () => {
+        ledPresetSelect.value = 'custom';
+      });
+    });
+
+    ledBrightness.addEventListener('input', () => {
+      ledBrightnessVal.textContent = ledBrightness.value;
+    });
+
+    function log(msg) {
+      logBox.style.display = 'block';
+      logBox.textContent += msg + '\n';
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    btnConnect.addEventListener('click', async () => {
+      if (!('serial' in navigator)) {
+        alert('WebSerial wird nur von Google Chrome, Microsoft Edge und Opera unterstützt.');
+        return;
+      }
+
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 115200 });
+
+        btnConnect.textContent = '✅ Verbunden mit Gerät (115200 Baud)';
+        btnConnect.disabled = true;
+        btnConnect.classList.add('btn-secondary');
+        configForm.style.display = 'block';
+        log('--- USB-Verbindung hergestellt ---');
+
+        startReading();
+        setTimeout(sendStatusQuery, 500);
+      } catch (err) {
+        log('Verbindungsfehler: ' + err.message);
+      }
+    });
+
+    async function startReading() {
+      const textDecoder = new TextDecoderStream();
+      inputDone = port.readable.pipeTo(textDecoder.writable);
+      reader = textDecoder.readable.getReader();
+
+      let buffer = '';
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += value;
+          let lines = buffer.split('\n');
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.length > 0) {
+              log('[Device] ' + trimmed);
+              try {
+                const data = JSON.parse(trimmed);
+                if (data.status === 'ok') {
+                  if (data.ip && data.ip !== '0.0.0.0') {
+                    log(`✨ Verbunden! IP-Adresse: ${data.ip} (Signal: ${data.rssi} dBm)`);
+                  }
+                  if (data.device_id && !document.getElementById('deviceId').value) {
+                    document.getElementById('deviceId').value = data.device_id;
+                  }
+                  if (data.version) {
+                    log(`ℹ️ Firmware-Version: ${data.version}`);
+                  }
+                }
+              } catch (_) {}
+            }
+          }
+        }
+      } catch (e) {
+        log('Leseabbruch: ' + e.message);
+      }
+    }
+
+    async function sendSerial(text) {
+      if (!port || !port.writable) return;
+      const textEncoder = new TextEncoder();
+      const writer = port.writable.getWriter();
+      await writer.write(textEncoder.encode(text + '\n'));
+      writer.releaseLock();
+    }
+
+    function sendStatusQuery() {
+      sendSerial('{"v":1,"cmd":"status"}');
+    }
+
+    btnStatus.addEventListener('click', () => {
+      log('Sende Statusabfrage (WSCP v1)...');
+      sendStatusQuery();
+    });
+
+    btnSave.addEventListener('click', async () => {
+      const ssid = document.getElementById('ssid').value.trim();
+      const pass = document.getElementById('pass').value.trim();
+      const server = document.getElementById('server').value.trim();
+      const deviceId = document.getElementById('deviceId').value.trim();
+      const deviceToken = document.getElementById('deviceToken').value.trim();
+
+      if (!ssid) {
+        alert('Bitte gib den WLAN-Namen (SSID) ein.');
+        return;
+      }
+
+      const payload = {
+        v: 1,
+        cmd: 'config',
+        ssid: ssid,
+        pass: pass,
+        server: server,
+        device_id: deviceId,
+        device_token: deviceToken
+      };
+
+      log('Sende WLAN & Server-Konfiguration...');
+      await sendSerial(JSON.stringify(payload));
+
+      // If LED card is visible, configure matrix topology and brightness
+      if (ledConfigCard.style.display !== 'none') {
+        const w = parseInt(ledWidth.value) || 64;
+        const h = parseInt(ledHeight.value) || 64;
+        const wiring = ledWiring.value;
+        const origin = ledOrigin.value;
+        const axis = ledAxis.value;
+        const brightness = parseInt(ledBrightness.value) || 120;
+
+        const matrixCmd = {
+          v: 1,
+          cmd: 'matrix',
+          width: w,
+          height: h,
+          wiring: wiring,
+          origin: origin,
+          axis: axis
+        };
+        const ledCmd = {
+          v: 1,
+          cmd: 'led',
+          brightness: brightness
+        };
+
+        setTimeout(async () => {
+          log(`Sende Matrix-Konfiguration (${w}×${h}, ${wiring}, ${origin}, ${axis})...`);
+          await sendSerial(JSON.stringify(matrixCmd));
+        }, 300);
+
+        setTimeout(async () => {
+          log(`Sende Helligkeit (${brightness}/255)...`);
+          await sendSerial(JSON.stringify(ledCmd));
+        }, 600);
+      }
+    });
+
+    btnReset.addEventListener('click', () => {
+      if (confirm('Möchtest du die gespeicherten Zugangsdaten auf dem Gerät wirklich löschen?')) {
+        log('Sende Factory Reset (WSCP v1)...');
+        sendSerial('{"v":1,"cmd":"reset"}');
+      }
+    });
+
+    // Initial trigger
+    updateBoardUI();
+  </script>
+</body>
+</html>

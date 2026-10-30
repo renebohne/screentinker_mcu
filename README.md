@@ -42,7 +42,7 @@ Ultra-low-power, high-performance C++ firmware for the **[Seeed Studio reTermina
   - Synchronized sleep intervals via `X-ST-Expires-In` and Display Power Schedules (`X-ST-Power-State`).
 - **Dual Onboarding / Provisioning:**
   - **Option A (Wi-Fi Captive Portal):** Broadcasts `ScreenTinker-Setup` Wi-Fi hotspot (`192.168.4.1`).
-  - **Option B (1-Click WebSerial Installer):** Flash and configure directly in Chrome/Edge via [Web Installer](https://www.rene-bohne.de/screentinker_mcu/tools/sticky-installer.html).
+  - **Option B (1-Click Universal Web Installer):** Flash any supported e-Paper or LED device and configure Wi-Fi, server, and matrix settings directly in Chrome/Edge via [Web Installer](https://www.rene-bohne.de/screentinker_mcu/tools/).
 - **Multi-Zone & Fullscreen Layout Rendering:**
   - Supports standard fullscreen slides as well as server-composited multi-zone layouts.
 
@@ -50,13 +50,17 @@ Ultra-low-power, high-performance C++ firmware for the **[Seeed Studio reTermina
 
 ## Hardware Specification Matrix
 
-| Model | Display Panel | Resolution | Color Depth | Controller IC | Special Hardware |
+| Model | Display Panel / Target | Resolution | Color Depth | Controller IC | Special Hardware |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **reTerminal Sticky** | 3.97" E-Paper | 800×480 | 1bpp Mono | SSD1677 | SHT40, LSM6DS3TR-C IMU, BQ27220, 3 Buttons |
 | **reTerminal E1001** | 7.5" E-Paper | 800×480 | 1bpp / Gray4 | UC8179 | SHT40, RTC PCF8563, MicroSD, 3 Buttons |
 | **reTerminal E1002** | 7.3" E-Paper | 800×480 | 4bpp Spectra 6 | ED2208 | SHT40, RTC PCF8563, MicroSD, 3 Buttons |
 | **reTerminal E1003** | 10.3" E-Paper | 1872×1404 | 4bpp Gray16 | IT8951 | SHT40, Touchscreen (GT911), RTC, MicroSD |
 | **reTerminal E1004** | 13.3" E-Paper | 1200×1600 | 4bpp Spectra 6 | T133A01 | SHT40, RTC PCF8563, MicroSD |
+| **XIAO LED Controller (C6/S3/C3)** | Smart RGB LED Strip / Matrix | Arbitrary (5×1 to 128×64) | 24bpp RGB888 | WS2812B / SK6812 | 5V Level Shifter, Grove I2C, Optional SSD1306 OLED |
+
+> [!TIP]
+> For complete details on building and configuring addressable LED strips and matrices, see the dedicated [**LED Mode Master Documentation**](docs/led_mode_guide.md) and [**LED Matrix Physical Wiring & Coordinate Mapping Guide**](docs/led_matrix_wiring_guide.md). Sample test patterns and pixel art are located in [**`examples/media/`**](examples/media/).
 
 
 ---
@@ -70,10 +74,10 @@ Ultra-low-power, high-performance C++ firmware for the **[Seeed Studio reTermina
 4. Enter your Wi-Fi details, ScreenTinker Server URL, and select your preferred Layout & Orientation Mode, then click **"Save & Connect"**.
 
 ### Option B: USB-C Web Installer
-1. Connect the reTerminal device to your PC/Mac using a USB-C data cable.
-2. Open the **[ScreenTinker Web Installer](https://www.rene-bohne.de/screentinker_mcu/tools/sticky-installer.html)** (or [`tools/sticky-installer.html`](tools/sticky-installer.html)) in Google Chrome or Microsoft Edge.
-3. Click **"🚀 Firmware direkt im Browser installieren"** to flash the latest v1.3.0 firmware.
-4. Click **"🔌 USB-Verbindung herstellen"**, enter your Wi-Fi SSID and Password, and click **"Save & Connect"**.
+1. Connect your reTerminal or XIAO LED Controller to your PC/Mac using a USB-C data cable.
+2. Open the **[ScreenTinker Universal Web Installer](https://www.rene-bohne.de/screentinker_mcu/tools/)** (or [`tools/sticky-installer.html`](tools/sticky-installer.html)) in Google Chrome or Microsoft Edge.
+3. Select your hardware target and click **"🚀 Firmware direkt im Browser installieren"** to flash the latest v1.4.0 firmware.
+4. Click **"🔌 USB-Verbindung herstellen"**, enter your Wi-Fi SSID, Password, Server URL (and LED matrix dimensions if applicable), and click **"💾 Speichern & Koppeln"**.
 
 ### Step 2: Claim Display in ScreenTinker
 1. The device connects to Wi-Fi and renders a large **6-digit Pairing Code** (e.g. `545 658`) on its E-Paper screen.

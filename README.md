@@ -41,7 +41,7 @@ ScreenTinker MCU powers a diverse ecosystem of visual hardware — ranging from 
 - **Dual-Partition Over-The-Air (OTA) Updates & Rollback Safety:**
   A/B partition flashing via HTTP with hardware mbedTLS SHA-256 verification and automatic rollback protection.
 - **Smart Battery Telemetry & Deep-Discharge Protection:**
-  Live battery reporting (`X-ST-Device-Battery`, `X-ST-Power-Source`, `X-ST-Charging`), visual low-battery badge (`< 10%`), and automatic deep-discharge shutdown (`<= 1%`) to safeguard Li-Po cells.
+  Live battery reporting (`X-ST-Device-Battery`, `X-ST-Power-Source`, `X-ST-Charging`), visual low-battery badge (`< 10%`), and automatic deep-discharge shutdown (`<= 5%`) to safeguard Li-Po cells.
 - **In-Memory PSRAM Frame Caching:**
   Multi-frame caching in PSRAM enables instant navigation through playlists without waiting for Wi-Fi downloads.
 - **Ultra-Low-Power Wi-Fi & Sleep Management:**

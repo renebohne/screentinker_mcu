@@ -241,9 +241,9 @@ int main(int argc, char** argv) {
   std::vector<uint8_t> monoBuffer(gfx_get_buffer_size(), 0xFF);
 
   // Check critical battery depletion before any network or flow operations
-  if (cfg.powerSource != "usb" && !cfg.isCharging && cfg.batteryPercent >= 0 && cfg.batteryPercent <= 1) {
+  if (cfg.powerSource != "usb" && !cfg.isCharging && cfg.batteryPercent >= 0 && cfg.batteryPercent <= CRITICAL_BATTERY_SHUTDOWN_PCT) {
     std::cout << "\n=============================================\n";
-    std::cout << "  [Power] CRITICAL: Battery depleted (" << cfg.batteryPercent << "% <= 1%)!\n";
+    std::cout << "  [Power] CRITICAL: Battery depleted (" << cfg.batteryPercent << "% <= " << CRITICAL_BATTERY_SHUTDOWN_PCT << "%)!\n";
     std::cout << "  [Power] RENDERING BATTERY DEPLETED SHUTDOWN SCREEN & POWERING OFF\n";
     std::cout << "=============================================\n";
     renderBatteryDepletedScreen(monoBuffer.data(), LANG_EN);
@@ -308,9 +308,9 @@ int main(int argc, char** argv) {
   uint8_t simRefreshMode = 0;
 
   while (running) {
-    if (cfg.powerSource != "usb" && !cfg.isCharging && cfg.batteryPercent >= 0 && cfg.batteryPercent <= 1) {
+    if (cfg.powerSource != "usb" && !cfg.isCharging && cfg.batteryPercent >= 0 && cfg.batteryPercent <= CRITICAL_BATTERY_SHUTDOWN_PCT) {
       std::cout << "\n=============================================\n";
-      std::cout << "  [Power] CRITICAL: Battery depleted (" << cfg.batteryPercent << "% <= 1%)!\n";
+      std::cout << "  [Power] CRITICAL: Battery depleted (" << cfg.batteryPercent << "% <= " << CRITICAL_BATTERY_SHUTDOWN_PCT << "%)!\n";
       std::cout << "  [Power] RENDERING BATTERY DEPLETED SHUTDOWN SCREEN & POWERING OFF\n";
       std::cout << "=============================================\n";
       renderBatteryDepletedScreen(monoBuffer.data(), LANG_EN);

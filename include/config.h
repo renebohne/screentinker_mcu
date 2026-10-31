@@ -43,6 +43,11 @@
 #define HTTP_TIMEOUT_MS       15000
 #define ENABLE_WIFI_POWER_SAVE true // Disconnect WiFi when idle to save battery
 
+// ─── Power & Battery Thresholds ──────────────────────────────────────────────
+#ifndef CRITICAL_BATTERY_SHUTDOWN_PCT
+#define CRITICAL_BATTERY_SHUTDOWN_PCT 5   // Trigger graceful shutdown and render battery-depleted screen at <= 5%
+#endif
+
 // Set to true to always download and draw the frame (bypasses 304 on boot)
 #define FORCE_REFRESH_ON_BOOT false
 

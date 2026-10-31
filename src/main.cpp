@@ -869,7 +869,7 @@ void scheduleNextSync(uint32_t sleepSeconds) {
 void powerOffDevice(bool batteryDepleted = false) {
   Serial.println("\n=============================================");
   if (batteryDepleted) {
-    Serial.println("  [Power] CRITICAL: BATTERY DEPLETED (<= 1%)");
+    Serial.printf("  [Power] CRITICAL: BATTERY DEPLETED (<= %d%%)\n", CRITICAL_BATTERY_SHUTDOWN_PCT);
     Serial.println("  [Power] RENDERING SHUTDOWN SCREEN & CUTTING POWER");
   } else {
     Serial.println("  [Power] RENDERING SHUTDOWN SCREEN & POWERING OFF");
@@ -947,8 +947,8 @@ void powerOffDevice(bool batteryDepleted = false) {
 static bool checkCriticalBatteryAndShutdown() {
   if (isUsbPowerConnected()) return false;
   int batt = readBatteryPercent();
-  if (batt >= 0 && batt <= 1) {
-    Serial.printf("\n[Power] CRITICAL: Battery depleted (%d%% <= 1%%) and no USB power! Triggering shutdown...\n", batt);
+  if (batt >= 0 && batt <= CRITICAL_BATTERY_SHUTDOWN_PCT) {
+    Serial.printf("\n[Power] CRITICAL: Battery depleted (%d%% <= %d%%) and no USB power! Triggering shutdown...\n", batt, CRITICAL_BATTERY_SHUTDOWN_PCT);
     powerOffDevice(true);
     return true;
   }

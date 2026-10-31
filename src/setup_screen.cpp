@@ -1327,9 +1327,11 @@ void renderBatteryDepletedScreen(uint8_t* buffer, Language lang) {
   gfx_draw_string(buffer, bx + 85, by + 23, "!", 0, 8);
 
   // Details
+  char battMsg[64];
   if (lang == LANG_DE) {
     gfx_draw_string(buffer, 340, 100, "AKKU LEER — SHUTDOWN", 0, 3);
-    gfx_draw_string(buffer, 340, 150, "Der Akku ist vollstaendig entladen (<= 1%).", 0, 2);
+    snprintf(battMsg, sizeof(battMsg), "Der Akku ist fast entladen (<= %d%%).", CRITICAL_BATTERY_SHUTDOWN_PCT);
+    gfx_draw_string(buffer, 340, 150, battMsg, 0, 2);
     gfx_draw_string(buffer, 340, 180, "Das Geraet wurde zum Schutz abgeschaltet.", 0, 2);
 
     gfx_fill_rect(buffer, 340, 225, 420, 85, 0);
@@ -1337,7 +1339,8 @@ void renderBatteryDepletedScreen(uint8_t* buffer, Language lang) {
     gfx_draw_string(buffer, 360, 275, "um das Geraet wieder aufzuladen!", 1, 2);
   } else {
     gfx_draw_string(buffer, 340, 100, "BATTERY DEPLETED", 0, 3);
-    gfx_draw_string(buffer, 340, 150, "The battery is completely depleted (<= 1%).", 0, 2);
+    snprintf(battMsg, sizeof(battMsg), "The battery is critically low (<= %d%%).", CRITICAL_BATTERY_SHUTDOWN_PCT);
+    gfx_draw_string(buffer, 340, 150, battMsg, 0, 2);
     gfx_draw_string(buffer, 340, 180, "Device was shut down to protect the battery.", 0, 2);
 
     gfx_fill_rect(buffer, 340, 225, 420, 85, 0);

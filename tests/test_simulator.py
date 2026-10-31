@@ -684,19 +684,19 @@ class TestScreenTinkerSimulator(unittest.TestCase):
         self.assertGreater(r_norm, 240, f"Expected white at (743, 15) with normal battery, got {r_norm}")
 
     def test_21_critical_battery_shutdown(self):
-        """Tests that critical battery (<= 1%) without USB power renders shutdown screen and powers off."""
-        # Case 1: Battery at 1% on battery power -> Immediate shutdown screen and power off
+        """Tests that critical battery (<= 5%) without USB power renders shutdown screen and powers off."""
+        # Case 1: Battery at 5% on battery power -> Immediate shutdown screen and power off
         snap_depleted = os.path.join(self.temp_dir.name, "snap_depleted.bmp")
         args_depleted = [
             "--token", "test-token",
             "--device", "dev-depleted-batt",
-            "--battery", "1",
+            "--battery", "5",
             "--power", "battery",
             "--snapshot", snap_depleted,
         ]
         res_depleted = self.run_simulator(args_depleted)
         self.assertEqual(res_depleted.returncode, 0)
-        self.assertIn("CRITICAL: Battery depleted (1% <= 1%)!", res_depleted.stdout)
+        self.assertIn("CRITICAL: Battery depleted (5% <= 5%)!", res_depleted.stdout)
         self.assertIn("RENDERING BATTERY DEPLETED SHUTDOWN SCREEN & POWERING OFF", res_depleted.stdout)
         self.assertIn("Device powered off due to depleted battery. Exiting.", res_depleted.stdout)
         self.assertTrue(os.path.exists(snap_depleted), "Shutdown snapshot BMP was not generated")

@@ -9,6 +9,7 @@
 #include <esp_wifi.h>
 
 #include "device_profile.h"
+#include "menu_layout.h"
 
 #if defined(DEVICE_IS_LED_STRIP)
 #include "led_driver.h"
@@ -711,9 +712,16 @@ static uint8_t s_refreshMode = REFRESH_MODE_SMART_PARTIAL;
 // Number of consecutive partial refreshes before a full clean cycle (6:1 ghosting mitigation)
 static const uint8_t s_partialRefreshLimit = 6;
 
+static uint8_t s_criticalBatteryPct = CRITICAL_BATTERY_SHUTDOWN_PCT;
+
 static bool s_inSystemMenu = false;
 static bool s_inStatusScreen = false;
+static bool s_inWifiPowerMenu = false;
+static bool s_inAdvancedResetMenu = false;
+static uint8_t s_confirmAction = 0; // 0 = none, 1 = unpair, 2 = factory reset
 static int s_menuSelection = 0;
+static int s_wifiPowerSelection = 0;
+static int s_advancedSelection = 0;
 static uint32_t s_menuOpenMillis = 0;
 
 void showSystemMenu(int selectedIndex, bool fastPartial = false) {
@@ -727,6 +735,40 @@ void showSystemMenu(int selectedIndex, bool fastPartial = false) {
   Serial.printf("[Display] Rendering System Menu (Item: %d, Fast: %d, Lang: %s, TxPwr: %d, OrientMode: %d, RefreshMode: %d, Batt: %d%%)...\n",
                 selectedIndex, fastPartial ? 1 : 0, (s_currentLang == LANG_DE) ? "DE" : "EN", s_wifiTxPowerLevel, (int)s_orientationMode, s_refreshMode, battPct);
   renderSystemMenu(s_rawBuffer, selectedIndex, s_currentLang, s_wifiTxPowerLevel, (uint8_t)s_orientationMode, s_hasImu, battPct, charging, usb, s_refreshMode, DEVICE_SUPPORTS_PARTIAL_REFRESH);
+  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
+  renderRotatedBuffer(s_rotatedBuffer, fastPartial, COLOR_MODE_1BPP_MONO);
+}
+
+void showWifiPowerMenu(int selectedIndex, bool fastPartial = false) {
+  if (!s_rawBuffer || !s_rotatedBuffer) return;
+#if DEVICE_SUPPORTS_TOUCH
+  touch_wake();
+#endif
+  int battPct = readBatteryPercent();
+  bool charging = isBatteryCharging();
+  bool usb = isUsbPowerConnected();
+#if defined(DEVICE_IS_LED_STRIP) || defined(DEVICE_IS_RGB_LCD)
+  bool hasBattery = false;
+#else
+  bool hasBattery = true;
+#endif
+  Serial.printf("[Display] Rendering Wi-Fi & Power Menu (Item: %d, TxPwr: %d, BattCutoff: %d%%)...\n",
+                selectedIndex, s_wifiTxPowerLevel, s_criticalBatteryPct);
+  renderWifiPowerMenu(s_rawBuffer, selectedIndex, s_currentLang, s_wifiTxPowerLevel, s_criticalBatteryPct, hasBattery, battPct, charging, usb);
+  rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
+  renderRotatedBuffer(s_rotatedBuffer, fastPartial, COLOR_MODE_1BPP_MONO);
+}
+
+void showAdvancedResetMenu(int selectedIndex, uint8_t confirmAction = 0, bool fastPartial = false) {
+  if (!s_rawBuffer || !s_rotatedBuffer) return;
+#if DEVICE_SUPPORTS_TOUCH
+  touch_wake();
+#endif
+  int battPct = readBatteryPercent();
+  bool charging = isBatteryCharging();
+  bool usb = isUsbPowerConnected();
+  Serial.printf("[Display] Rendering Advanced & Reset Menu (Item: %d, Confirm: %d)...\n", selectedIndex, confirmAction);
+  renderAdvancedResetMenu(s_rawBuffer, selectedIndex, s_currentLang, confirmAction, battPct, charging, usb);
   rotate_mono_180(s_rawBuffer, s_rotatedBuffer, EPD_WIDTH, EPD_HEIGHT);
   renderRotatedBuffer(s_rotatedBuffer, fastPartial, COLOR_MODE_1BPP_MONO);
 }
@@ -869,7 +911,7 @@ void scheduleNextSync(uint32_t sleepSeconds) {
 void powerOffDevice(bool batteryDepleted = false) {
   Serial.println("\n=============================================");
   if (batteryDepleted) {
-    Serial.printf("  [Power] CRITICAL: BATTERY DEPLETED (<= %d%%)\n", CRITICAL_BATTERY_SHUTDOWN_PCT);
+    Serial.printf("  [Power] CRITICAL: BATTERY DEPLETED (<= %d%%)\n", s_criticalBatteryPct);
     Serial.println("  [Power] RENDERING SHUTDOWN SCREEN & CUTTING POWER");
   } else {
     Serial.println("  [Power] RENDERING SHUTDOWN SCREEN & POWERING OFF");
@@ -947,8 +989,8 @@ void powerOffDevice(bool batteryDepleted = false) {
 static bool checkCriticalBatteryAndShutdown() {
   if (isUsbPowerConnected()) return false;
   int batt = readBatteryPercent();
-  if (batt >= 0 && batt <= CRITICAL_BATTERY_SHUTDOWN_PCT) {
-    Serial.printf("\n[Power] CRITICAL: Battery depleted (%d%% <= %d%%) and no USB power! Triggering shutdown...\n", batt, CRITICAL_BATTERY_SHUTDOWN_PCT);
+  if (batt >= 0 && batt <= s_criticalBatteryPct) {
+    Serial.printf("\n[Power] CRITICAL: Battery depleted (%d%% <= %d%%) and no USB power! Triggering shutdown...\n", batt, s_criticalBatteryPct);
     powerOffDevice(true);
     return true;
   }
@@ -1010,6 +1052,10 @@ void loadConfigFromNVS() {
   }
   s_refreshMode = s_prefs.getUChar("refresh_mode", REFRESH_MODE_SMART_PARTIAL);
   if (s_refreshMode > 1) s_refreshMode = REFRESH_MODE_SMART_PARTIAL;
+  s_criticalBatteryPct = s_prefs.getUChar("batt_cutoff", CRITICAL_BATTERY_SHUTDOWN_PCT);
+  if (s_criticalBatteryPct != 3 && s_criticalBatteryPct != 5 && s_criticalBatteryPct != 10 && s_criticalBatteryPct != 15) {
+    s_criticalBatteryPct = CRITICAL_BATTERY_SHUTDOWN_PCT;
+  }
   s_prefs.end();
 
   Serial.println("[Config] Loaded configuration from NVS/Defaults:");
@@ -1018,6 +1064,7 @@ void loadConfigFromNVS() {
   Serial.printf("  Device ID:   %s\n", g_deviceId.c_str());
   Serial.printf("  Token set:   %s\n", g_deviceToken.length() > 0 ? "YES" : "NO");
   Serial.printf("  Multi-Zone:  %s\n", g_multiZone ? "ENABLED" : "DISABLED");
+  Serial.printf("  Batt Cutoff: %d%%\n", s_criticalBatteryPct);
   Serial.printf("  Language:    %s\n", (s_currentLang == LANG_DE) ? "Deutsch (DE)" : "English (EN)");
   Serial.printf("  Wi-Fi TX:    %s\n", (s_wifiTxPowerLevel == 1) ? "15.0 dBm" : (s_wifiTxPowerLevel == 2) ? "11.0 dBm" : "19.5 dBm (MAX)");
   Serial.printf("  Refresh:     %s (limit: %d)\n", (s_refreshMode == REFRESH_MODE_SMART_PARTIAL) ? "Smart Partial [6:1]" : "Always Full", s_partialRefreshLimit);
@@ -2062,6 +2109,8 @@ void processSerialLine(const String& line) {
     } else if (line == "menu") {
       s_inSystemMenu = true;
       s_inStatusScreen = false;
+      s_inWifiPowerMenu = false;
+      s_inAdvancedResetMenu = false;
       s_menuSelection = 0;
       s_menuOpenMillis = millis();
       showSystemMenu(0, false);
@@ -2347,6 +2396,8 @@ void processSerialLine(const String& line) {
   } else if (strcmp(cmd, "menu") == 0) {
     s_inSystemMenu = true;
     s_inStatusScreen = false;
+    s_inWifiPowerMenu = false;
+    s_inAdvancedResetMenu = false;
     s_menuSelection = 0;
     s_menuOpenMillis = millis();
     showSystemMenu(0, false);
@@ -2467,6 +2518,8 @@ void setup() {
     s_interactiveUntilMillis = millis() + 30000;
     s_inSystemMenu = true;
     s_inStatusScreen = false;
+    s_inWifiPowerMenu = false;
+    s_inAdvancedResetMenu = false;
     s_menuSelection = 0;
     s_menuOpenMillis = millis();
     showSystemMenu(0, false);
@@ -2543,6 +2596,92 @@ void setup() {
   s_lastSyncMillis = millis();
 }
 
+static void handleWifiPowerAction(int selection) {
+  s_menuOpenMillis = millis();
+  s_interactiveUntilMillis = millis() + 30000;
+  if (selection == 0) {
+    // 0: Wi-Fi TX Power Toggle (MAX -> MED -> LOW -> MAX)
+    s_wifiTxPowerLevel = (s_wifiTxPowerLevel + 1) % 3;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putUChar("wifi_tx_pwr", s_wifiTxPowerLevel);
+    s_prefs.end();
+    wifi_power_t pwrEnum = (s_wifiTxPowerLevel == 1) ? WIFI_POWER_15dBm :
+                           (s_wifiTxPowerLevel == 2) ? WIFI_POWER_11dBm : WIFI_POWER_19_5dBm;
+    WiFi.setTxPower(pwrEnum);
+    Serial.printf("\n>>> [WifiPowerMenu] Wi-Fi TX Power switched to level %d (%s)!\n",
+                  s_wifiTxPowerLevel, (s_wifiTxPowerLevel == 1) ? "15 dBm" : (s_wifiTxPowerLevel == 2) ? "11 dBm" : "19.5 dBm");
+    showWifiPowerMenu(0, true);
+  } else if (selection == 1) {
+    // 1: Battery Cutoff Toggle (5% -> 10% -> 15% -> 3% -> 5%)
+#if !defined(DEVICE_IS_LED_STRIP) && !defined(DEVICE_IS_RGB_LCD)
+    if (s_criticalBatteryPct == 3) s_criticalBatteryPct = 5;
+    else if (s_criticalBatteryPct == 5) s_criticalBatteryPct = 10;
+    else if (s_criticalBatteryPct == 10) s_criticalBatteryPct = 15;
+    else s_criticalBatteryPct = 3;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putUChar("batt_cutoff", s_criticalBatteryPct);
+    s_prefs.end();
+    Serial.printf("\n>>> [WifiPowerMenu] Battery cutoff threshold changed to: %d%%\n", s_criticalBatteryPct);
+#endif
+    showWifiPowerMenu(1, true);
+  } else if (selection == 2) {
+    // 2: Back to Main Menu
+    s_inWifiPowerMenu = false;
+    s_inSystemMenu = true;
+    s_menuSelection = 3; // Focus 4. WI-FI & POWER ->
+    s_menuOpenMillis = millis();
+    Serial.println("\n>>> [WifiPowerMenu] Returning to System Menu...");
+    showSystemMenu(s_menuSelection, false);
+  }
+}
+
+static void handleAdvancedResetAction(int selection) {
+  s_menuOpenMillis = millis();
+  s_interactiveUntilMillis = millis() + 30000;
+  if (selection == 0) {
+    // Ask for unpair confirmation
+    s_confirmAction = 1;
+    Serial.println("\n>>> [AdvancedMenu] Requesting Unpair confirmation...");
+    showAdvancedResetMenu(0, 1, true);
+  } else if (selection == 1) {
+    // Ask for factory reset confirmation
+    s_confirmAction = 2;
+    Serial.println("\n>>> [AdvancedMenu] Requesting Factory Reset confirmation...");
+    showAdvancedResetMenu(1, 2, true);
+  } else if (selection == 2) {
+    // Back to Main Menu
+    s_inAdvancedResetMenu = false;
+    s_confirmAction = 0;
+    s_inSystemMenu = true;
+    s_menuSelection = 5; // Focus 6. ADVANCED & RESET ->
+    s_menuOpenMillis = millis();
+    Serial.println("\n>>> [AdvancedMenu] Returning to System Menu...");
+    showSystemMenu(s_menuSelection, false);
+  }
+}
+
+static void executeConfirmedAdvancedAction(uint8_t action) {
+  s_confirmAction = 0;
+  if (action == 1) {
+    // Unpair Device
+    s_inAdvancedResetMenu = false;
+#if DEVICE_SUPPORTS_TOUCH
+    touch_sleep();
+#endif
+    Serial.println("\n>>> [AdvancedMenu] UNPAIR CONFIRMED! Generating new pairing code...");
+    saveConfigToNVS(g_wifiSsid, g_wifiPass, g_serverUrl, "", "");
+    registerAndStartPairing();
+  } else if (action == 2) {
+    // Factory Reset
+    s_inAdvancedResetMenu = false;
+#if DEVICE_SUPPORTS_TOUCH
+    touch_sleep();
+#endif
+    Serial.println("\n>>> [AdvancedMenu] FACTORY RESET CONFIRMED! Erasing NVS...");
+    factoryResetNVS();
+  }
+}
+
 static void executeMenuAction(int selection) {
   s_menuOpenMillis = millis();
   s_interactiveUntilMillis = millis() + 30000;
@@ -2588,19 +2727,7 @@ static void executeMenuAction(int selection) {
                   (s_orientationMode == ORIENT_MODE_AUTO) ? "Auto (IMU)" : (s_orientationMode == ORIENT_MODE_PORTRAIT) ? "Portrait" : "Landscape");
     showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
   } else if (selection == 2) {
-    // 2: Wi-Fi TX Power Toggle (MAX -> MED -> LOW -> MAX)
-    s_wifiTxPowerLevel = (s_wifiTxPowerLevel + 1) % 3;
-    s_prefs.begin("screentinker", false);
-    s_prefs.putUChar("wifi_tx_pwr", s_wifiTxPowerLevel);
-    s_prefs.end();
-    wifi_power_t pwrEnum = (s_wifiTxPowerLevel == 1) ? WIFI_POWER_15dBm :
-                           (s_wifiTxPowerLevel == 2) ? WIFI_POWER_11dBm : WIFI_POWER_19_5dBm;
-    WiFi.setTxPower(pwrEnum);
-    Serial.printf("\n>>> [SystemMenu] Wi-Fi TX Power switched to level %d (%s)!\n",
-                  s_wifiTxPowerLevel, (s_wifiTxPowerLevel == 1) ? "15 dBm" : (s_wifiTxPowerLevel == 2) ? "11 dBm" : "19.5 dBm");
-    showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
-  } else if (selection == 3) {
-    // 3: Refresh Mode Toggle (Smart Partial [6:1] <-> Always Full)
+    // 2: Refresh Mode Toggle (Smart Partial [6:1] <-> Always Full)
     if (DEVICE_SUPPORTS_PARTIAL_REFRESH) {
       s_refreshMode = (s_refreshMode == REFRESH_MODE_SMART_PARTIAL) ? REFRESH_MODE_ALWAYS_FULL : REFRESH_MODE_SMART_PARTIAL;
       s_prefs.begin("screentinker", false);
@@ -2613,6 +2740,14 @@ static void executeMenuAction(int selection) {
       Serial.println("\n>>> [SystemMenu] This device target only supports Full Refresh (Spectra 6).");
     }
     showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
+  } else if (selection == 3) {
+    // 3: Wi-Fi & Power Subpage
+    s_inSystemMenu = false;
+    s_inWifiPowerMenu = true;
+    s_wifiPowerSelection = 0;
+    s_menuOpenMillis = millis();
+    Serial.println("\n>>> [SystemMenu] Opening Wi-Fi & Power Subpage...");
+    showWifiPowerMenu(0, false);
   } else if (selection == 4) {
     // 4: Language Toggle (EN <-> DE)
     s_currentLang = (s_currentLang == LANG_EN) ? LANG_DE : LANG_EN;
@@ -2622,14 +2757,14 @@ static void executeMenuAction(int selection) {
     Serial.printf("\n>>> [SystemMenu] Language changed to: %s\n", (s_currentLang == LANG_DE) ? "DE" : "EN");
     showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
   } else if (selection == 5) {
-    // 5: Gerät entkoppeln (Unpair)
+    // 5: Advanced & Reset Subpage
     s_inSystemMenu = false;
-#if DEVICE_SUPPORTS_TOUCH
-    touch_sleep();
-#endif
-    Serial.println("[SystemMenu] Unpairing device and generating new pairing code...");
-    saveConfigToNVS(g_wifiSsid, g_wifiPass, g_serverUrl, "", "");
-    registerAndStartPairing();
+    s_inAdvancedResetMenu = true;
+    s_advancedSelection = 0;
+    s_confirmAction = 0;
+    s_menuOpenMillis = millis();
+    Serial.println("\n>>> [SystemMenu] Opening Advanced & Reset Subpage...");
+    showAdvancedResetMenu(0, 0, false);
   } else if (selection == 6) {
     // 6: Ausschalten / Standby
 #if DEVICE_SUPPORTS_TOUCH
@@ -2637,14 +2772,7 @@ static void executeMenuAction(int selection) {
 #endif
     powerOffDevice();
   } else if (selection == 7) {
-    // 7: Factory Reset
-    s_inSystemMenu = false;
-#if DEVICE_SUPPORTS_TOUCH
-    touch_sleep();
-#endif
-    factoryResetNVS();
-  } else if (selection == 8) {
-    // 8: Zurück / Schließen -> Deep Sleep
+    // 7: Zurück / Schließen -> Deep Sleep
     s_inSystemMenu = false;
     s_inInteractiveMode = false;
 #if DEVICE_SUPPORTS_TOUCH
@@ -2784,21 +2912,36 @@ void loop() {
     if (okPressStart == 0) okPressStart = millis();
 
     // If held for 1 second while outside menu -> Open System Menu immediately!
-    if (!s_inSystemMenu && !s_inStatusScreen && okPressStart > 0 && (millis() - okPressStart >= 1000)) {
+    if (!s_inSystemMenu && !s_inStatusScreen && !s_inWifiPowerMenu && !s_inAdvancedResetMenu && okPressStart > 0 && (millis() - okPressStart >= 1000)) {
       Serial.println("\n>>> [Button] BOOT button held -> Opening System Menu!");
       okPressStart = 0; // Reset so it doesn't re-trigger while held
       s_inInteractiveMode = true;
       s_interactiveUntilMillis = millis() + 30000;
       s_inSystemMenu = true;
       s_inStatusScreen = false;
+      s_inWifiPowerMenu = false;
+      s_inAdvancedResetMenu = false;
       s_menuSelection = 0; // Default: 1. Status & Info
       s_menuOpenMillis = millis();
       showSystemMenu(s_menuSelection, false);
-    } else if (s_inSystemMenu && okPressStart > 0 && (millis() - okPressStart >= 1200)) {
+    } else if (okPressStart > 0 && (millis() - okPressStart >= 1200)) {
 #if (!defined(PIN_BTN_UP) || PIN_BTN_UP < 0) && (!defined(PIN_BTN_DOWN) || PIN_BTN_DOWN < 0)
-      Serial.printf("\n>>> [SystemMenu] Long press on BOOT button -> Executing selection %d!\n", s_menuSelection);
-      okPressStart = 0;
-      executeMenuAction(s_menuSelection);
+      if (s_inSystemMenu) {
+        Serial.printf("\n>>> [SystemMenu] Long press on BOOT button -> Executing selection %d!\n", s_menuSelection);
+        okPressStart = 0;
+        executeMenuAction(s_menuSelection);
+      } else if (s_inWifiPowerMenu) {
+        Serial.printf("\n>>> [WifiPowerMenu] Long press on BOOT button -> Executing selection %d!\n", s_wifiPowerSelection);
+        okPressStart = 0;
+        handleWifiPowerAction(s_wifiPowerSelection);
+      } else if (s_inAdvancedResetMenu) {
+        okPressStart = 0;
+        if (s_confirmAction != 0) {
+          executeConfirmedAdvancedAction(s_confirmAction);
+        } else {
+          handleAdvancedResetAction(s_advancedSelection);
+        }
+      }
 #endif
     }
   } else {
@@ -2819,10 +2962,30 @@ void loop() {
           s_inSystemMenu = true;
           s_menuOpenMillis = millis();
           showSystemMenu(s_menuSelection, false);
+        } else if (s_inWifiPowerMenu) {
+#if (!defined(PIN_BTN_UP) || PIN_BTN_UP < 0) && (!defined(PIN_BTN_DOWN) || PIN_BTN_DOWN < 0)
+          s_wifiPowerSelection = (s_wifiPowerSelection + 1) % SUBMENU_WIFI_POWER_COUNT;
+          s_menuOpenMillis = millis();
+          showWifiPowerMenu(s_wifiPowerSelection, true);
+#else
+          handleWifiPowerAction(s_wifiPowerSelection);
+#endif
+        } else if (s_inAdvancedResetMenu) {
+          if (s_confirmAction != 0) {
+            executeConfirmedAdvancedAction(s_confirmAction);
+          } else {
+#if (!defined(PIN_BTN_UP) || PIN_BTN_UP < 0) && (!defined(PIN_BTN_DOWN) || PIN_BTN_DOWN < 0)
+            s_advancedSelection = (s_advancedSelection + 1) % SUBMENU_ADVANCED_COUNT;
+            s_menuOpenMillis = millis();
+            showAdvancedResetMenu(s_advancedSelection, 0, true);
+#else
+            handleAdvancedResetAction(s_advancedSelection);
+#endif
+          }
         } else if (s_inSystemMenu) {
 #if (!defined(PIN_BTN_UP) || PIN_BTN_UP < 0) && (!defined(PIN_BTN_DOWN) || PIN_BTN_DOWN < 0)
           // Single-button device (like CrowPanel): short press cycles through menu items
-          s_menuSelection = (s_menuSelection + 1) % 9;
+          s_menuSelection = (s_menuSelection + 1) % MENU_ITEM_COUNT;
           s_menuOpenMillis = millis();
           Serial.printf("\n>>> [SystemMenu] BOOT pressed -> Selection: %d\n", s_menuSelection);
           showSystemMenu(s_menuSelection, true);
@@ -2836,6 +2999,8 @@ void loop() {
           Serial.println("\n>>> [Button] BOOT button pressed -> Opening System Menu!");
           s_inSystemMenu = true;
           s_inStatusScreen = false;
+          s_inWifiPowerMenu = false;
+          s_inAdvancedResetMenu = false;
           s_menuSelection = 0;
           s_menuOpenMillis = millis();
           showSystemMenu(s_menuSelection, false);
@@ -2846,11 +3011,13 @@ void loop() {
 #endif
 
   // Interactive / Menu Inactivity Timeout: auto-exit to Deep Sleep after 30 seconds
-  if (s_inInteractiveMode && (millis() > s_interactiveUntilMillis || ((s_inSystemMenu || s_inStatusScreen) && (millis() - s_menuOpenMillis > 30000)))) {
+  if (s_inInteractiveMode && (millis() > s_interactiveUntilMillis || ((s_inSystemMenu || s_inStatusScreen || s_inWifiPowerMenu || s_inAdvancedResetMenu) && (millis() - s_menuOpenMillis > 30000)))) {
     Serial.println("\n>>> [Interactive] Inactivity timeout (30s) -> Exiting interactive mode to Deep Sleep.");
     s_inInteractiveMode = false;
     s_inSystemMenu = false;
     s_inStatusScreen = false;
+    s_inWifiPowerMenu = false;
+    s_inAdvancedResetMenu = false;
 #if DEVICE_SUPPORTS_TOUCH
     touch_sleep();
 #endif
@@ -2863,7 +3030,7 @@ void loop() {
 
 #if DEVICE_SUPPORTS_TOUCH
   // Touch Digitizer Handling: only active while inside System Menu or Status Screen
-  if (s_inSystemMenu || s_inStatusScreen) {
+  if (s_inSystemMenu || s_inStatusScreen || s_inWifiPowerMenu || s_inAdvancedResetMenu) {
     touch_point_t tp;
     if (touch_read(&tp)) {
       static bool s_touchWasPressed = false;
@@ -2880,9 +3047,34 @@ void loop() {
           s_menuOpenMillis = millis();
           s_interactiveUntilMillis = millis() + 30000;
           showSystemMenu(s_menuSelection, false);
+        } else if (s_inWifiPowerMenu) {
+          int hit = touch_hit_test_menu_items(tp.x, tp.y, EPD_WIDTH, EPD_HEIGHT, SUBMENU_WIFI_POWER_COUNT);
+          if (hit >= 0 && hit < SUBMENU_WIFI_POWER_COUNT) {
+            Serial.printf("\n>>> [Touch] Wi-Fi & Power item %d tapped at (%d, %d)!\n", hit, tp.x, tp.y);
+            s_wifiPowerSelection = hit;
+            handleWifiPowerAction(hit);
+          }
+        } else if (s_inAdvancedResetMenu) {
+          if (s_confirmAction != 0) {
+            const bool isCompact = (EPD_HEIGHT < 400);
+            const int footerH = isCompact ? MENU_COMPACT_FOOTER_HEIGHT : MENU_FOOTER_HEIGHT;
+            if (tp.y >= EPD_HEIGHT - footerH) {
+              s_confirmAction = 0;
+              showAdvancedResetMenu(s_advancedSelection, 0, true);
+            } else {
+              executeConfirmedAdvancedAction(s_confirmAction);
+            }
+          } else {
+            int hit = touch_hit_test_menu_items(tp.x, tp.y, EPD_WIDTH, EPD_HEIGHT, SUBMENU_ADVANCED_COUNT);
+            if (hit >= 0 && hit < SUBMENU_ADVANCED_COUNT) {
+              Serial.printf("\n>>> [Touch] Advanced & Reset item %d tapped at (%d, %d)!\n", hit, tp.x, tp.y);
+              s_advancedSelection = hit;
+              handleAdvancedResetAction(hit);
+            }
+          }
         } else if (s_inSystemMenu) {
           int hit = touch_hit_test_menu(tp.x, tp.y, EPD_WIDTH, EPD_HEIGHT);
-          if (hit >= 0 && hit < 9) {
+          if (hit >= 0 && hit < MENU_ITEM_COUNT) {
             Serial.printf("\n>>> [Touch] Menu item %d tapped at (%d, %d)!\n", hit, tp.x, tp.y);
             s_menuSelection = hit;
             executeMenuAction(s_menuSelection);
@@ -2907,8 +3099,21 @@ void loop() {
       s_inSystemMenu = true;
       s_menuOpenMillis = millis();
       showSystemMenu(s_menuSelection, false);
+    } else if (s_inWifiPowerMenu) {
+      s_wifiPowerSelection = (s_wifiPowerSelection - 1 + SUBMENU_WIFI_POWER_COUNT) % SUBMENU_WIFI_POWER_COUNT;
+      s_menuOpenMillis = millis();
+      showWifiPowerMenu(s_wifiPowerSelection, true);
+    } else if (s_inAdvancedResetMenu) {
+      if (s_confirmAction != 0) {
+        s_confirmAction = 0;
+        showAdvancedResetMenu(s_advancedSelection, 0, true);
+      } else {
+        s_advancedSelection = (s_advancedSelection - 1 + SUBMENU_ADVANCED_COUNT) % SUBMENU_ADVANCED_COUNT;
+        s_menuOpenMillis = millis();
+        showAdvancedResetMenu(s_advancedSelection, 0, true);
+      }
     } else if (s_inSystemMenu) {
-      s_menuSelection = (s_menuSelection - 1 + 9) % 9;
+      s_menuSelection = (s_menuSelection - 1 + MENU_ITEM_COUNT) % MENU_ITEM_COUNT;
       s_menuOpenMillis = millis();
       Serial.printf("\n>>> [SystemMenu] UP pressed -> Selection: %d\n", s_menuSelection);
       showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
@@ -2932,8 +3137,21 @@ void loop() {
       s_inSystemMenu = true;
       s_menuOpenMillis = millis();
       showSystemMenu(s_menuSelection, false);
+    } else if (s_inWifiPowerMenu) {
+      s_wifiPowerSelection = (s_wifiPowerSelection + 1) % SUBMENU_WIFI_POWER_COUNT;
+      s_menuOpenMillis = millis();
+      showWifiPowerMenu(s_wifiPowerSelection, true);
+    } else if (s_inAdvancedResetMenu) {
+      if (s_confirmAction != 0) {
+        s_confirmAction = 0;
+        showAdvancedResetMenu(s_advancedSelection, 0, true);
+      } else {
+        s_advancedSelection = (s_advancedSelection + 1) % SUBMENU_ADVANCED_COUNT;
+        s_menuOpenMillis = millis();
+        showAdvancedResetMenu(s_advancedSelection, 0, true);
+      }
     } else if (s_inSystemMenu) {
-      s_menuSelection = (s_menuSelection + 1) % 9;
+      s_menuSelection = (s_menuSelection + 1) % MENU_ITEM_COUNT;
       s_menuOpenMillis = millis();
       Serial.printf("\n>>> [SystemMenu] DOWN pressed -> Selection: %d\n", s_menuSelection);
       showSystemMenu(s_menuSelection, true); // Fast Partial Refresh!
@@ -2946,7 +3164,7 @@ void loop() {
 #endif
 
   // Periodic Auto-Sync (Fallback if active in loop)
-  if (!s_imuDebugScreen && !s_inSystemMenu && !s_inStatusScreen && isPaired && (millis() - s_lastSyncMillis > s_syncIntervalMs)) {
+  if (!s_imuDebugScreen && !s_inSystemMenu && !s_inStatusScreen && !s_inWifiPowerMenu && !s_inAdvancedResetMenu && isPaired && (millis() - s_lastSyncMillis > s_syncIntervalMs)) {
     s_lastSyncMillis = millis();
     Serial.println("\n[AutoSync] Periodic sync triggered...");
     fetchAndRender(false);

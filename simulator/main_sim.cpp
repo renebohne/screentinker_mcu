@@ -254,6 +254,36 @@ int main(int argc, char** argv) {
     return 0;
   }
 
+  // Direct Screen Testing via --screen <name>
+  if (!cfg.targetScreen.empty()) {
+    std::cout << "[Simulator] Rendering requested target screen: '" << cfg.targetScreen << "'...\n";
+    if (cfg.targetScreen == "menu" || cfg.targetScreen == "system_menu") {
+      renderSystemMenu(monoBuffer.data(), 0, LANG_EN, 0, 0, false, cfg.batteryPercent, cfg.isCharging, (cfg.powerSource == "usb"), 0, cfg.supportsPartialRefresh);
+    } else if (cfg.targetScreen == "menu_de") {
+      renderSystemMenu(monoBuffer.data(), 0, LANG_DE, 0, 0, false, cfg.batteryPercent, cfg.isCharging, (cfg.powerSource == "usb"), 0, cfg.supportsPartialRefresh);
+    } else if (cfg.targetScreen == "wifi_power" || cfg.targetScreen == "menu_wifi") {
+      renderWifiPowerMenu(monoBuffer.data(), 0, LANG_EN, 0, 5, !cfg.isLedDevice && (cfg.model != "crowpanel_43"), cfg.batteryPercent, cfg.isCharging, (cfg.powerSource == "usb"));
+    } else if (cfg.targetScreen == "wifi_power_de") {
+      renderWifiPowerMenu(monoBuffer.data(), 0, LANG_DE, 0, 5, !cfg.isLedDevice && (cfg.model != "crowpanel_43"), cfg.batteryPercent, cfg.isCharging, (cfg.powerSource == "usb"));
+    } else if (cfg.targetScreen == "advanced" || cfg.targetScreen == "menu_advanced") {
+      renderAdvancedResetMenu(monoBuffer.data(), 0, LANG_EN, 0, cfg.batteryPercent, cfg.isCharging, (cfg.powerSource == "usb"));
+    } else if (cfg.targetScreen == "confirm_unpair") {
+      renderAdvancedResetMenu(monoBuffer.data(), 0, LANG_EN, 1, cfg.batteryPercent, cfg.isCharging, (cfg.powerSource == "usb"));
+    } else if (cfg.targetScreen == "confirm_reset") {
+      renderAdvancedResetMenu(monoBuffer.data(), 1, LANG_EN, 2, cfg.batteryPercent, cfg.isCharging, (cfg.powerSource == "usb"));
+    } else if (cfg.targetScreen == "status") {
+      renderStatusInfoScreen(monoBuffer.data(), "192.168.1.100", "ScreenTinker-WLAN", cfg.wifiRssi, cfg.serverUrl.c_str(), cfg.deviceId.c_str(), cfg.firmwareVersion.c_str(), LANG_EN, cfg.mockTemp, cfg.mockHumidity, cfg.batteryPercent, cfg.isCharging, (cfg.powerSource == "usb"));
+    } else {
+      std::cerr << "[Simulator] Unknown screen: '" << cfg.targetScreen << "'. Rendering root menu.\n";
+      renderSystemMenu(monoBuffer.data(), 0, LANG_EN, 0, 0, false, cfg.batteryPercent, cfg.isCharging, (cfg.powerSource == "usb"), 0, cfg.supportsPartialRefresh);
+    }
+    monoToNativeBuffer(monoBuffer.data(), frameBuffer.data(), cfg.width, cfg.height, cfg.colorMode);
+    display.renderBuffer(frameBuffer.data());
+    display.saveBmp(frameBuffer.data(), cfg.snapshotPath);
+    std::cout << "[Simulator] Snapshot saved to " << cfg.snapshotPath << ". Exiting.\n";
+    return 0;
+  }
+
   // Check if Pairing flow is required
   if (cfg.pairMode || cfg.deviceToken.empty()) {
     if (!runPairingFlow(cfg, http, display, frameBuffer)) {
@@ -688,15 +718,15 @@ int main(int argc, char** argv) {
                 redrawSimMenu(true);
                 wakeRequested = false;
               } else if (row == 2) {
-                simWifiPowerLevel = (simWifiPowerLevel + 1) % 3;
-                std::cout << "[Simulator] Wi-Fi Power Level: " << (int)simWifiPowerLevel << "\n";
-                redrawSimMenu(true);
-                wakeRequested = false;
-              } else if (row == 3) {
                 if (cfg.supportsPartialRefresh) {
                   simRefreshMode = (simRefreshMode == 0) ? 1 : 0;
                   std::cout << "[Simulator] Refresh Mode: " << (simRefreshMode == 0 ? "Smart Partial [6:1]" : "Always Full") << "\n";
                 }
+                redrawSimMenu(true);
+                wakeRequested = false;
+              } else if (row == 3) {
+                simWifiPowerLevel = (simWifiPowerLevel + 1) % 3;
+                std::cout << "[Simulator] Wi-Fi & Power toggled. Power Level: " << (int)simWifiPowerLevel << "\n";
                 redrawSimMenu(true);
                 wakeRequested = false;
               } else if (row == 4) {
@@ -705,11 +735,9 @@ int main(int argc, char** argv) {
                 redrawSimMenu(true);
                 wakeRequested = false;
               } else if (row == 5) {
-                std::cout << "[Simulator] Unpairing device...\n";
-                cfg.deviceToken = "";
-                simInMenu = false;
-                cfg.pairMode = true;
-                wakeRequested = true;
+                std::cout << "[Simulator] Advanced & Reset menu selected.\n";
+                redrawSimMenu(true);
+                wakeRequested = false;
               } else if (row == 6) {
                 std::cout << "[Simulator] Powering off device...\n";
                 renderPowerOffScreen(monoBuffer.data(), simLang);
@@ -718,12 +746,6 @@ int main(int argc, char** argv) {
                 running = false;
                 break;
               } else if (row == 7) {
-                std::cout << "[Simulator] Factory Resetting...\n";
-                cfg.deviceToken = "";
-                simInMenu = false;
-                cfg.pairMode = true;
-                wakeRequested = true;
-              } else if (row == 8) {
                 std::cout << "[Simulator] Closing System Menu, resuming normal slideshow.\n";
                 simInMenu = false;
                 wakeRequested = true;

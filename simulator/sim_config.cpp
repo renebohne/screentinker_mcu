@@ -501,6 +501,8 @@ SimConfig SimConfig::load(int argc, char** argv) {
       cfg.matrixWiring = MATRIX_WIRING_SERPENTINE;
     } else if (arg == "--matrix-progressive" || arg == "--matrix-linear") {
       cfg.matrixWiring = MATRIX_WIRING_PROGRESSIVE;
+    } else if ((arg == "--screen" || arg == "-S") && i + 1 < argc) {
+      cfg.targetScreen = argv[++i];
     } else if (arg == "--matrix-axis" && i + 1 < argc) {
       std::string a = argv[++i];
       cfg.matrixAxis = (a == "vertical" || a == "col") ? MATRIX_AXIS_VERTICAL : MATRIX_AXIS_HORIZONTAL;

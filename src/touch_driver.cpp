@@ -4,7 +4,7 @@
 
 // ─── Universal Geometry Hit-Testing ──────────────────────────────────────────
 
-int touch_hit_test_menu(int x, int y, int screen_width, int screen_height) {
+int touch_hit_test_menu_items(int x, int y, int screen_width, int screen_height, int item_count) {
   if (x < 0 || y < 0 || x >= screen_width || y >= screen_height) {
     return -1;
   }
@@ -17,9 +17,9 @@ int touch_hit_test_menu(int x, int y, int screen_width, int screen_height) {
   const int pitch      = isCompact ? MENU_COMPACT_ITEM_PITCH : MENU_ITEM_PITCH;
 
   // Footer Banner: y >= (screen_height - footerH)
-  // Tapping anywhere in the footer banner corresponds to item 8 (BACK / CLOSE)
+  // Tapping anywhere in the footer banner corresponds to the last item (BACK / CLOSE)
   if (y >= screen_height - footerH) {
-    return 8;
+    return (item_count > 0) ? (item_count - 1) : -1;
   }
 
   const int itemW = screen_width - (2 * marginX);
@@ -36,11 +36,15 @@ int touch_hit_test_menu(int x, int y, int screen_width, int screen_height) {
   int offset = (y - startY) % pitch;
 
   // offset <= itemH allows an intentional 1px touch tolerance at row bottom border
-  if (row >= 0 && row < MENU_ITEM_COUNT && offset <= itemH) {
+  if (row >= 0 && row < item_count && offset <= itemH) {
     return row;
   }
 
   return -1;
+}
+
+int touch_hit_test_menu(int x, int y, int screen_width, int screen_height) {
+  return touch_hit_test_menu_items(x, y, screen_width, screen_height, MENU_ITEM_COUNT);
 }
 
 bool touch_hit_test_status(int x, int y, int screen_width, int screen_height) {

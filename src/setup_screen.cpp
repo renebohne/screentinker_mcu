@@ -636,46 +636,44 @@ void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t
   char refreshEN[64];
   if (supportsPartial) {
     if (refreshMode == 0) {
-      snprintf(refreshDE, sizeof(refreshDE), "4. BILD-REFRESH: PARTIELL [6:1]");
-      snprintf(refreshEN, sizeof(refreshEN), "4. REFRESH MODE: SMART PARTIAL [6:1]");
+      snprintf(refreshDE, sizeof(refreshDE), "3. BILD-REFRESH: PARTIELL [6:1]");
+      snprintf(refreshEN, sizeof(refreshEN), "3. REFRESH MODE: SMART PARTIAL [6:1]");
     } else {
-      snprintf(refreshDE, sizeof(refreshDE), "4. BILD-REFRESH: IMMER VOLL");
-      snprintf(refreshEN, sizeof(refreshEN), "4. REFRESH MODE: ALWAYS FULL");
+      snprintf(refreshDE, sizeof(refreshDE), "3. BILD-REFRESH: IMMER VOLL");
+      snprintf(refreshEN, sizeof(refreshEN), "3. REFRESH MODE: ALWAYS FULL");
     }
   } else {
-    snprintf(refreshDE, sizeof(refreshDE), "4. BILD-REFRESH: NUR VOLL (SPECTRA 6)");
-    snprintf(refreshEN, sizeof(refreshEN), "4. REFRESH MODE: FULL ONLY (SPECTRA 6)");
+    snprintf(refreshDE, sizeof(refreshDE), "3. BILD-REFRESH: NUR VOLL (SPECTRA 6)");
+    snprintf(refreshEN, sizeof(refreshEN), "3. REFRESH MODE: FULL ONLY (SPECTRA 6)");
   }
 
-  const char* menuItemsDE[9] = {
+  const char* menuItemsDE[MENU_ITEM_COUNT] = {
     "1. STATUS & INFO",
     orientDE,
-    wifiPwrDE,
     refreshDE,
+    "4. WLAN & ENERGIE ->",
     "5. SPRACHE: DEUTSCH [DE]",
-    "6. GERAET ENTKOPPELN (UNPAIR)",
+    "6. ERWEITERT & RESET ->",
     "7. AUSSCHALTEN / STANDBY",
-    "8. WERKSEINSTELLUNGEN (RESET)",
-    "9. ZURUECK / SCHLIESSEN"
+    "8. ZURUECK / SCHLIESSEN"
   };
 
-  const char* menuItemsEN[9] = {
+  const char* menuItemsEN[MENU_ITEM_COUNT] = {
     "1. STATUS & INFO",
     orientEN,
-    wifiPwrEN,
     refreshEN,
+    "4. WI-FI & POWER ->",
     "5. LANGUAGE: ENGLISH [EN]",
-    "6. UNPAIR DEVICE",
+    "6. ADVANCED & RESET ->",
     "7. POWER OFF / STANDBY",
-    "8. FACTORY RESET",
-    "9. BACK / CLOSE"
+    "8. BACK / CLOSE"
   };
 
   const char** menuItems = (lang == LANG_DE) ? menuItemsDE : menuItemsEN;
 
   for (int i = 0; i < MENU_ITEM_COUNT; i++) {
     int y = startY + i * itemPitch;
-    int textYOffset = isCompact ? 6 : 9;
+    int textYOffset = isCompact ? 6 : 11;
     int textScale   = isCompact ? 1 : 2;
     int textXOffset = isCompact ? 10 : 20;
 
@@ -710,6 +708,331 @@ void renderSystemMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t
     } else {
       gfx_draw_string(buffer, 30, footerY + 18, "[ UP / DOWN ]: Navigate", 1, 2);
       gfx_draw_string(buffer, 520, footerY + 18, "[ OK ]: Select", 1, 2);
+    }
+  }
+}
+
+// ─── 3b. Wi-Fi & Power Subpage ───────────────────────────────────────────────
+void renderWifiPowerMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t wifiTxLevel, uint8_t battCutoffPct, bool hasBattery, int batteryPct, bool isCharging, bool isUsbPower) {
+  gfx_fill(buffer, 1);
+
+  const bool isCompact = (s_epd_height < 400);
+  int headerH = isCompact ? MENU_COMPACT_HEADER_HEIGHT : 54;
+  int startY = isCompact ? MENU_COMPACT_START_Y : MENU_START_Y;
+  int itemH = isCompact ? MENU_COMPACT_ITEM_HEIGHT : MENU_ITEM_HEIGHT;
+  int itemPitch = isCompact ? MENU_COMPACT_ITEM_PITCH : MENU_ITEM_PITCH;
+  int itemW = s_epd_width - (2 * (isCompact ? MENU_COMPACT_ITEM_MARGIN_X : MENU_ITEM_MARGIN_X));
+  int itemX = isCompact ? MENU_COMPACT_ITEM_MARGIN_X : MENU_ITEM_MARGIN_X;
+  int footerH = isCompact ? MENU_COMPACT_FOOTER_HEIGHT : MENU_FOOTER_HEIGHT;
+
+  // Header Banner
+  gfx_fill_rect(buffer, 0, 0, s_epd_width, headerH, 0);
+  if (isCompact) {
+    gfx_draw_screentinker_logo(buffer, 8, 4, 1);
+    gfx_draw_string(buffer, 36, 10, (lang == LANG_DE) ? "ScreenTinker — WLAN & Energie" : "ScreenTinker — Wi-Fi & Power", 1, 1);
+  } else {
+    gfx_draw_screentinker_logo(buffer, 20, 12, 1);
+    int titleScale = (batteryPct >= 0 && s_epd_width <= 800) ? 2 : 3;
+    int titleY = (titleScale == 2) ? 19 : 16;
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, 56, titleY, "ScreenTinker — WLAN & Energie", 1, titleScale);
+    } else {
+      gfx_draw_string(buffer, 56, titleY, "ScreenTinker — Wi-Fi & Power", 1, titleScale);
+    }
+  }
+
+  if (batteryPct >= 0) {
+    char battBadge[32];
+    if (isCharging) {
+      snprintf(battBadge, sizeof(battBadge), "[ %d%% CHG ]", batteryPct);
+    } else if (isUsbPower) {
+      snprintf(battBadge, sizeof(battBadge), "[ %d%% USB ]", batteryPct);
+    } else {
+      snprintf(battBadge, sizeof(battBadge), "[ %d%% ]", batteryPct);
+    }
+    int bLen = strlen(battBadge);
+    gfx_draw_string(buffer, s_epd_width - (bLen * 16) - 20, 18, battBadge, 1, 2);
+  }
+
+  char wifiPwrDE[64];
+  char wifiPwrEN[64];
+  if (wifiTxLevel == 1) {
+    snprintf(wifiPwrDE, sizeof(wifiPwrDE), "1. WLAN-LEISTUNG: MITTEL [15 dBm]");
+    snprintf(wifiPwrEN, sizeof(wifiPwrEN), "1. WI-FI POWER: MED [15 dBm]");
+  } else if (wifiTxLevel == 2) {
+    snprintf(wifiPwrDE, sizeof(wifiPwrDE), "1. WLAN-LEISTUNG: NIEDRIG [11 dBm]");
+    snprintf(wifiPwrEN, sizeof(wifiPwrEN), "1. WI-FI POWER: LOW [11 dBm]");
+  } else {
+    snprintf(wifiPwrDE, sizeof(wifiPwrDE), "1. WLAN-LEISTUNG: MAX [19.5 dBm]");
+    snprintf(wifiPwrEN, sizeof(wifiPwrEN), "1. WI-FI POWER: MAX [19.5 dBm]");
+  }
+
+  char battDE[64];
+  char battEN[64];
+  if (hasBattery) {
+    const char* labelDE = (battCutoffPct <= 3) ? "MIN" : (battCutoffPct <= 5) ? "STANDARD" : (battCutoffPct <= 10) ? "SCHONEND" : "MAX SCHUTZ";
+    const char* labelEN = (battCutoffPct <= 3) ? "MIN" : (battCutoffPct <= 5) ? "DEFAULT" : (battCutoffPct <= 10) ? "SAFE" : "MAX LIFE";
+    snprintf(battDE, sizeof(battDE), "2. AKKU-SHUTDOWN: %d%% [%s]", battCutoffPct, labelDE);
+    snprintf(battEN, sizeof(battEN), "2. BATTERY CUTOFF: %d%% [%s]", battCutoffPct, labelEN);
+  } else {
+    snprintf(battDE, sizeof(battDE), "2. AKKU-SHUTDOWN: N/A (USB-BETRIEB)");
+    snprintf(battEN, sizeof(battEN), "2. BATTERY CUTOFF: N/A (USB POWER)");
+  }
+
+  const char* itemsDE[SUBMENU_WIFI_POWER_COUNT] = {
+    wifiPwrDE,
+    battDE,
+    "3. ZURUECK ZUM HAUPTMENUE"
+  };
+
+  const char* itemsEN[SUBMENU_WIFI_POWER_COUNT] = {
+    wifiPwrEN,
+    battEN,
+    "3. BACK TO MAIN MENU"
+  };
+
+  const char** items = (lang == LANG_DE) ? itemsDE : itemsEN;
+
+  for (int i = 0; i < SUBMENU_WIFI_POWER_COUNT; i++) {
+    int y = startY + i * itemPitch;
+    int textYOffset = isCompact ? 6 : 11;
+    int textScale   = isCompact ? 1 : 2;
+    int textXOffset = isCompact ? 10 : 20;
+
+    if (i == selectedIndex) {
+      gfx_fill_rect(buffer, itemX, y, itemW, itemH, 0);
+      char selText[64];
+      snprintf(selText, sizeof(selText), "> %s", items[i]);
+      gfx_draw_string(buffer, itemX + textXOffset, y + textYOffset, selText, 1, textScale);
+    } else {
+      gfx_draw_rect(buffer, itemX, y, itemW, itemH, 0);
+      char normText[64];
+      snprintf(normText, sizeof(normText), "  %s", items[i]);
+      gfx_draw_string(buffer, itemX + textXOffset, y + textYOffset, normText, 0, textScale);
+    }
+  }
+
+  // Explanatory info box below item 2
+  int infoY = startY + (SUBMENU_WIFI_POWER_COUNT * itemPitch) + (isCompact ? 6 : 16);
+  int infoH = s_epd_height - footerH - infoY - (isCompact ? 6 : 16);
+  if (infoH >= (isCompact ? 40 : 80)) {
+    gfx_draw_rect(buffer, itemX, infoY, itemW, infoH, 0);
+    int padX = isCompact ? 10 : 20;
+    int lineY = infoY + (isCompact ? 8 : 16);
+    int linePitch = isCompact ? 12 : 24;
+    int scale = isCompact ? 1 : 2;
+
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, itemX + padX, lineY, "Hinweise:", 0, scale);
+      lineY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, lineY, "- Niedrige WLAN-Leistung spart Akkuenergie.", 0, scale);
+      lineY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, lineY, "- Akku-Shutdown verhindert Tiefentladung der", 0, scale);
+      lineY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, lineY, "  LiPo-Zelle und schaltet rechtzeitig ab.", 0, scale);
+    } else {
+      gfx_draw_string(buffer, itemX + padX, lineY, "Information:", 0, scale);
+      lineY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, lineY, "- Lower Wi-Fi power extends battery runtime.", 0, scale);
+      lineY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, lineY, "- Battery Cutoff prevents deep discharge and", 0, scale);
+      lineY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, lineY, "  safely powers off before voltage sag.", 0, scale);
+    }
+  }
+
+  // Footer Navigation Hint
+  const int footerY = s_epd_height - footerH;
+  gfx_fill_rect(buffer, 0, footerY, s_epd_width, footerH, 0);
+  if (isCompact) {
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, 16, footerY + 8, "[ Antippen zum Auswaehlen ]", 1, 1);
+      gfx_draw_string(buffer, s_epd_width - 130, footerY + 8, "[ OK ]: Menue", 1, 1);
+    } else {
+      gfx_draw_string(buffer, 16, footerY + 8, "[ Tap item to select ]", 1, 1);
+      gfx_draw_string(buffer, s_epd_width - 130, footerY + 8, "[ OK ]: Menu", 1, 1);
+    }
+  } else {
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, 30, footerY + 18, "[ UP / DOWN ]: Navigieren", 1, 2);
+      gfx_draw_string(buffer, 500, footerY + 18, "[ OK ]: Umschalten", 1, 2);
+    } else {
+      gfx_draw_string(buffer, 30, footerY + 18, "[ UP / DOWN ]: Navigate", 1, 2);
+      gfx_draw_string(buffer, 520, footerY + 18, "[ OK ]: Toggle", 1, 2);
+    }
+  }
+}
+
+// ─── 3c. Advanced & Reset Subpage ───────────────────────────────────────────
+void renderAdvancedResetMenu(uint8_t* buffer, int selectedIndex, Language lang, uint8_t confirmAction, int batteryPct, bool isCharging, bool isUsbPower) {
+  gfx_fill(buffer, 1);
+
+  const bool isCompact = (s_epd_height < 400);
+  int headerH = isCompact ? MENU_COMPACT_HEADER_HEIGHT : 54;
+  int startY = isCompact ? MENU_COMPACT_START_Y : MENU_START_Y;
+  int itemH = isCompact ? MENU_COMPACT_ITEM_HEIGHT : MENU_ITEM_HEIGHT;
+  int itemPitch = isCompact ? MENU_COMPACT_ITEM_PITCH : MENU_ITEM_PITCH;
+  int itemW = s_epd_width - (2 * (isCompact ? MENU_COMPACT_ITEM_MARGIN_X : MENU_ITEM_MARGIN_X));
+  int itemX = isCompact ? MENU_COMPACT_ITEM_MARGIN_X : MENU_ITEM_MARGIN_X;
+  int footerH = isCompact ? MENU_COMPACT_FOOTER_HEIGHT : MENU_FOOTER_HEIGHT;
+
+  // Header Banner
+  gfx_fill_rect(buffer, 0, 0, s_epd_width, headerH, 0);
+  if (isCompact) {
+    gfx_draw_screentinker_logo(buffer, 8, 4, 1);
+    gfx_draw_string(buffer, 36, 10, (lang == LANG_DE) ? "ScreenTinker — Erweitert & Reset" : "ScreenTinker — Advanced & Reset", 1, 1);
+  } else {
+    gfx_draw_screentinker_logo(buffer, 20, 12, 1);
+    int titleScale = (batteryPct >= 0 && s_epd_width <= 800) ? 2 : 3;
+    int titleY = (titleScale == 2) ? 19 : 16;
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, 56, titleY, "ScreenTinker — Erweitert & Reset", 1, titleScale);
+    } else {
+      gfx_draw_string(buffer, 56, titleY, "ScreenTinker — Advanced & Reset", 1, titleScale);
+    }
+  }
+
+  if (batteryPct >= 0) {
+    char battBadge[32];
+    if (isCharging) {
+      snprintf(battBadge, sizeof(battBadge), "[ %d%% CHG ]", batteryPct);
+    } else if (isUsbPower) {
+      snprintf(battBadge, sizeof(battBadge), "[ %d%% USB ]", batteryPct);
+    } else {
+      snprintf(battBadge, sizeof(battBadge), "[ %d%% ]", batteryPct);
+    }
+    int bLen = strlen(battBadge);
+    gfx_draw_string(buffer, s_epd_width - (bLen * 16) - 20, 18, battBadge, 1, 2);
+  }
+
+  const char* itemsDE[SUBMENU_ADVANCED_COUNT] = {
+    "1. GERAET ENTKOPPELN (UNPAIR)",
+    "2. WERKSEINSTELLUNGEN (RESET)",
+    "3. ZURUECK ZUM HAUPTMENUE"
+  };
+
+  const char* itemsEN[SUBMENU_ADVANCED_COUNT] = {
+    "1. UNPAIR DEVICE",
+    "2. FACTORY RESET",
+    "3. BACK TO MAIN MENU"
+  };
+
+  const char** items = (lang == LANG_DE) ? itemsDE : itemsEN;
+
+  for (int i = 0; i < SUBMENU_ADVANCED_COUNT; i++) {
+    int y = startY + i * itemPitch;
+    int textYOffset = isCompact ? 6 : 11;
+    int textScale   = isCompact ? 1 : 2;
+    int textXOffset = isCompact ? 10 : 20;
+
+    if (i == selectedIndex) {
+      gfx_fill_rect(buffer, itemX, y, itemW, itemH, 0);
+      char selText[64];
+      snprintf(selText, sizeof(selText), "> %s", items[i]);
+      gfx_draw_string(buffer, itemX + textXOffset, y + textYOffset, selText, 1, textScale);
+    } else {
+      gfx_draw_rect(buffer, itemX, y, itemW, itemH, 0);
+      char normText[64];
+      snprintf(normText, sizeof(normText), "  %s", items[i]);
+      gfx_draw_string(buffer, itemX + textXOffset, y + textYOffset, normText, 0, textScale);
+    }
+  }
+
+  // Info / Confirmation Box below item 2
+  int boxY = startY + (SUBMENU_ADVANCED_COUNT * itemPitch) + (isCompact ? 6 : 16);
+  int boxH = s_epd_height - footerH - boxY - (isCompact ? 6 : 16);
+
+  if (confirmAction == 1) {
+    // Confirm Unpair Warning
+    gfx_fill_rect(buffer, itemX, boxY, itemW, boxH, 0);
+    int scale = isCompact ? 1 : 2;
+    int linePitch = isCompact ? 12 : 24;
+    int padX = isCompact ? 10 : 20;
+    int curY = boxY + (isCompact ? 8 : 16);
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, itemX + padX, curY, "! ACHTUNG: Geraet entkoppeln? !", 1, scale);
+      curY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, curY, "Die Server-Verbindung wird getrennt.", 1, scale);
+      curY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, curY, "[ OK ]: Bestaetigen   [ BACK ]: Abbrechen", 1, scale);
+    } else {
+      gfx_draw_string(buffer, itemX + padX, curY, "! WARNING: Unpair this device? !", 1, scale);
+      curY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, curY, "Server connection will be removed.", 1, scale);
+      curY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, curY, "[ OK ]: Confirm        [ BACK ]: Cancel", 1, scale);
+    }
+  } else if (confirmAction == 2) {
+    // Confirm Factory Reset Warning
+    gfx_fill_rect(buffer, itemX, boxY, itemW, boxH, 0);
+    int scale = isCompact ? 1 : 2;
+    int linePitch = isCompact ? 12 : 24;
+    int padX = isCompact ? 10 : 20;
+    int curY = boxY + (isCompact ? 8 : 16);
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, itemX + padX, curY, "! WARNUNG: Alle Daten loeschen? !", 1, scale);
+      curY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, curY, "WLAN und Einstellungen werden geloescht!", 1, scale);
+      curY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, curY, "[ OK ]: Reset         [ BACK ]: Abbrechen", 1, scale);
+    } else {
+      gfx_draw_string(buffer, itemX + padX, curY, "! WARNING: Factory Reset? !", 1, scale);
+      curY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, curY, "All stored settings will be erased!", 1, scale);
+      curY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, curY, "[ OK ]: Reset          [ BACK ]: Cancel", 1, scale);
+    }
+  } else if (boxH >= (isCompact ? 40 : 80)) {
+    // Standard Advisory
+    gfx_draw_rect(buffer, itemX, boxY, itemW, boxH, 0);
+    int padX = isCompact ? 10 : 20;
+    int lineY = boxY + (isCompact ? 8 : 16);
+    int linePitch = isCompact ? 12 : 24;
+    int scale = isCompact ? 1 : 2;
+
+    if (lang == LANG_DE) {
+      gfx_draw_string(buffer, itemX + padX, lineY, "Sicherheitshinweise:", 0, scale);
+      lineY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, lineY, "- Entkoppeln: Erzeugt neuen Kopplungscode.", 0, scale);
+      lineY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, lineY, "- Reset: Loescht alle NVS-Daten vollstaendig.", 0, scale);
+    } else {
+      gfx_draw_string(buffer, itemX + padX, lineY, "Safety Notice:", 0, scale);
+      lineY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, lineY, "- Unpair: Clears server link for fresh code.", 0, scale);
+      lineY += linePitch;
+      gfx_draw_string(buffer, itemX + padX, lineY, "- Reset: Completely erases all NVS settings.", 0, scale);
+    }
+  }
+
+  // Footer Navigation Hint
+  const int footerY = s_epd_height - footerH;
+  gfx_fill_rect(buffer, 0, footerY, s_epd_width, footerH, 0);
+  if (isCompact) {
+    if (confirmAction != 0) {
+      gfx_draw_string(buffer, 16, footerY + 8, (lang == LANG_DE) ? "[ OK ]: Bestaetigen" : "[ OK ]: Confirm", 1, 1);
+      gfx_draw_string(buffer, s_epd_width - 130, footerY + 8, (lang == LANG_DE) ? "[ Footer ]: Abbrechen" : "[ Footer ]: Cancel", 1, 1);
+    } else {
+      gfx_draw_string(buffer, 16, footerY + 8, (lang == LANG_DE) ? "[ Antippen zum Auswaehlen ]" : "[ Tap item to select ]", 1, 1);
+      gfx_draw_string(buffer, s_epd_width - 130, footerY + 8, (lang == LANG_DE) ? "[ OK ]: Menue" : "[ OK ]: Menu", 1, 1);
+    }
+  } else {
+    if (confirmAction != 0) {
+      if (lang == LANG_DE) {
+        gfx_draw_string(buffer, 30, footerY + 18, "[ OK ]: Aktion Bestaetigen", 1, 2);
+        gfx_draw_string(buffer, 500, footerY + 18, "[ Footer ]: Abbrechen", 1, 2);
+      } else {
+        gfx_draw_string(buffer, 30, footerY + 18, "[ OK ]: Confirm Action", 1, 2);
+        gfx_draw_string(buffer, 520, footerY + 18, "[ Footer ]: Cancel", 1, 2);
+      }
+    } else {
+      if (lang == LANG_DE) {
+        gfx_draw_string(buffer, 30, footerY + 18, "[ UP / DOWN ]: Navigieren", 1, 2);
+        gfx_draw_string(buffer, 500, footerY + 18, "[ OK ]: Auswaehlen", 1, 2);
+      } else {
+        gfx_draw_string(buffer, 30, footerY + 18, "[ UP / DOWN ]: Navigate", 1, 2);
+        gfx_draw_string(buffer, 520, footerY + 18, "[ OK ]: Select", 1, 2);
+      }
     }
   }
 }

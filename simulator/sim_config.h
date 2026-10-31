@@ -62,6 +62,9 @@ struct SimConfig {
   float mockTemp = 21.5f;
   float mockHumidity = 45.0f;
 
+  // Dedicated Screen Rendering (Bypasses network sync for UI testing)
+  std::string targetScreen = "";
+
   std::string colorModeString() const;
   size_t bufferSize() const;
   bool setModel(const std::string& modelName);

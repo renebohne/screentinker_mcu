@@ -28,8 +28,9 @@ void touch_sleep();
 // Wake touch digitizer from sleep mode.
 void touch_wake();
 
-// Hit-test calculation for the 9-item System Menu.
-// Returns menu index 0..8 if hit, or -1 if no item tapped.
+// Hit-test calculation for the System Menu and submenus.
+// Returns menu index 0..(item_count-1) if hit, or -1 if no item tapped.
+int touch_hit_test_menu_items(int x, int y, int screen_width, int screen_height, int item_count);
 int touch_hit_test_menu(int x, int y, int screen_width, int screen_height);
 
 // Hit-test calculation for Status & Info screen.

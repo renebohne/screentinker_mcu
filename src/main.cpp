@@ -714,6 +714,14 @@ static const uint8_t s_partialRefreshLimit = 6;
 
 static uint8_t s_criticalBatteryPct = CRITICAL_BATTERY_SHUTDOWN_PCT;
 
+#if defined(DEVICE_IS_LED_STRIP) || defined(DEVICE_IS_RGB_LCD)
+const bool DEFAULT_WIFI_ALWAYS_ON = true;
+#else
+const bool DEFAULT_WIFI_ALWAYS_ON = false;
+#endif
+
+static bool s_wifiAlwaysOn = DEFAULT_WIFI_ALWAYS_ON;
+
 static bool s_inSystemMenu = false;
 static bool s_inStatusScreen = false;
 static bool s_inWifiPowerMenu = false;
@@ -895,12 +903,14 @@ static uint32_t s_nextSyncMillis = 0;
 
 void scheduleNextSync(uint32_t sleepSeconds) {
 #if defined(DEVICE_IS_LED_STRIP) || defined(DEVICE_IS_RGB_LCD)
-  Serial.printf("\n[Power] Mains/Continuous Mode (LED/LCD). Staying awake with active Wi-Fi. Next sync in %u s.\n", sleepSeconds);
+  Serial.printf("\n[Power] Mains/Continuous Mode (LED/LCD). Staying awake (Wi-Fi %s). Next sync in %u s.\n",
+                s_wifiAlwaysOn ? "Always-On" : "Power-Save", sleepSeconds);
   s_nextSyncMillis = millis() + (sleepSeconds * 1000UL);
   return;
 #else
-  if (isUsbPowerConnected()) {
-    Serial.printf("\n[Power] USB Power Supply Detected (Mains Mode). Staying awake with active Wi-Fi. Next sync in %u s.\n", sleepSeconds);
+  if (isUsbPowerConnected() || s_wifiAlwaysOn) {
+    Serial.printf("\n[Power] Mains/Always-On Mode. Staying awake (Wi-Fi %s). Next sync in %u s.\n",
+                  s_wifiAlwaysOn ? "Always-On" : "Power-Save", sleepSeconds);
     s_nextSyncMillis = millis() + (sleepSeconds * 1000UL);
     return;
   }
@@ -1056,6 +1066,7 @@ void loadConfigFromNVS() {
   if (s_criticalBatteryPct != 3 && s_criticalBatteryPct != 5 && s_criticalBatteryPct != 10 && s_criticalBatteryPct != 15) {
     s_criticalBatteryPct = CRITICAL_BATTERY_SHUTDOWN_PCT;
   }
+  s_wifiAlwaysOn = s_prefs.getBool("wifi_always_on", DEFAULT_WIFI_ALWAYS_ON);
   s_prefs.end();
 
   Serial.println("[Config] Loaded configuration from NVS/Defaults:");
@@ -1064,6 +1075,7 @@ void loadConfigFromNVS() {
   Serial.printf("  Device ID:   %s\n", g_deviceId.c_str());
   Serial.printf("  Token set:   %s\n", g_deviceToken.length() > 0 ? "YES" : "NO");
   Serial.printf("  Multi-Zone:  %s\n", g_multiZone ? "ENABLED" : "DISABLED");
+  Serial.printf("  Wi-Fi Mode:  %s\n", s_wifiAlwaysOn ? "Always-On (Fast Sync)" : "Power-Save (Disconnect when idle)");
   Serial.printf("  Batt Cutoff: %d%%\n", s_criticalBatteryPct);
   Serial.printf("  Language:    %s\n", (s_currentLang == LANG_DE) ? "Deutsch (DE)" : "English (EN)");
   Serial.printf("  Wi-Fi TX:    %s\n", (s_wifiTxPowerLevel == 1) ? "15.0 dBm" : (s_wifiTxPowerLevel == 2) ? "11.0 dBm" : "19.5 dBm (MAX)");
@@ -1358,6 +1370,7 @@ bool connectWiFi(uint32_t timeoutMs = 15000) {
 }
 
 void disconnectWiFiIfPowerSave() {
+  if (s_wifiAlwaysOn) return;
   if (ENABLE_WIFI_POWER_SAVE) {
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
@@ -2004,14 +2017,29 @@ void processSerialLine(const String& line) {
   DeserializationError err = deserializeJson(doc, line);
   if (err) {
     if (line == "status") {
-      Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"ssid\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"multi_zone\":%s,\"psram_free\":%u,\"rssi\":%d}\n",
+      Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"ssid\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"multi_zone\":%s,\"wifi_always_on\":%s,\"psram_free\":%u,\"rssi\":%d}\n",
                     FIRMWARE_VERSION,
                     WiFi.localIP().toString().c_str(), g_wifiSsid.c_str(),
                     WiFi.status() == WL_CONNECTED ? "true" : "false",
                     g_deviceId.c_str(),
                     g_multiZone ? "true" : "false",
+                    s_wifiAlwaysOn ? "true" : "false",
                     psramFound() ? ESP.getFreePsram() : 0,
                     WiFi.RSSI());
+    } else if (line == "wifi_always_on") {
+      s_wifiAlwaysOn = true;
+      s_prefs.begin("screentinker", false);
+      s_prefs.putBool("wifi_always_on", s_wifiAlwaysOn);
+      s_prefs.end();
+      if (WiFi.status() != WL_CONNECTED) connectWiFi();
+      Serial.println("{\"status\":\"ok\",\"v\":1,\"wifi_always_on\":true}");
+    } else if (line == "wifi_powersave") {
+      s_wifiAlwaysOn = false;
+      s_prefs.begin("screentinker", false);
+      s_prefs.putBool("wifi_always_on", s_wifiAlwaysOn);
+      s_prefs.end();
+      disconnectWiFiIfPowerSave();
+      Serial.println("{\"status\":\"ok\",\"v\":1,\"wifi_always_on\":false}");
     } else if (line == "reset") {
       Serial.println("{\"status\":\"ok\",\"v\":1,\"message\":\"NVS wiped. Restarting device.\"}");
       delay(500);
@@ -2167,6 +2195,12 @@ void processSerialLine(const String& line) {
     String devId   = doc["device_id"] | "";
     String token   = doc["device_token"] | "";
     bool multiZone = !doc["multi_zone"].isNull() ? doc["multi_zone"].as<bool>() : (!doc["multizone"].isNull() ? doc["multizone"].as<bool>() : g_multiZone);
+    if (!doc["wifi_always_on"].isNull()) {
+      s_wifiAlwaysOn = doc["wifi_always_on"].as<bool>();
+      s_prefs.begin("screentinker", false);
+      s_prefs.putBool("wifi_always_on", s_wifiAlwaysOn);
+      s_prefs.end();
+    }
 
     saveConfigToNVS(ssid, pass, server, devId, token, multiZone);
     Serial.println("{\"status\":\"ok\",\"v\":1,\"message\":\"Configuration saved.\"}");
@@ -2179,7 +2213,7 @@ void processSerialLine(const String& line) {
   } else if (strcmp(cmd, "status") == 0) {
     float curT = -999.0f, curH = -1.0f;
     bool hasEnv = sht40_read(&curT, &curH);
-    Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"connected\":%s,\"ssid\":\"%s\",\"antenna\":\"%s\",\"device_id\":\"%s\",\"multi_zone\":%s,\"orient_mode\":%d,\"active_orient\":%d,\"temp_c\":%s,\"humidity\":%s,\"psram_free\":%u,\"rssi\":%d}\n",
+    Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"connected\":%s,\"ssid\":\"%s\",\"antenna\":\"%s\",\"device_id\":\"%s\",\"multi_zone\":%s,\"wifi_always_on\":%s,\"orient_mode\":%d,\"active_orient\":%d,\"temp_c\":%s,\"humidity\":%s,\"psram_free\":%u,\"rssi\":%d}\n",
                   FIRMWARE_VERSION,
                   WiFi.localIP().toString().c_str(),
                   WiFi.status() == WL_CONNECTED ? "true" : "false",
@@ -2191,6 +2225,7 @@ void processSerialLine(const String& line) {
 #endif
                   g_deviceId.c_str(),
                   g_multiZone ? "true" : "false",
+                  s_wifiAlwaysOn ? "true" : "false",
                   (int)s_orientationMode,
                   s_activeOrientation,
                   hasEnv ? String(curT, 1).c_str() : "null",
@@ -2318,6 +2353,23 @@ void processSerialLine(const String& line) {
     }
     Serial.println("]}");
     WiFi.scanDelete();
+  } else if (strcmp(cmd, "wifi_always_on") == 0 || strcmp(cmd, "wifi_mode") == 0 || strcmp(cmd, "powersave") == 0) {
+    if (!doc["enabled"].isNull()) {
+      s_wifiAlwaysOn = doc["enabled"].as<bool>();
+    } else if (!doc["always_on"].isNull()) {
+      s_wifiAlwaysOn = doc["always_on"].as<bool>();
+    } else {
+      s_wifiAlwaysOn = !s_wifiAlwaysOn;
+    }
+    s_prefs.begin("screentinker", false);
+    s_prefs.putBool("wifi_always_on", s_wifiAlwaysOn);
+    s_prefs.end();
+    if (!s_wifiAlwaysOn) {
+      disconnectWiFiIfPowerSave();
+    } else if (WiFi.status() != WL_CONNECTED) {
+      connectWiFi();
+    }
+    Serial.printf("{\"status\":\"ok\",\"v\":1,\"wifi_always_on\":%s}\n", s_wifiAlwaysOn ? "true" : "false");
   } else if (strcmp(cmd, "antenna") == 0) {
 #if defined(PIN_WIFI_ANT_CONFIG)
     if (!doc["mode"].isNull()) {
@@ -2612,8 +2664,19 @@ static void handleWifiPowerAction(int selection) {
                   s_wifiTxPowerLevel, (s_wifiTxPowerLevel == 1) ? "15 dBm" : (s_wifiTxPowerLevel == 2) ? "11 dBm" : "19.5 dBm");
     showWifiPowerMenu(0, true);
   } else if (selection == 1) {
+#if defined(DEVICE_IS_LED_STRIP) || defined(DEVICE_IS_RGB_LCD)
+    s_wifiAlwaysOn = !s_wifiAlwaysOn;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putBool("wifi_always_on", s_wifiAlwaysOn);
+    s_prefs.end();
+    if (!s_wifiAlwaysOn) {
+      disconnectWiFiIfPowerSave();
+    } else if (WiFi.status() != WL_CONNECTED) {
+      connectWiFi();
+    }
+    Serial.printf("\n>>> [WifiPowerMenu] Wi-Fi Mode switched to: %s\n", s_wifiAlwaysOn ? "Always-On" : "Power-Save");
+#else
     // 1: Battery Cutoff Toggle (5% -> 10% -> 15% -> 3% -> 5%)
-#if !defined(DEVICE_IS_LED_STRIP) && !defined(DEVICE_IS_RGB_LCD)
     if (s_criticalBatteryPct == 3) s_criticalBatteryPct = 5;
     else if (s_criticalBatteryPct == 5) s_criticalBatteryPct = 10;
     else if (s_criticalBatteryPct == 10) s_criticalBatteryPct = 15;

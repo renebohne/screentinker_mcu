@@ -12,6 +12,9 @@ bool led_driver_init(uint16_t numLeds = 5);
 // Set overall strip brightness (0-255)
 void led_driver_set_brightness(uint8_t brightness);
 
+// Get overall strip brightness (0-255)
+uint8_t led_driver_get_brightness();
+
 // Reconfigure the number of LEDs if changed by server profile
 void led_driver_set_count(uint16_t numLeds);
 

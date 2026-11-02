@@ -2009,168 +2009,614 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   disconnectWiFiIfPowerSave();
 }
 
-// ─── Serial Command Protocol (WebSerial / Web-Flasher) ────────────────────────
+// ─── Human-Friendly Serial Command Line Interface (CLI) ──────────────────────
+static String getCliArg(const String& str, int index) {
+  int start = 0;
+  int len = str.length();
+  for (int i = 0; i <= index; i++) {
+    while (start < len && str.charAt(start) == ' ') start++;
+    if (start >= len) return "";
+    int end = str.indexOf(' ', start);
+    if (end < 0) end = len;
+    if (i == index) return str.substring(start, end);
+    start = end + 1;
+  }
+  return "";
+}
+
+static void printCliHelp() {
+  Serial.println("\n=================================================================");
+  Serial.printf ("  ScreenTinker MCU Serial Command Line Interface (CLI) v%s\n", FIRMWARE_VERSION);
+  Serial.printf ("  Target Profile: %s (%s)\n", DEVICE_PROFILE_NAME, DEVICE_MODEL_NAME);
+  Serial.println("=================================================================");
+  Serial.println("Commands:");
+  Serial.println("  help, ?                    Show this command reference");
+  Serial.println("  status                     Show device status summary (JSON telemetry)");
+  Serial.println("  get [key]                  Show config value (use 'get all' for all)");
+  Serial.println("  set <key> <value>          Update configuration key in NVS");
+  Serial.println("  scan                       Scan and display visible Wi-Fi networks");
+  Serial.println("  refresh                    Fetch and render active frame from server");
+  Serial.println("  next / prev                Display next / previous playlist item");
+  Serial.println("  pair                       Initiate 6-digit PIN pairing flow");
+  Serial.println("  reboot, restart            Reboot microcontroller");
+  Serial.println("  reset                      Factory reset (wipe NVS) and reboot");
+#if defined(DEVICE_IS_LED_STRIP)
+  Serial.println("  led_test                   Run RGBW test sequence on LEDs");
+  Serial.println("  led_off                    Turn off all LEDs");
+#endif
+  Serial.println("\nConfiguration Keys for 'get' / 'set':");
+  Serial.println("  ssid <name>                Wi-Fi network SSID");
+  Serial.println("  pass <password>            Wi-Fi network password");
+  Serial.println("  wifi <ssid> <pass>         Set Wi-Fi network and password at once");
+  Serial.println("  server <url>               ScreenTinker server URL (e.g. http://192.168.1.10:3001)");
+  Serial.println("  device_id <uuid>           Assigned device UUID");
+  Serial.println("  token <token>              Device authentication bearer token");
+  Serial.println("  wifi_always_on <on|off>    Keep Wi-Fi active between syncs (fast sync)");
+  Serial.println("  tx_power <max|med|low>     Wi-Fi transmission power level");
+  Serial.println("  multizone <on|off>         Multi-zone rendering mode");
+  Serial.println("  lang <en|de>               System UI language");
+  Serial.println("  orient <landscape|portrait|auto>  Display orientation");
+  Serial.println("  batt_cutoff <3|5|10|15>    Battery shutdown threshold percent");
+#if defined(DEVICE_IS_LED_STRIP)
+  Serial.println("  matrix <w> <h> [wir] [ax] [orig]  Configure complete LED matrix geometry");
+  Serial.println("  width <px>                 Matrix width (e.g. 32)");
+  Serial.println("  height <px>                Matrix height (e.g. 8)");
+  Serial.println("  wiring <serpentine|progressive>  Alternating zig-zag or linear raster");
+  Serial.println("  axis <horizontal|vertical> Scanning axis (row-major vs column-major)");
+  Serial.println("  origin <top_left|bottom_left|top_right|bottom_right>  DIN corner");
+  Serial.println("  brightness <0..255>        Overall LED output brightness");
+#endif
+  Serial.println("=================================================================\n");
+}
+
+static void handleCliGet(const String& rawKey) {
+  String key = rawKey;
+  key.trim();
+  key.toLowerCase();
+
+  if (key.length() == 0 || key == "all" || key == "config") {
+    Serial.println("\n--- Current Configuration ---");
+    Serial.printf("  ssid            : %s\n", g_wifiSsid.length() ? g_wifiSsid.c_str() : "(not configured)");
+    Serial.printf("  pass            : %s\n", g_wifiPass.length() ? "********" : "(empty)");
+    Serial.printf("  server          : %s\n", g_serverUrl.c_str());
+    Serial.printf("  device_id       : %s\n", g_deviceId.length() ? g_deviceId.c_str() : "(unpaired)");
+    Serial.printf("  token           : %s\n", g_deviceToken.length() ? (g_deviceToken.substring(0, 10) + "...").c_str() : "(none)");
+    Serial.printf("  wifi_always_on  : %s\n", s_wifiAlwaysOn ? "true (always connected)" : "false (power-save)");
+    Serial.printf("  tx_power        : %s (level %d)\n", (s_wifiTxPowerLevel == 1) ? "15.0 dBm" : (s_wifiTxPowerLevel == 2) ? "11.0 dBm" : "19.5 dBm (MAX)", s_wifiTxPowerLevel);
+    Serial.printf("  multizone       : %s\n", g_multiZone ? "true" : "false");
+    Serial.printf("  lang            : %s\n", (s_currentLang == LANG_DE) ? "de" : "en");
+    Serial.printf("  orient          : %s\n", (s_orientationMode == ORIENT_MODE_AUTO) ? "auto" : (s_orientationMode == ORIENT_MODE_PORTRAIT) ? "portrait" : "landscape");
+    Serial.printf("  batt_cutoff     : %d%%\n", s_criticalBatteryPct);
+#if defined(DEVICE_IS_LED_STRIP)
+    LedMatrixConfig cur = led_driver_get_matrix_config();
+    const char* oName = (cur.origin == MATRIX_ORIGIN_TOP_RIGHT) ? "top_right" :
+                        (cur.origin == MATRIX_ORIGIN_BOTTOM_LEFT) ? "bottom_left" :
+                        (cur.origin == MATRIX_ORIGIN_BOTTOM_RIGHT) ? "bottom_right" : "top_left";
+    Serial.printf("  matrix          : %dx%d (total: %d LEDs)\n", cur.width, cur.height, cur.width * cur.height);
+    Serial.printf("  wiring          : %s\n", (cur.wiring == MATRIX_WIRING_SERPENTINE) ? "serpentine" : "progressive");
+    Serial.printf("  axis            : %s\n", (cur.axis == MATRIX_AXIS_VERTICAL) ? "vertical" : "horizontal");
+    Serial.printf("  origin          : %s\n", oName);
+    Serial.printf("  brightness      : %u/255\n", led_driver_get_brightness());
+#endif
+    Serial.println("-----------------------------\n");
+    return;
+  }
+
+  if (key == "ssid" || key == "wifi_ssid") {
+    Serial.printf("ssid = %s\n", g_wifiSsid.c_str());
+  } else if (key == "pass" || key == "wifi_pass" || key == "password") {
+    Serial.printf("pass = %s\n", g_wifiPass.length() ? "********" : "(empty)");
+  } else if (key == "server" || key == "server_url" || key == "host") {
+    Serial.printf("server = %s\n", g_serverUrl.c_str());
+  } else if (key == "device_id" || key == "dev_id" || key == "id") {
+    Serial.printf("device_id = %s\n", g_deviceId.c_str());
+  } else if (key == "token" || key == "device_token") {
+    Serial.printf("token = %s\n", g_deviceToken.c_str());
+  } else if (key == "wifi_always_on" || key == "always_on" || key == "powersave" || key == "wifi_powersave") {
+    Serial.printf("wifi_always_on = %s\n", s_wifiAlwaysOn ? "true" : "false");
+  } else if (key == "tx_power" || key == "wifi_tx_pwr") {
+    Serial.printf("tx_power = %s (level %d)\n", (s_wifiTxPowerLevel == 1) ? "15.0 dBm" : (s_wifiTxPowerLevel == 2) ? "11.0 dBm" : "19.5 dBm", s_wifiTxPowerLevel);
+  } else if (key == "multizone" || key == "layout") {
+    Serial.printf("multizone = %s\n", g_multiZone ? "true" : "false");
+  } else if (key == "lang" || key == "language") {
+    Serial.printf("lang = %s\n", (s_currentLang == LANG_DE) ? "de" : "en");
+  } else if (key == "orient" || key == "orientation") {
+    Serial.printf("orientation = %s\n", (s_orientationMode == ORIENT_MODE_AUTO) ? "auto" : (s_orientationMode == ORIENT_MODE_PORTRAIT) ? "portrait" : "landscape");
+  } else if (key == "batt_cutoff" || key == "cutoff") {
+    Serial.printf("batt_cutoff = %d%%\n", s_criticalBatteryPct);
+#if defined(DEVICE_IS_LED_STRIP)
+  } else if (key == "matrix") {
+    LedMatrixConfig cur = led_driver_get_matrix_config();
+    const char* origStr = (cur.origin == MATRIX_ORIGIN_TOP_RIGHT) ? "top_right" :
+                          (cur.origin == MATRIX_ORIGIN_BOTTOM_LEFT) ? "bottom_left" :
+                          (cur.origin == MATRIX_ORIGIN_BOTTOM_RIGHT) ? "bottom_right" : "top_left";
+    Serial.printf("matrix = %dx%d (wiring: %s, axis: %s, origin: %s)\n",
+                  cur.width, cur.height,
+                  cur.wiring == MATRIX_WIRING_SERPENTINE ? "serpentine" : "progressive",
+                  cur.axis == MATRIX_AXIS_VERTICAL ? "vertical" : "horizontal",
+                  origStr);
+  } else if (key == "width" || key == "mat_w") {
+    Serial.printf("width = %d\n", led_driver_get_matrix_config().width);
+  } else if (key == "height" || key == "mat_h") {
+    Serial.printf("height = %d\n", led_driver_get_matrix_config().height);
+  } else if (key == "wiring" || key == "mat_wir") {
+    Serial.printf("wiring = %s\n", (led_driver_get_matrix_config().wiring == MATRIX_WIRING_SERPENTINE) ? "serpentine" : "progressive");
+  } else if (key == "axis" || key == "mat_axis") {
+    Serial.printf("axis = %s\n", (led_driver_get_matrix_config().axis == MATRIX_AXIS_VERTICAL) ? "vertical" : "horizontal");
+  } else if (key == "origin" || key == "mat_orig") {
+    MatrixOrigin orig = led_driver_get_matrix_config().origin;
+    const char* origStr = (orig == MATRIX_ORIGIN_TOP_RIGHT) ? "top_right" :
+                          (orig == MATRIX_ORIGIN_BOTTOM_LEFT) ? "bottom_left" :
+                          (orig == MATRIX_ORIGIN_BOTTOM_RIGHT) ? "bottom_right" : "top_left";
+    Serial.printf("origin = %s\n", origStr);
+  } else if (key == "brightness" || key == "bright") {
+    Serial.printf("brightness = %u/255\n", led_driver_get_brightness());
+#endif
+  } else {
+    Serial.printf("[CLI] Unknown key '%s'. Type 'get all' or 'help' to see available keys.\n", key.c_str());
+  }
+}
+
+static void handleCliSet(const String& args) {
+  int firstSpace = args.indexOf(' ');
+  if (firstSpace <= 0) {
+    Serial.println("[CLI] Usage: set <key> <value>");
+    Serial.println("Type 'help' to see all configurable keys.");
+    return;
+  }
+
+  String key = args.substring(0, firstSpace);
+  String val = args.substring(firstSpace + 1);
+  key.trim();
+  val.trim();
+  String lowerKey = key;
+  lowerKey.toLowerCase();
+  String lowerVal = val;
+  lowerVal.toLowerCase();
+
+  if (lowerKey == "ssid" || lowerKey == "wifi_ssid") {
+    g_wifiSsid = val;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putString("wifi_ssid", g_wifiSsid);
+    s_prefs.end();
+    Serial.printf("[OK] Wi-Fi SSID set to '%s'\n", g_wifiSsid.c_str());
+  } else if (lowerKey == "pass" || lowerKey == "wifi_pass" || lowerKey == "password") {
+    g_wifiPass = val;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putString("wifi_pass", g_wifiPass);
+    s_prefs.end();
+    Serial.println("[OK] Wi-Fi password updated.");
+  } else if (lowerKey == "wifi") {
+    String s = getCliArg(val, 0);
+    String p = getCliArg(val, 1);
+    if (s.length() > 0) {
+      g_wifiSsid = s;
+      g_wifiPass = p;
+      s_prefs.begin("screentinker", false);
+      s_prefs.putString("wifi_ssid", g_wifiSsid);
+      s_prefs.putString("wifi_pass", g_wifiPass);
+      s_prefs.end();
+      Serial.printf("[OK] Wi-Fi credentials set: SSID '%s'\n", g_wifiSsid.c_str());
+    } else {
+      Serial.println("[CLI] Usage: set wifi <ssid> <password>");
+    }
+  } else if (lowerKey == "server" || lowerKey == "server_url" || lowerKey == "host") {
+    g_serverUrl = val;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putString("server_url", g_serverUrl);
+    s_prefs.end();
+    Serial.printf("[OK] Server URL set to '%s'\n", g_serverUrl.c_str());
+  } else if (lowerKey == "device_id" || lowerKey == "dev_id" || lowerKey == "id") {
+    g_deviceId = val;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putString("device_id", g_deviceId);
+    s_prefs.end();
+    Serial.printf("[OK] Device ID set to '%s'\n", g_deviceId.c_str());
+  } else if (lowerKey == "token" || lowerKey == "device_token") {
+    g_deviceToken = val;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putString("device_token", g_deviceToken);
+    s_prefs.end();
+    Serial.println("[OK] Device token updated.");
+  } else if (lowerKey == "wifi_always_on" || lowerKey == "always_on" || lowerKey == "powersave" || lowerKey == "wifi_powersave") {
+    bool en = (lowerVal == "1" || lowerVal == "true" || lowerVal == "on" || lowerVal == "yes");
+    s_wifiAlwaysOn = en;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putBool("wifi_always_on", s_wifiAlwaysOn);
+    s_prefs.end();
+    if (!s_wifiAlwaysOn) {
+      disconnectWiFiIfPowerSave();
+    } else if (WiFi.status() != WL_CONNECTED) {
+      connectWiFi();
+    }
+    Serial.printf("[OK] wifi_always_on set to %s\n", s_wifiAlwaysOn ? "true" : "false");
+  } else if (lowerKey == "tx_power" || lowerKey == "wifi_tx_pwr") {
+    uint8_t lvl = (lowerVal == "1" || lowerVal == "med" || lowerVal == "medium") ? 1 :
+                  (lowerVal == "2" || lowerVal == "low") ? 2 : 0;
+    s_wifiTxPowerLevel = lvl;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putUChar("wifi_tx_pwr", s_wifiTxPowerLevel);
+    s_prefs.end();
+    WiFi.setTxPower((lvl == 1) ? WIFI_POWER_15dBm : (lvl == 2) ? WIFI_POWER_11dBm : WIFI_POWER_19_5dBm);
+    Serial.printf("[OK] tx_power set to level %d (%s)\n",
+                  lvl, (lvl == 1) ? "15.0 dBm" : (lvl == 2) ? "11.0 dBm" : "19.5 dBm (MAX)");
+  } else if (lowerKey == "multizone" || lowerKey == "layout") {
+    g_multiZone = (lowerVal == "1" || lowerVal == "true" || lowerVal == "on" || lowerVal == "yes");
+    s_prefs.begin("screentinker", false);
+    s_prefs.putBool("multi_zone", g_multiZone);
+    s_prefs.end();
+    cacheClear();
+    Serial.printf("[OK] multizone set to %s\n", g_multiZone ? "true" : "false");
+  } else if (lowerKey == "lang" || lowerKey == "language") {
+    s_currentLang = (lowerVal == "de") ? LANG_DE : LANG_EN;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putUChar("lang", (uint8_t)s_currentLang);
+    s_prefs.end();
+    Serial.printf("[OK] language set to %s\n", (s_currentLang == LANG_DE) ? "Deutsch (de)" : "English (en)");
+  } else if (lowerKey == "orient" || lowerKey == "orientation") {
+    if (lowerVal == "portrait") s_orientationMode = ORIENT_MODE_PORTRAIT;
+    else if (lowerVal == "auto" && s_hasImu) s_orientationMode = ORIENT_MODE_AUTO;
+    else s_orientationMode = ORIENT_MODE_LANDSCAPE;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putUChar("orient_mode", (uint8_t)s_orientationMode);
+    s_prefs.end();
+    Serial.printf("[OK] orientation set to %s\n", (s_orientationMode == ORIENT_MODE_PORTRAIT) ? "portrait" : (s_orientationMode == ORIENT_MODE_AUTO) ? "auto" : "landscape");
+  } else if (lowerKey == "batt_cutoff" || lowerKey == "cutoff") {
+    int pct = val.toInt();
+    if (pct != 3 && pct != 5 && pct != 10 && pct != 15) pct = 5;
+    s_criticalBatteryPct = pct;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putUChar("batt_cutoff", s_criticalBatteryPct);
+    s_prefs.end();
+    Serial.printf("[OK] batt_cutoff set to %d%%\n", s_criticalBatteryPct);
+#if defined(DEVICE_IS_LED_STRIP)
+  } else if (lowerKey == "width" || lowerKey == "mat_w") {
+    uint16_t w = val.toInt();
+    if (w > 0) {
+      LedMatrixConfig cur = led_driver_get_matrix_config();
+      cur.width = w;
+      s_prefs.begin("screentinker", false);
+      s_prefs.putUShort("mat_w", cur.width);
+      s_prefs.end();
+      led_driver_set_count(cur.width * cur.height);
+      led_driver_set_matrix_config(cur.width, cur.height, cur.wiring, cur.axis, cur.origin);
+      Serial.printf("[OK] matrix width set to %d (total LEDs: %d)\n", cur.width, cur.width * cur.height);
+    } else {
+      Serial.println("[CLI] Invalid width. Must be > 0.");
+    }
+  } else if (lowerKey == "height" || lowerKey == "mat_h") {
+    uint16_t h = val.toInt();
+    if (h > 0) {
+      LedMatrixConfig cur = led_driver_get_matrix_config();
+      cur.height = h;
+      s_prefs.begin("screentinker", false);
+      s_prefs.putUShort("mat_h", cur.height);
+      s_prefs.end();
+      led_driver_set_count(cur.width * cur.height);
+      led_driver_set_matrix_config(cur.width, cur.height, cur.wiring, cur.axis, cur.origin);
+      Serial.printf("[OK] matrix height set to %d (total LEDs: %d)\n", cur.height, cur.width * cur.height);
+    } else {
+      Serial.println("[CLI] Invalid height. Must be > 0.");
+    }
+  } else if (lowerKey == "wiring" || lowerKey == "mat_wir") {
+    LedMatrixConfig cur = led_driver_get_matrix_config();
+    cur.wiring = (lowerVal == "progressive" || lowerVal == "linear") ? MATRIX_WIRING_PROGRESSIVE : MATRIX_WIRING_SERPENTINE;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putUChar("mat_wir", (uint8_t)cur.wiring);
+    s_prefs.end();
+    led_driver_set_matrix_config(cur.width, cur.height, cur.wiring, cur.axis, cur.origin);
+    Serial.printf("[OK] matrix wiring set to %s\n", (cur.wiring == MATRIX_WIRING_SERPENTINE) ? "serpentine" : "progressive");
+  } else if (lowerKey == "axis" || lowerKey == "mat_axis") {
+    LedMatrixConfig cur = led_driver_get_matrix_config();
+    cur.axis = (lowerVal == "vertical" || lowerVal == "col") ? MATRIX_AXIS_VERTICAL : MATRIX_AXIS_HORIZONTAL;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putUChar("mat_axis", (uint8_t)cur.axis);
+    s_prefs.end();
+    led_driver_set_matrix_config(cur.width, cur.height, cur.wiring, cur.axis, cur.origin);
+    Serial.printf("[OK] matrix axis set to %s\n", (cur.axis == MATRIX_AXIS_VERTICAL) ? "vertical" : "horizontal");
+  } else if (lowerKey == "origin" || lowerKey == "mat_orig") {
+    LedMatrixConfig cur = led_driver_get_matrix_config();
+    if (lowerVal == "top_right" || lowerVal == "top-right") cur.origin = MATRIX_ORIGIN_TOP_RIGHT;
+    else if (lowerVal == "bottom_left" || lowerVal == "bottom-left") cur.origin = MATRIX_ORIGIN_BOTTOM_LEFT;
+    else if (lowerVal == "bottom_right" || lowerVal == "bottom-right") cur.origin = MATRIX_ORIGIN_BOTTOM_RIGHT;
+    else cur.origin = MATRIX_ORIGIN_TOP_LEFT;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putUChar("mat_orig", (uint8_t)cur.origin);
+    s_prefs.end();
+    led_driver_set_matrix_config(cur.width, cur.height, cur.wiring, cur.axis, cur.origin);
+    const char* oName = (cur.origin == MATRIX_ORIGIN_TOP_RIGHT) ? "top_right" :
+                        (cur.origin == MATRIX_ORIGIN_BOTTOM_LEFT) ? "bottom_left" :
+                        (cur.origin == MATRIX_ORIGIN_BOTTOM_RIGHT) ? "bottom_right" : "top_left";
+    Serial.printf("[OK] matrix origin set to %s\n", oName);
+  } else if (lowerKey == "brightness") {
+    uint8_t b = val.toInt();
+    led_driver_set_brightness(b);
+    Serial.printf("[OK] LED brightness set to %d/255\n", b);
+  } else if (lowerKey == "matrix") {
+    String wStr = getCliArg(val, 0);
+    String hStr = getCliArg(val, 1);
+    if (wStr.length() > 0 && hStr.length() > 0) {
+      uint16_t w = wStr.toInt();
+      uint16_t h = hStr.toInt();
+      if (w > 0 && h > 0) {
+        LedMatrixConfig cur = led_driver_get_matrix_config();
+        cur.width = w;
+        cur.height = h;
+        String wirStr = getCliArg(val, 2);
+        wirStr.toLowerCase();
+        if (wirStr.length() > 0) {
+          cur.wiring = (wirStr == "progressive" || wirStr == "linear") ? MATRIX_WIRING_PROGRESSIVE : MATRIX_WIRING_SERPENTINE;
+        }
+        String axisStr = getCliArg(val, 3);
+        axisStr.toLowerCase();
+        if (axisStr.length() > 0) {
+          cur.axis = (axisStr == "vertical" || axisStr == "col") ? MATRIX_AXIS_VERTICAL : MATRIX_AXIS_HORIZONTAL;
+        }
+        String origStr = getCliArg(val, 4);
+        origStr.toLowerCase();
+        if (origStr.length() > 0) {
+          if (origStr == "top_right" || origStr == "top-right") cur.origin = MATRIX_ORIGIN_TOP_RIGHT;
+          else if (origStr == "bottom_left" || origStr == "bottom-left") cur.origin = MATRIX_ORIGIN_BOTTOM_LEFT;
+          else if (origStr == "bottom_right" || origStr == "bottom-right") cur.origin = MATRIX_ORIGIN_BOTTOM_RIGHT;
+          else cur.origin = MATRIX_ORIGIN_TOP_LEFT;
+        }
+        s_prefs.begin("screentinker", false);
+        s_prefs.putUShort("mat_w", cur.width);
+        s_prefs.putUShort("mat_h", cur.height);
+        s_prefs.putUChar("mat_wir", (uint8_t)cur.wiring);
+        s_prefs.putUChar("mat_axis", (uint8_t)cur.axis);
+        s_prefs.putUChar("mat_orig", (uint8_t)cur.origin);
+        s_prefs.end();
+        led_driver_set_count(cur.width * cur.height);
+        led_driver_set_matrix_config(cur.width, cur.height, cur.wiring, cur.axis, cur.origin);
+        const char* oName = (cur.origin == MATRIX_ORIGIN_TOP_RIGHT) ? "top_right" :
+                            (cur.origin == MATRIX_ORIGIN_BOTTOM_LEFT) ? "bottom_left" :
+                            (cur.origin == MATRIX_ORIGIN_BOTTOM_RIGHT) ? "bottom_right" : "top_left";
+        Serial.printf("[OK] Matrix reconfigured: %dx%d (%d LEDs, wiring: %s, axis: %s, origin: %s)\n",
+                      cur.width, cur.height, cur.width * cur.height,
+                      cur.wiring == MATRIX_WIRING_SERPENTINE ? "serpentine" : "progressive",
+                      cur.axis == MATRIX_AXIS_VERTICAL ? "vertical" : "horizontal",
+                      oName);
+      } else {
+        Serial.println("[CLI] Invalid dimensions. Width and height must be > 0.");
+      }
+    } else {
+      Serial.println("[CLI] Usage: set matrix <width> <height> [wiring] [axis] [origin]");
+      Serial.println("  e.g.: set matrix 32 8 serpentine vertical top_left");
+    }
+#endif
+  } else {
+    Serial.printf("[CLI] Unknown key '%s'. Type 'help' to see configurable keys.\n", key.c_str());
+  }
+}
+
+static void handleCliCommand(const String& rawLine) {
+  String line = rawLine;
+  line.trim();
+  if (line.length() == 0) return;
+
+  int sp = line.indexOf(' ');
+  String cmd = (sp > 0) ? line.substring(0, sp) : line;
+  String args = (sp > 0) ? line.substring(sp + 1) : "";
+  cmd.trim();
+  args.trim();
+  String lowerCmd = cmd;
+  lowerCmd.toLowerCase();
+
+  if (lowerCmd == "help" || lowerCmd == "?") {
+    printCliHelp();
+    return;
+  }
+  if (lowerCmd == "get") {
+    handleCliGet(args);
+    return;
+  }
+  if (lowerCmd == "set") {
+    handleCliSet(args);
+    return;
+  }
+  if (lowerCmd == "reboot" || lowerCmd == "restart") {
+    Serial.println("[CLI] Rebooting microcontroller...");
+    delay(500);
+    ESP.restart();
+    return;
+  }
+  if (lowerCmd == "scan" || lowerCmd == "wifi_scan") {
+    Serial.println("[WiFi] Scanning available networks...");
+    WiFi.disconnect(true);
+    delay(200);
+    WiFi.mode(WIFI_STA);
+    int n = WiFi.scanNetworks(false, true);
+    Serial.printf("[WiFi] Found %d visible networks:\n", n);
+    for (int i = 0; i < n; i++) {
+      Serial.printf("  %2d. '%-24s' (RSSI: %3d dBm, Ch: %2d)\n",
+                    i + 1, WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i));
+    }
+    WiFi.scanDelete();
+    if (s_wifiAlwaysOn && g_wifiSsid.length() > 0) {
+      connectWiFi();
+    }
+    return;
+  }
+  if (lowerCmd == "status") {
+    Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"ssid\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"multi_zone\":%s,\"wifi_always_on\":%s,\"psram_free\":%u,\"rssi\":%d}\n",
+                  FIRMWARE_VERSION,
+                  WiFi.localIP().toString().c_str(), g_wifiSsid.c_str(),
+                  WiFi.status() == WL_CONNECTED ? "true" : "false",
+                  g_deviceId.c_str(),
+                  g_multiZone ? "true" : "false",
+                  s_wifiAlwaysOn ? "true" : "false",
+                  psramFound() ? ESP.getFreePsram() : 0,
+                  WiFi.RSSI());
+    return;
+  }
+  if (lowerCmd == "refresh") {
+    fetchAndRender(true, s_currentItemIndex);
+    return;
+  }
+  if (lowerCmd == "next") {
+    int next = (s_totalItems > 0) ? ((s_currentItemIndex + 1) % s_totalItems) : (s_currentItemIndex + 1);
+    fetchAndRender(true, next);
+    return;
+  }
+  if (lowerCmd == "prev") {
+    int prev = (s_totalItems > 0) ? ((s_currentItemIndex - 1 + s_totalItems) % s_totalItems) : max(0, s_currentItemIndex - 1);
+    fetchAndRender(true, prev);
+    return;
+  }
+  if (lowerCmd == "pair") {
+    registerAndStartPairing();
+    return;
+  }
+  if (lowerCmd == "reset") {
+    Serial.println("[CLI] NVS wiped. Restarting device in 1 second...");
+    delay(500);
+    factoryResetNVS();
+    return;
+  }
+  if (lowerCmd == "wifi_always_on" || lowerCmd == "always_on") {
+    s_wifiAlwaysOn = true;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putBool("wifi_always_on", s_wifiAlwaysOn);
+    s_prefs.end();
+    if (WiFi.status() != WL_CONNECTED) connectWiFi();
+    Serial.println("[OK] Wi-Fi set to Always-On.");
+    return;
+  }
+  if (lowerCmd == "wifi_powersave" || lowerCmd == "powersave") {
+    s_wifiAlwaysOn = false;
+    s_prefs.begin("screentinker", false);
+    s_prefs.putBool("wifi_always_on", s_wifiAlwaysOn);
+    s_prefs.end();
+    disconnectWiFiIfPowerSave();
+    Serial.println("[OK] Wi-Fi set to Power-Save.");
+    return;
+  }
+  if (lowerCmd == "cache") {
+    Serial.printf("--- PSRAM Cache Status ---\n");
+    Serial.printf("PSRAM Free: %u KB / %u KB\n", ESP.getFreePsram() / 1024, ESP.getPsramSize() / 1024);
+    for (int i = 0; i < MAX_CACHED_ITEMS; i++) {
+      if (s_cache[i].valid) {
+        Serial.printf("  Slot %d -> Item %d | ETag: %s\n", i, s_cache[i].itemIndex, s_cache[i].etag.c_str());
+      }
+    }
+    return;
+  }
+#if defined(DEVICE_IS_LED_STRIP)
+  if (lowerCmd == "led_test") {
+    Serial.println("[LED] Running LED test sequence (Red, Green, Blue, White)...");
+    led_driver_show_solid(255, 0, 0); delay(500);
+    led_driver_show_solid(0, 255, 0); delay(500);
+    led_driver_show_solid(0, 0, 255); delay(500);
+    led_driver_show_solid(255, 255, 255); delay(500);
+    led_driver_clear();
+    Serial.println("[LED] Test sequence complete.");
+    return;
+  }
+  if (lowerCmd == "led_off") {
+    led_driver_clear();
+    Serial.println("[LED] LEDs turned off.");
+    return;
+  }
+  if (lowerCmd == "led_red") {
+    led_driver_show_solid(255, 0, 0);
+    Serial.println("[LED] Solid Red");
+    return;
+  }
+  if (lowerCmd == "led_green") {
+    led_driver_show_solid(0, 255, 0);
+    Serial.println("[LED] Solid Green");
+    return;
+  }
+  if (lowerCmd == "led_blue") {
+    led_driver_show_solid(0, 0, 255);
+    Serial.println("[LED] Solid Blue");
+    return;
+  }
+  if (lowerCmd == "led_white") {
+    led_driver_show_solid(255, 255, 255);
+    Serial.println("[LED] Solid White");
+    return;
+  }
+#endif
+  if (lowerCmd == "poweroff" || lowerCmd == "shutdown" || lowerCmd == "off") {
+    powerOffDevice();
+    return;
+  }
+  if (lowerCmd == "menu") {
+    s_inSystemMenu = true;
+    s_inStatusScreen = false;
+    s_inWifiPowerMenu = false;
+    s_inAdvancedResetMenu = false;
+    s_menuSelection = 0;
+    s_menuOpenMillis = millis();
+    showSystemMenu(0, false);
+    return;
+  }
+  if (lowerCmd == "battery" || lowerCmd == "batt") {
+    int soc = readBatteryPercent();
+    int16_t volt = readBq27220Word(0x08);
+    int16_t curr = readBq27220Word(0x0C);
+    int16_t tempK = readBq27220Word(0x06);
+    float tempC = (tempK > 0) ? (tempK / 10.0f - 273.15f) : -999.0f;
+    bool chg = isBatteryCharging();
+    bool usb = isUsbPowerConnected();
+    Serial.printf("Battery: %d%% (%d mV, %d mA, %.1f C, charging=%s, usb=%s)\n",
+                  soc, volt, curr, tempC, chg ? "yes" : "no", usb ? "yes" : "no");
+    return;
+  }
+  if (lowerCmd == "ota_status" || lowerCmd == "ota") {
+    OtaState st;
+    ota_get_state(&st);
+    Serial.printf("OTA: running='%s', next='%s', rollback=%s, pending=%s, status=%d\n",
+                  st.running_partition ? st.running_partition : "unknown",
+                  st.next_partition ? st.next_partition : "unknown",
+                  st.is_rollback_possible ? "true" : "false",
+                  st.is_pending_verification ? "true" : "false",
+                  (int)st.status);
+    return;
+  }
+  if (lowerCmd == "rollback") {
+    ota_rollback_and_reboot();
+    return;
+  }
+  if (lowerCmd.startsWith("update ") || lowerCmd.startsWith("ota ")) {
+    int firstSpace = line.indexOf(' ');
+    String rest = line.substring(firstSpace + 1);
+    rest.trim();
+    String url = rest;
+    String sha = "";
+    int secondSpace = rest.indexOf(' ');
+    if (secondSpace > 0) {
+      url = rest.substring(0, secondSpace);
+      sha = rest.substring(secondSpace + 1);
+      sha.trim();
+    }
+    if (url.startsWith("/")) {
+      url = g_serverUrl + url;
+    }
+    showOtaUpdateScreen("Updating Firmware...", s_currentLang);
+    ota_perform_update(url.c_str(), sha.length() > 0 ? sha.c_str() : nullptr);
+    return;
+  }
+
+  Serial.printf("[CLI] Unknown command: '%s'. Type 'help' for command list.\n", cmd.c_str());
+}
+
+// ─── Serial Command Protocol (JSON & CLI) ────────────────────────────────────
 void processSerialLine(const String& line) {
   if (line.length() == 0) return;
+
+  // If not a JSON object, dispatch to Human-Friendly CLI
+  if (!line.startsWith("{")) {
+    handleCliCommand(line);
+    return;
+  }
 
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, line);
   if (err) {
-    if (line == "status") {
-      Serial.printf("{\"status\":\"ok\",\"v\":1,\"version\":\"%s\",\"ip\":\"%s\",\"ssid\":\"%s\",\"connected\":%s,\"device_id\":\"%s\",\"multi_zone\":%s,\"wifi_always_on\":%s,\"psram_free\":%u,\"rssi\":%d}\n",
-                    FIRMWARE_VERSION,
-                    WiFi.localIP().toString().c_str(), g_wifiSsid.c_str(),
-                    WiFi.status() == WL_CONNECTED ? "true" : "false",
-                    g_deviceId.c_str(),
-                    g_multiZone ? "true" : "false",
-                    s_wifiAlwaysOn ? "true" : "false",
-                    psramFound() ? ESP.getFreePsram() : 0,
-                    WiFi.RSSI());
-    } else if (line == "wifi_always_on") {
-      s_wifiAlwaysOn = true;
-      s_prefs.begin("screentinker", false);
-      s_prefs.putBool("wifi_always_on", s_wifiAlwaysOn);
-      s_prefs.end();
-      if (WiFi.status() != WL_CONNECTED) connectWiFi();
-      Serial.println("{\"status\":\"ok\",\"v\":1,\"wifi_always_on\":true}");
-    } else if (line == "wifi_powersave") {
-      s_wifiAlwaysOn = false;
-      s_prefs.begin("screentinker", false);
-      s_prefs.putBool("wifi_always_on", s_wifiAlwaysOn);
-      s_prefs.end();
-      disconnectWiFiIfPowerSave();
-      Serial.println("{\"status\":\"ok\",\"v\":1,\"wifi_always_on\":false}");
-    } else if (line == "reset") {
-      Serial.println("{\"status\":\"ok\",\"v\":1,\"message\":\"NVS wiped. Restarting device.\"}");
-      delay(500);
-      factoryResetNVS();
-    } else if (line == "multizone" || line == "layout") {
-      g_multiZone = !g_multiZone;
-      s_prefs.begin("screentinker", false);
-      s_prefs.putBool("multi_zone", g_multiZone);
-      s_prefs.end();
-      cacheClear();
-      Serial.printf("{\"status\":\"ok\",\"v\":1,\"multi_zone\":%s}\n", g_multiZone ? "true" : "false");
-      fetchAndRender(true);
-    } else if (line == "refresh") {
-      fetchAndRender(true, s_currentItemIndex);
-    } else if (line == "next") {
-      int next = (s_totalItems > 0) ? ((s_currentItemIndex + 1) % s_totalItems) : (s_currentItemIndex + 1);
-      fetchAndRender(true, next);
-    } else if (line == "prev") {
-      int prev = (s_totalItems > 0) ? ((s_currentItemIndex - 1 + s_totalItems) % s_totalItems) : max(0, s_currentItemIndex - 1);
-      fetchAndRender(true, prev);
-    } else if (line == "cache") {
-      Serial.printf("--- PSRAM Cache Status ---\n");
-      Serial.printf("PSRAM Free: %u KB / %u KB\n", ESP.getFreePsram() / 1024, ESP.getPsramSize() / 1024);
-      for (int i = 0; i < MAX_CACHED_ITEMS; i++) {
-        if (s_cache[i].valid) {
-          Serial.printf("  Slot %d -> Item %d | ETag: %s\n", i, s_cache[i].itemIndex, s_cache[i].etag.c_str());
-        }
-      }
-    } else if (line == "help" || line == "setup" || line == "instructions" || line == "en") {
-      showOnboardingScreen(LANG_EN);
-    } else if (line == "de") {
-      showOnboardingScreen(LANG_DE);
-    } else if (line == "nowifi") {
-      showNoWifiScreen(s_currentLang);
-#if defined(DEVICE_IS_LED_STRIP)
-    } else if (line == "led_test") {
-      Serial.println("[LED] Running LED test sequence (Red, Green, Blue, White)...");
-      led_driver_show_solid(255, 0, 0);
-      delay(500);
-      led_driver_show_solid(0, 255, 0);
-      delay(500);
-      led_driver_show_solid(0, 0, 255);
-      delay(500);
-      led_driver_show_solid(255, 255, 255);
-      delay(500);
-      led_driver_clear();
-      Serial.println("[LED] Test sequence complete.");
-    } else if (line == "led_red") {
-      led_driver_show_solid(255, 0, 0);
-      Serial.println("{\"status\":\"ok\",\"color\":\"red\"}");
-    } else if (line == "led_green") {
-      led_driver_show_solid(0, 255, 0);
-      Serial.println("{\"status\":\"ok\",\"color\":\"green\"}");
-    } else if (line == "led_blue") {
-      led_driver_show_solid(0, 0, 255);
-      Serial.println("{\"status\":\"ok\",\"color\":\"blue\"}");
-    } else if (line == "led_white") {
-      led_driver_show_solid(255, 255, 255);
-      Serial.println("{\"status\":\"ok\",\"color\":\"white\"}");
-    } else if (line == "led_off") {
-      led_driver_clear();
-      Serial.println("{\"status\":\"ok\",\"color\":\"off\"}");
-#endif
-    } else if (line == "pair") {
-      registerAndStartPairing();
-    } else if (line == "debug" || line == "imu_debug") {
-      s_imuDebugScreen = !s_imuDebugScreen;
-      Serial.printf("{\"status\":\"ok\",\"v\":1,\"imu_debug_screen\":%s,\"active_letter\":\"%c\",\"orient\":%d}\n",
-                    s_imuDebugScreen ? "true" : "false", 'A' + (s_activeOrientation >= 0 && s_activeOrientation <= 3 ? s_activeOrientation : 0), s_activeOrientation);
-      if (s_imuDebugScreen) {
-        showImuDebugLetterScreen(s_activeOrientation);
-      } else {
-        fetchAndRender(true);
-      }
-    } else if (line == "imu" || line == "accel") {
-      int16_t ax = 0, ay = 0, az = 0;
-      bool ok = imu_read_accel(&ax, &ay, &az);
-      int detected = imu_detect_orientation(s_activeOrientation);
-      char letter = 'A' + (s_activeOrientation >= 0 && s_activeOrientation <= 3 ? s_activeOrientation : 0);
-      char detLetter = 'A' + (detected >= 0 && detected <= 3 ? detected : 0);
-      Serial.printf("{\"status\":\"ok\",\"v\":1,\"sensor\":\"LSM6DS3\",\"ok\":%s,\"ax\":%d,\"ay\":%d,\"az\":%d,\"detected\":%d,\"detected_letter\":\"%c\",\"active\":%d,\"active_letter\":\"%c\",\"mode\":%d,\"debug_screen\":%s}\n",
-                    ok ? "true" : "false", ax, ay, az, detected, detLetter, s_activeOrientation, letter, (int)s_orientationMode, s_imuDebugScreen ? "true" : "false");
-    } else if (line == "battery" || line == "batt") {
-      int soc = readBatteryPercent();
-      int16_t volt = readBq27220Word(0x08);
-      int16_t curr = readBq27220Word(0x0C);
-      int16_t tempK = readBq27220Word(0x06);
-      float tempC = (tempK > 0) ? (tempK / 10.0f - 273.15f) : -999.0f;
-      bool chg = isBatteryCharging();
-      bool usb = isUsbPowerConnected();
-      Serial.printf("{\"status\":\"ok\",\"v\":1,\"battery_pct\":%d,\"voltage_mv\":%d,\"current_ma\":%d,\"temp_c\":%.1f,\"charging\":%s,\"usb\":%s}\n",
-                    soc, volt, curr, tempC, chg ? "true" : "false", usb ? "true" : "false");
-    } else if (line == "poweroff" || line == "shutdown" || line == "off") {
-      powerOffDevice();
-    } else if (line == "menu") {
-      s_inSystemMenu = true;
-      s_inStatusScreen = false;
-      s_inWifiPowerMenu = false;
-      s_inAdvancedResetMenu = false;
-      s_menuSelection = 0;
-      s_menuOpenMillis = millis();
-      showSystemMenu(0, false);
-    } else if (line == "ota_status" || line == "ota") {
-      OtaState st;
-      ota_get_state(&st);
-      Serial.printf("{\"status\":\"ok\",\"v\":1,\"running\":\"%s\",\"next\":\"%s\",\"rollback_possible\":%s,\"pending_verify\":%s,\"ota_status\":%d}\n",
-                    st.running_partition ? st.running_partition : "unknown",
-                    st.next_partition ? st.next_partition : "unknown",
-                    st.is_rollback_possible ? "true" : "false",
-                    st.is_pending_verification ? "true" : "false",
-                    (int)st.status);
-    } else if (line == "rollback") {
-      ota_rollback_and_reboot();
-    } else if (line.startsWith("update ") || line.startsWith("ota ")) {
-      int firstSpace = line.indexOf(' ');
-      String rest = line.substring(firstSpace + 1);
-      rest.trim();
-      String url = rest;
-      String sha = "";
-      int secondSpace = rest.indexOf(' ');
-      if (secondSpace > 0) {
-        url = rest.substring(0, secondSpace);
-        sha = rest.substring(secondSpace + 1);
-        sha.trim();
-      }
-      if (url.startsWith("/")) {
-        url = g_serverUrl + url;
-      }
-      showOtaUpdateScreen("Updating Firmware...", s_currentLang);
-      ota_perform_update(url.c_str(), sha.length() > 0 ? sha.c_str() : nullptr);
-    }
+    Serial.println("{\"status\":\"error\",\"v\":1,\"message\":\"Invalid JSON\"}");
     return;
   }
 

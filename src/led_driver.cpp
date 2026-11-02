@@ -58,6 +58,10 @@ void led_driver_set_brightness(uint8_t brightness) {
   }
 }
 
+uint8_t led_driver_get_brightness() {
+  return s_brightness;
+}
+
 void led_driver_set_count(uint16_t numLeds) {
   if (numLeds == 0 || numLeds == s_numLeds || !s_strip) return;
   s_numLeds = numLeds;

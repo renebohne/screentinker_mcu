@@ -97,7 +97,7 @@ class TestScreenTinkerSimulator(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def run_simulator(self, extra_args: list, expect_success: bool = True) -> subprocess.CompletedProcess:
+    def run_simulator(self, extra_args: list, expect_success: bool = True, stdin_input: str = None) -> subprocess.CompletedProcess:
         """Helper to invoke screentinker_sim with standard test flags."""
         cmd = [
             str(SIMULATOR_BIN),
@@ -111,7 +111,7 @@ class TestScreenTinkerSimulator(unittest.TestCase):
             cmd.append("--oneshot")
         cmd.extend(extra_args)
 
-        res = subprocess.run(cmd, cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=10)
+        res = subprocess.run(cmd, cwd=str(REPO_ROOT), input=stdin_input, capture_output=True, text=True, timeout=10)
         if expect_success:
             self.assertEqual(
                 res.returncode, 0,
@@ -726,6 +726,60 @@ class TestScreenTinkerSimulator(unittest.TestCase):
         self.assertNotIn("CRITICAL: Battery depleted", res_usb.stdout)
         self.assertIn("[Sync] Server response status: 200", res_usb.stdout)
         self.assertTrue(os.path.exists(snap_usb))
+
+    def test_22_serial_cli_stdio_commands(self):
+        """Tests that the simulator handles serial CLI and JSON commands via stdio."""
+        import json
+
+        # 1. Test CLI 'help', 'status', 'get all', and 'export' via stdio
+        cli_cmds = "help\nstatus\nget all\nexport\nquit\n"
+        res = self.run_simulator(["--token", "stdio-token", "--device", "dev-stdio-01"], stdin_input=cli_cmds)
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("ScreenTinker Simulator Serial Command Line Interface (CLI)", res.stdout)
+        self.assertIn("--- Current Simulator Configuration ---", res.stdout)
+        self.assertIn("[Simulator] Exiting on serial command.", res.stdout)
+
+        # Parse the output line from 'export'
+        export_line = None
+        for line in res.stdout.splitlines():
+            line = line.strip()
+            if line.startswith('{"version":') and '"ssid":' in line:
+                export_line = line
+                break
+        self.assertIsNotNone(export_line, "Expected 'export' JSON line in simulator stdout")
+        cfg_export = json.loads(export_line)
+        self.assertIn("version", cfg_export)
+        self.assertIn("profile", cfg_export)
+        self.assertIn("server", cfg_export)
+        self.assertIn("device_id", cfg_export)
+        self.assertNotIn("pass", cfg_export, "Wi-Fi password must be excluded from export")
+        self.assertNotIn("wifi_pass", cfg_export, "Wi-Fi password must be excluded from export")
+
+        # 2. Test dynamic configuration via 'set matrix' and export
+        set_cmds = "set matrix 32 8 serpentine vertical top_left\nexport\nquit\n"
+        res_set = self.run_simulator(["--model", "xiao_led", "--token", "led-tok", "--device", "dev-led-01"], stdin_input=set_cmds)
+        self.assertEqual(res_set.returncode, 0)
+        self.assertIn("[OK] Matrix geometry set to 32x8", res_set.stdout)
+
+        led_export_line = None
+        for line in res_set.stdout.splitlines():
+            line = line.strip()
+            if line.startswith('{"version":') and '"matrix":' in line:
+                led_export_line = line
+                break
+        self.assertIsNotNone(led_export_line, "Expected matrix in exported JSON")
+        led_cfg = json.loads(led_export_line)
+        self.assertEqual(led_cfg["matrix"]["width"], 32)
+        self.assertEqual(led_cfg["matrix"]["height"], 8)
+        self.assertEqual(led_cfg["matrix"]["wiring"], "serpentine")
+        self.assertEqual(led_cfg["matrix"]["axis"], "vertical")
+        self.assertEqual(led_cfg["matrix"]["origin"], "top_left")
+
+        # 3. Test JSON protocol commands via stdio: {"cmd":"status"}, {"cmd":"ping"}, {"cmd":"export"}
+        json_cmds = '{"cmd":"ping"}\n{"cmd":"status"}\n{"cmd":"export"}\nquit\n'
+        res_json = self.run_simulator(["--token", "json-tok", "--device", "dev-json-01"], stdin_input=json_cmds)
+        self.assertEqual(res_json.returncode, 0)
+        self.assertIn('{"status":"ok","pong":true}', res_json.stdout)
 
 
 if __name__ == "__main__":

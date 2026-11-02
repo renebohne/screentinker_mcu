@@ -2034,6 +2034,7 @@ static void printCliHelp() {
   Serial.println("  status                     Show device status summary (JSON telemetry)");
   Serial.println("  get [key]                  Show config value (use 'get all' for all)");
   Serial.println("  set <key> <value>          Update configuration key in NVS");
+  Serial.println("  export [pretty]            Export entire configuration as JSON (excluding Wi-Fi password)");
   Serial.println("  scan                       Scan and display visible Wi-Fi networks");
   Serial.println("  refresh                    Fetch and render active frame from server");
   Serial.println("  next / prev                Display next / previous playlist item");
@@ -2067,6 +2068,44 @@ static void printCliHelp() {
   Serial.println("  brightness <0..255>        Overall LED output brightness");
 #endif
   Serial.println("=================================================================\n");
+}
+
+static void printCliExportJson(bool pretty = false) {
+  JsonDocument doc;
+  doc["version"] = FIRMWARE_VERSION;
+  doc["profile"] = DEVICE_PROFILE_NAME;
+  doc["model"] = DEVICE_MODEL_NAME;
+  doc["ssid"] = g_wifiSsid;
+  // Note: Wi-Fi password is intentionally excluded from export for security
+  doc["server"] = g_serverUrl;
+  doc["device_id"] = g_deviceId;
+  doc["token"] = g_deviceToken;
+  doc["wifi_always_on"] = s_wifiAlwaysOn;
+  doc["tx_power"] = s_wifiTxPowerLevel;
+  doc["multizone"] = g_multiZone;
+  doc["lang"] = (s_currentLang == LANG_DE) ? "de" : "en";
+  doc["orient"] = (s_orientationMode == ORIENT_MODE_AUTO) ? "auto" :
+                  (s_orientationMode == ORIENT_MODE_PORTRAIT) ? "portrait" : "landscape";
+  doc["batt_cutoff"] = s_criticalBatteryPct;
+#if defined(DEVICE_IS_LED_STRIP)
+  LedMatrixConfig cur = led_driver_get_matrix_config();
+  const char* oName = (cur.origin == MATRIX_ORIGIN_TOP_RIGHT) ? "top_right" :
+                      (cur.origin == MATRIX_ORIGIN_BOTTOM_LEFT) ? "bottom_left" :
+                      (cur.origin == MATRIX_ORIGIN_BOTTOM_RIGHT) ? "bottom_right" : "top_left";
+  JsonObject mat = doc["matrix"].to<JsonObject>();
+  mat["width"] = cur.width;
+  mat["height"] = cur.height;
+  mat["wiring"] = (cur.wiring == MATRIX_WIRING_SERPENTINE) ? "serpentine" : "progressive";
+  mat["axis"] = (cur.axis == MATRIX_AXIS_VERTICAL) ? "vertical" : "horizontal";
+  mat["origin"] = oName;
+  doc["brightness"] = led_driver_get_brightness();
+#endif
+  if (pretty) {
+    serializeJsonPretty(doc, Serial);
+  } else {
+    serializeJson(doc, Serial);
+  }
+  Serial.println();
 }
 
 static void handleCliGet(const String& rawKey) {
@@ -2415,6 +2454,10 @@ static void handleCliCommand(const String& rawLine) {
     handleCliSet(args);
     return;
   }
+  if (lowerCmd == "export" || lowerCmd == "dump") {
+    printCliExportJson(args == "pretty" || args == "-p");
+    return;
+  }
   if (lowerCmd == "reboot" || lowerCmd == "restart") {
     Serial.println("[CLI] Rebooting microcontroller...");
     delay(500);
@@ -2678,6 +2721,8 @@ void processSerialLine(const String& line) {
                   hasEnv ? String(curH, 1).c_str() : "null",
                   psramFound() ? ESP.getFreePsram() : 0,
                   WiFi.RSSI());
+  } else if (strcmp(cmd, "export") == 0 || strcmp(cmd, "export_config") == 0) {
+    printCliExportJson(doc["pretty"] | false);
   } else if (strcmp(cmd, "sht40") == 0 || strcmp(cmd, "sensors") == 0) {
     float t = 0.0f, h = 0.0f;
     if (sht40_read(&t, &h)) {

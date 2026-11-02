@@ -37,6 +37,16 @@ struct SimConfig {
   std::string snapshotPath = "sim_output.bmp";
   std::string configFilePath = "simulator/sim_config.json";
 
+  // Wi-Fi and System Settings
+  std::string wifiSsid = "ScreenTinker-WLAN";
+  std::string wifiPass = ""; // masked and excluded from export
+  uint8_t wifiTxPowerLevel = 0;
+  bool wifiAlwaysOn = true;
+  bool multiZone = false;
+  std::string language = "en";
+  int criticalBatteryPct = 5;
+  uint8_t brightness = 180;
+
   // Device Model, Resolution, Color & Refresh Capabilities
   std::string model = "sticky";
   std::string screenProfile = "seeed-reterminal-sticky";

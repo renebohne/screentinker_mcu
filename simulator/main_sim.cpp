@@ -5,6 +5,7 @@
 #include "setup_screen.h"
 #include "ota_updater.h"
 #include "touch_driver.h"
+#include "sim_serial.h"
 #include <ArduinoJson.h>
 #include <qrcode.h>
 #include <iostream>
@@ -337,7 +338,12 @@ int main(int argc, char** argv) {
   uint8_t simWifiPowerLevel = 0;
   uint8_t simRefreshMode = 0;
 
+  SimSerial::init();
+
   while (running) {
+    bool simWake = false;
+    SimSerial::poll(cfg, display, frameBuffer, monoBuffer, simWake, forceFullRefresh, running);
+    if (!running) break;
     if (cfg.powerSource != "usb" && !cfg.isCharging && cfg.batteryPercent >= 0 && cfg.batteryPercent <= CRITICAL_BATTERY_SHUTDOWN_PCT) {
       std::cout << "\n=============================================\n";
       std::cout << "  [Power] CRITICAL: Battery depleted (" << cfg.batteryPercent << "% <= " << CRITICAL_BATTERY_SHUTDOWN_PCT << "%)!\n";
@@ -646,6 +652,8 @@ int main(int argc, char** argv) {
     }
 
     if (cfg.oneShot) {
+      bool simWake = false;
+      SimSerial::poll(cfg, display, frameBuffer, monoBuffer, simWake, forceFullRefresh, running);
       std::cout << "[Simulator] One-shot run complete. Exiting.\n";
       return (res.statusCode == 0) ? 1 : 0;
     }
@@ -676,6 +684,10 @@ int main(int argc, char** argv) {
     };
 
     while (running && !wakeRequested) {
+      if (SimSerial::poll(cfg, display, frameBuffer, monoBuffer, wakeRequested, forceFullRefresh, running)) {
+        if (!running || wakeRequested) break;
+      }
+
       int batteryDelta = 0;
       bool powerToggled = false;
       bool rotateRequested = false;

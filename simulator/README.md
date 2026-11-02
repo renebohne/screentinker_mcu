@@ -191,3 +191,18 @@ Simulate smart LED light strips or matrices with authentic SDL2 physical visuali
 ScreenTinker supports any arbitrary matrix dimension (e.g. 8×8, 16×16, 32×8, 64×64, 128×64) dynamically without needing pre-baked server presets. During pairing, the simulator transmits a dynamic profile containing the exact width and height (`{"preset":"seeed-xiao-led","width":W,"height":H,"colorDepth":"24bit-rgb888","outputFormat":"raw"}`).
 
 Sample media for testing 5×1 strips and 64×64 matrices are available in `examples/media/`.
+
+### 10. Serial CLI & Stdio Interactive Control
+
+The simulator monitors standard input (`stdin`) non-blockingly for serial commands, providing full parity with the physical microcontroller's USB serial interface:
+
+```bash
+# Export active configuration as JSON (excluding Wi-Fi password)
+printf "export\nquit\n" | ./screentinker_sim --headless
+
+# Dynamically configure LED matrix geometry and verify
+printf "set matrix 32 8 serpentine vertical top_left\nexport\nquit\n" | ./screentinker_sim --headless
+
+# JSON RPC protocol over stdin
+printf '{"cmd":"status"}\n{"cmd":"export"}\nquit\n' | ./screentinker_sim --headless
+```

@@ -153,19 +153,45 @@ pio device monitor -b 115200
 
 ## Serial CLI & Diagnostics Interface
 
-When connected over USB Serial (`115200 Baud`), the firmware accepts plaintext and JSON commands:
+When connected over USB Serial (`115200 Baud`), the firmware provides both a human-friendly interactive command-line interface (CLI) and an automated JSON RPC interface:
+
+### Interactive Human CLI Commands
 
 | Command | Description |
 | :--- | :--- |
-| `status` | Output JSON status (firmware version, IP, RSSI, temperature, humidity, battery, orientation). |
-| `imu` | Print live LSM6DS3TR-C accelerometer axes and detected gravity orientation. |
-| `imu_debug` | Toggle visual IMU calibration card on display (cards A, B, C, D). |
-| `set_orientation <auto\|portrait\|landscape>` | Override active orientation mode. |
+| `help` or `?` | Display full command reference and configurable key list. |
+| `status` | Output JSON telemetry (firmware version, IP, RSSI, Device ID, Wi-Fi mode). |
+| `get [key]` / `get all` | Display configuration table or inspect single key (`ssid`, `server`, `matrix`, etc.). Passwords are masked. |
+| `set <key> <value>` | Update configuration key in NVS (e.g. `set wifi MySSID MyPass`, `set server http://192.168.1.50:3001`). |
+| `export [pretty]` | Export complete device configuration as JSON (Wi-Fi password is securely excluded). |
+| `scan` | Scan and display visible Wi-Fi networks with RSSI and channels. |
+| `refresh` | Trigger immediate server poll and render active playlist item. |
+| `next` / `prev` | Switch to next / previous playlist item. |
+| `pair` | Initiate 6-digit PIN device pairing flow. |
+| `wifi_always_on` / `wifi_powersave` | Toggle between always-on Wi-Fi and power-saving sleep. |
+| `reboot` / `restart` | Reboot microcontroller. |
+| `reset` | Factory reset (erase NVS settings) and reboot. |
+| `led_test` / `led_off` | *(LED targets only)* Run RGBW test sequence or turn off LEDs. |
+| `set matrix <w> <h> [wir] [axis] [orig]` | *(LED targets only)* Configure matrix geometry (e.g. `set matrix 32 8 serpentine vertical top_left`). |
+| `set brightness <0..255>` | *(LED targets only)* Adjust overall strip/matrix brightness. |
 | `logs` | Dump rolling 100-entry in-memory diagnostic log ring buffer. |
 | `update <url> [sha256]` | Initiate Over-The-Air dual-partition firmware update. |
 | `rollback` | Trigger immediate partition rollback and reboot. |
-| `reboot` | Restart the microcontroller. |
-| `factory_reset` | Wipe NVS credentials and reboot into pairing mode. |
+
+### Host Simulator Stdio Support
+
+The native desktop simulator (`screentinker_sim`) supports the exact same CLI and JSON commands via standard input (`stdin`):
+
+```bash
+# Export active configuration as JSON
+printf "export\nquit\n" | ./screentinker_sim --headless
+
+# Configure LED matrix geometry and verify
+printf "set matrix 32 8 serpentine vertical top_left\nexport\nquit\n" | ./screentinker_sim --headless
+
+# JSON protocol commands over pipe
+printf '{"cmd":"status"}\n{"cmd":"export"}\nquit\n' | ./screentinker_sim --headless
+```
 
 ---
 

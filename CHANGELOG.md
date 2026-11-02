@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2026-11-02
+
+### Added
+- **Human-Friendly Serial Command Line Interface (CLI)**:
+  - Terminal-friendly interactive interface over 115200 baud USB serial without requiring JSON formatting.
+  - Commands: `help` / `?`, `status`, `get [key]` / `get all`, `set <key> <value>`, `scan`, `refresh`, `next`, `prev`, `pair`, `reboot`, `reset`.
+  - Configurable keys: `ssid`, `pass` (automatically masked in output), `wifi <ssid> <pass>`, `server`, `device_id`, `token`, `wifi_always_on`, `tx_power`, `multizone`, `lang`, `orient`, `batt_cutoff`, and LED-specific matrix geometry (`matrix`, `width`, `height`, `wiring`, `axis`, `origin`, `brightness`).
+  - LED hardware test utilities: `led_test`, `led_off`, `led_red`, `led_green`, `led_blue`, `led_white`.
+- **JSON Configuration Export (`export` / `export pretty`)**:
+  - Full active device configuration dump as clean JSON for diagnostics and backup.
+  - Security hardening: Wi-Fi password is intentionally excluded from exported JSON payloads.
+  - Supported via both human CLI (`export`) and JSON protocol (`{"cmd":"export"}`).
+- **Simulator Serial CLI via Standard I/O (stdio)**:
+  - Non-blocking stdin monitoring in host simulator (`simulator/sim_serial.cpp`, `simulator/sim_serial.h`).
+  - Enables interactive terminal commands, shell pipes (`echo "export" | ./screentinker_sim`), and automated scripting.
+  - Full parity with microcontroller CLI and JSON RPC commands.
+- **Configurable Wi-Fi Always-On Mode (`wifi_always_on`)**:
+  - Eliminates reconnect overhead between sync intervals for line-powered devices (LED drivers, USB-powered screens).
+  - Defaults to enabled on LED and LCD profiles, with runtime toggling via serial (`wifi_always_on` / `wifi_powersave`) and NVS persistence.
+- **Enhanced Power & Battery Protection**:
+  - Raised critical battery shutdown threshold to 5% with multi-level battery cutoff configuration to safeguard against brownout resets on depleted LiPo cells.
+  - Subpage menu architecture for System Menu to comfortably navigate battery and Wi-Fi options.
+
 ## [1.4.2] - 2026-10-30
 
 ### Added

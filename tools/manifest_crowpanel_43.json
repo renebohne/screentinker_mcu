@@ -1,6 +1,6 @@
 {
   "name": "ScreenTinker Elecrow CrowPanel 4.3\" RGB LCD (480x272)",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "home_assistant_domain": "screentinker",
   "new_install_prompt_erase": false,
   "builds": [

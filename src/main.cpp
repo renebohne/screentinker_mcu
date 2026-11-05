@@ -13,6 +13,8 @@
 
 #if defined(DEVICE_IS_LED_STRIP)
 #include "led_driver.h"
+#include "led_config.h"
+#include "anim_player.h"
 #include "oled_status.h"
 typedef void* seeed_epaper_panel_handle_t;
 inline void seeed_epaper_panel_sleep(seeed_epaper_panel_handle_t) {}
@@ -475,7 +477,8 @@ static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = fa
 #if defined(DEVICE_IS_LED_STRIP)
   if (!rotatedBuf) return false;
   size_t bytesToShow = (s_lastFrameBytes > 0) ? s_lastFrameBytes : (led_driver_get_count() * 3);
-  return led_driver_show_rgb(rotatedBuf, bytesToShow, "GRB");
+  anim_stop();   // a cached still or a status screen replaces any animation
+  return led_driver_show_rgb(rotatedBuf, bytesToShow, led_config_color_order());
 #elif defined(DEVICE_IS_RGB_LCD)
   if (!initDisplayPanel()) return false;
   if (!rotatedBuf) return false;
@@ -650,6 +653,7 @@ void showEmptyPlaylistScreen(const char* deviceName = "", Language lang = LANG_E
   s_currentLang = lang;
 #if defined(DEVICE_IS_LED_STRIP)
   oled_show_status(deviceName, 0, 0, WiFi.RSSI(), "Empty Playlist");
+  anim_stop();
   led_driver_clear();
 #else
   if (!s_rawBuffer || !s_rotatedBuffer) return;
@@ -823,7 +827,9 @@ void showStatusInfoScreen() {
 RTC_DATA_ATTR int      rtc_unchangedCycles   = 0;
 RTC_DATA_ATTR int      rtc_currentItemIndex  = 0;
 RTC_DATA_ATTR uint32_t rtc_lastSyncIntervalS = 30;
-RTC_DATA_ATTR char     rtc_lastEtag[64]      = {0};
+// 66 chars: the server ETag is a quoted 64-hex SHA-256. At 64 it was truncated, never matched,
+// and every poll downloaded the full frame again (no 304s ever).
+RTC_DATA_ATTR char     rtc_lastEtag[80]      = {0};
 
 static bool     s_inInteractiveMode      = false;
 static uint32_t s_interactiveUntilMillis = 0;
@@ -1380,6 +1386,9 @@ void disconnectWiFiIfPowerSave() {
 
 // ─── Automatic 6-Digit Pairing Flow ───────────────────────────────────────────
 bool registerAndStartPairing() {
+#if defined(DEVICE_IS_LED_STRIP)
+  anim_stop();   // the pairing pulse owns the LEDs now
+#endif
   if (!connectWiFi()) return false;
 
   String url = g_serverUrl + "/api/embedded/pair/register";
@@ -1635,6 +1644,14 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     Serial.printf("[Sync] Ambient SHT40: %.1f C, %.1f%% RH\n", tempC, humidityPct);
   }
 
+#if defined(DEVICE_IS_LED_STRIP)
+  // Remote LED settings report (led_config.h) and animation support (anim_player.h).
+  http.addHeader("X-ST-Led-State", led_config_state_header());
+  http.addHeader("X-ST-Animation", "1");
+  http.addHeader("X-ST-Animation-Budget", String((unsigned)anim_budget()));
+  http.addHeader("X-ST-Animation-Max-Fps", "60");
+#endif
+
   String cachedEtag = cacheGetEtag(targetIndex);
   if (cachedEtag.length() == 0 && strlen(rtc_lastEtag) > 0) {
     cachedEtag = String(rtc_lastEtag);
@@ -1649,12 +1666,19 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     "X-ST-Total-Zones", "X-ST-Layout-Fallback", "X-ST-Device-Name",
     "X-ST-Command", "X-ST-Power-State", "X-ST-Screen-Width",
     "X-ST-Screen-Height", "X-ST-Rotation", "X-ST-Orientation",
-    "X-ST-Refresh-Mode", "X-ST-Color-Mode"
+    "X-ST-Refresh-Mode", "X-ST-Color-Mode", "Content-Type", "X-ST-Led-Config"
   };
-  http.collectHeaders(headerKeys, 15);
+  http.collectHeaders(headerKeys, 17);
 
   int httpCode = http.GET();
   Serial.printf("[Sync] HTTP Response: %d\n", httpCode);
+
+#if defined(DEVICE_IS_LED_STRIP)
+  // Settings ride every answer (200 and 304 alike); applied only when their rev changed.
+  if (http.hasHeader("X-ST-Led-Config") && led_config_apply_header(http.header("X-ST-Led-Config"))) {
+    anim_set_color_order(led_config_color_order());
+  }
+#endif
 
   int serverW = 0, serverH = 0, serverRot = -1;
   String orientStr = "";
@@ -1865,6 +1889,51 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     }
 #endif
 
+#if defined(DEVICE_IS_LED_STRIP)
+    // ── Animated GIF from the server (STA1, anim_player.h) ──
+    String ctype = http.hasHeader("Content-Type") ? http.header("Content-Type") : "";
+    if (ctype.startsWith("application/x-st-anim")) {
+      int animLen = http.getSize();
+      size_t budget = anim_budget();
+      if (animLen <= 0 || (size_t)animLen > budget + 1024) {
+        Serial.printf("[Anim] Animation of %d bytes does not fit (budget %u); keeping the current picture.\n", animLen, (unsigned)budget);
+        http.end();
+        disconnectWiFiIfPowerSave();
+        return;
+      }
+      uint8_t* animBuf = (uint8_t*)malloc((size_t)animLen);
+      if (!animBuf) {
+        Serial.println("[Anim] Out of memory for the animation; keeping the current picture.");
+        http.end();
+        disconnectWiFiIfPowerSave();
+        return;
+      }
+      WiFiClient* astream = http.getStreamPtr();
+      size_t got = 0;
+      uint32_t t0 = millis();
+      while (got < (size_t)animLen && (http.connected() || astream->available()) && millis() - t0 < 15000) {
+        size_t avail = astream->available();
+        if (avail) {
+          int n = astream->readBytes((char*)animBuf + got, min(avail, (size_t)animLen - got));
+          if (n > 0) got += n;
+        } else {
+          delay(2);
+        }
+      }
+      http.end();
+      if (got == (size_t)animLen && anim_start(animBuf, got, led_config_color_order())) {
+        String devName = http.hasHeader("X-ST-Device-Name") ? http.header("X-ST-Device-Name") : "LED Strip";
+        oled_show_status(devName.c_str(), s_currentItemIndex, s_totalItems, curRssi, "Anim");
+        ota_confirm_running_partition();
+      } else if (got != (size_t)animLen) {
+        Serial.printf("[Anim] Incomplete animation (%u / %d bytes); keeping the current picture.\n", (unsigned)got, animLen);
+        free(animBuf);
+      }
+      disconnectWiFiIfPowerSave();
+      return;
+    }
+#endif
+
     WiFiClient* stream = http.getStreamPtr();
     size_t totalReceived = 0;
     uint32_t streamStart = millis();
@@ -1896,7 +1965,9 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
 #if defined(DEVICE_IS_LED_STRIP)
     if (totalReceived > 0) {
       String devName = http.hasHeader("X-ST-Device-Name") ? http.header("X-ST-Device-Name") : "LED Strip";
-      led_driver_show_rgb(s_rawBuffer, totalReceived, "GRB");
+      anim_stop();   // a still frame replaces any animation that was playing
+      led_driver_show_rgb(s_rawBuffer, totalReceived, led_config_color_order());
+      led_config_note_frame_estimate(led_driver_last_estimate_ma());
       oled_show_status(devName.c_str(), s_currentItemIndex, s_totalItems, curRssi, "OK");
       ota_confirm_running_partition();
     } else {
@@ -1969,6 +2040,9 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
 
     Serial.printf("[Sync] HTTP 404 (%s). No playlist assigned to '%s'.\n", errBody.c_str(), devName.c_str());
     http.end();
+#if defined(DEVICE_IS_LED_STRIP)
+    anim_stop();   // nothing is assigned any more: do not keep playing the old animation
+#endif
     disconnectWiFiIfPowerSave();
 
     // If cache is empty, display clear diagnostic message so screen is not stuck on pairing QR
@@ -2987,6 +3061,8 @@ void setup() {
   uint16_t totalLeds = (matW > 0 && matH > 0) ? (matW * matH) : 5;
   led_driver_init(totalLeds);
   led_driver_set_matrix_config(matW, matH, (MatrixWiring)matWir, (MatrixAxis)matAxis, (MatrixOrigin)matOrig);
+  // Saved server settings (brightness, power limit, colour order), and brownout learning.
+  led_config_begin();
   oled_status_init();
 #elif defined(DEVICE_IS_RGB_LCD)
   lcd_driver_init();
@@ -3341,6 +3417,9 @@ static void executeMenuAction(int selection) {
 }
 
 void loop() {
+#if defined(DEVICE_IS_LED_STRIP)
+  anim_tick();   // shows the next animation frame when it is due
+#endif
   if (checkCriticalBatteryAndShutdown()) return;
 
   if (!s_apModeActive) {

@@ -20,7 +20,7 @@ struct SimConfig {
 #ifdef FIRMWARE_VERSION
   std::string firmwareVersion = FIRMWARE_VERSION;
 #else
-  std::string firmwareVersion = "1.4.3";
+  std::string firmwareVersion = "1.5.0";
 #endif
   int batteryPercent = 100;
   std::string powerSource = "battery"; // "battery" or "usb"

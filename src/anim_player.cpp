@@ -19,12 +19,14 @@ static inline uint16_t rd16(const uint8_t* p) { return (uint16_t)p[0] | ((uint16
 static inline uint32_t rd32(const uint8_t* p) { return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24); }
 
 size_t anim_budget() {
-  // A third of the largest free block, at most 128 KB: the C3 has no PSRAM, and Wi-Fi/TLS need the rest.
+  // Half the largest free block, at most 128 KB. The animation playing now is freed before the next
+  // one is allocated (main.cpp), so its bytes count as available. The C3 has no PSRAM; if the
+  // allocation still fails, the current picture is kept rather than anything breaking.
   size_t largest = ESP.getMaxAllocHeap();
 #if defined(BOARD_HAS_PSRAM)
   if (psramFound()) largest = ESP.getMaxAllocPsram();
 #endif
-  size_t b = largest / 3;
+  size_t b = (largest + s_len) / 2;
   if (b > 128 * 1024) b = 128 * 1024;
   return b;
 }

@@ -830,6 +830,9 @@ RTC_DATA_ATTR uint32_t rtc_lastSyncIntervalS = 30;
 // 66 chars: the server ETag is a quoted 64-hex SHA-256. At 64 it was truncated, never matched,
 // and every poll downloaded the full frame again (no 304s ever).
 RTC_DATA_ATTR char     rtc_lastEtag[80]      = {0};
+#if defined(DEVICE_IS_LED_STRIP)
+static size_t s_animBudgetSent = 0;   // X-ST-Animation-Budget on the request in flight
+#endif
 
 static bool     s_inInteractiveMode      = false;
 static uint32_t s_interactiveUntilMillis = 0;
@@ -1648,7 +1651,10 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
   // Remote LED settings report (led_config.h) and animation support (anim_player.h).
   http.addHeader("X-ST-Led-State", led_config_state_header());
   http.addHeader("X-ST-Animation", "1");
-  http.addHeader("X-ST-Animation-Budget", String((unsigned)anim_budget()));
+  // Remember what we promised: the heap shrinks while the request is in flight, so re-measuring
+  // when the answer arrives rejected animations the server had sized to fit exactly this.
+  s_animBudgetSent = anim_budget();
+  http.addHeader("X-ST-Animation-Budget", String((unsigned)s_animBudgetSent));
   http.addHeader("X-ST-Animation-Max-Fps", "60");
 #endif
 
@@ -1894,13 +1900,14 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     String ctype = http.hasHeader("Content-Type") ? http.header("Content-Type") : "";
     if (ctype.startsWith("application/x-st-anim")) {
       int animLen = http.getSize();
-      size_t budget = anim_budget();
+      size_t budget = s_animBudgetSent;
       if (animLen <= 0 || (size_t)animLen > budget + 1024) {
         Serial.printf("[Anim] Animation of %d bytes does not fit (budget %u); keeping the current picture.\n", animLen, (unsigned)budget);
         http.end();
         disconnectWiFiIfPowerSave();
         return;
       }
+      anim_stop();   // free the previous animation first: on a C3 (no PSRAM) that is most of the room
       uint8_t* animBuf = (uint8_t*)malloc((size_t)animLen);
       if (!animBuf) {
         Serial.println("[Anim] Out of memory for the animation; keeping the current picture.");

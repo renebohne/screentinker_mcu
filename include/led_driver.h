@@ -40,6 +40,13 @@ bool led_driver_show_rgb(const uint8_t* rgbData, size_t dataLen, const char* col
 
 // Animated breathing / status effect during pairing/onboarding
 // phase: 0.0 to 1.0 (repeating cycle)
+// Power limiter (mA, 0 = off): each frame is dimmed just enough that its estimated current fits.
+void led_driver_set_power_limit(uint32_t milliamps);
+uint32_t led_driver_get_power_limit();
+// The last frame's estimated current after limiting, and the brightness it was shown at.
+uint32_t led_driver_last_estimate_ma();
+uint8_t led_driver_last_applied_brightness();
+
 void led_driver_pulse_status(float phase, uint8_t baseR = 255, uint8_t baseG = 140, uint8_t baseB = 0);
 
 #ifdef __cplusplus

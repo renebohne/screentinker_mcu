@@ -100,8 +100,9 @@ bool anim_start(uint8_t* buf, size_t len, const char* colorOrder) {
   anim_set_color_order(colorOrder);
   rewind();
   showCurrent();
-  Serial.printf("[Anim] Playing %ux%u, %u frames, %s (%u bytes).\n", s_w, s_h, s_frames,
-                s_loops == 0 ? "looping" : "finite", (unsigned)len);
+  Serial.printf("[Anim] Playing %ux%u, %u frames, %s (%u bytes). Heap free %u, largest %u, min ever %u.\n", s_w, s_h, s_frames,
+                s_loops == 0 ? "looping" : "finite", (unsigned)len,
+                (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap(), (unsigned)ESP.getMinFreeHeap());
   return true;
 }
 

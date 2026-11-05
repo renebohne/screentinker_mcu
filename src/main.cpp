@@ -832,6 +832,9 @@ RTC_DATA_ATTR uint32_t rtc_lastSyncIntervalS = 30;
 RTC_DATA_ATTR char     rtc_lastEtag[80]      = {0};
 #if defined(DEVICE_IS_LED_STRIP)
 static size_t s_animBudgetSent = 0;   // X-ST-Animation-Budget on the request in flight
+// Power schedule (X-ST-Power-State: scheduled_off). An e-paper panel keeps its picture unpowered,
+// so it only sleeps; WS2812s keep showing their last colours, so an LED wall has to be blanked.
+static bool s_ledScheduledOff = false;
 #endif
 
 static bool     s_inInteractiveMode      = false;
@@ -1758,12 +1761,32 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     if (pState.length() > 0) {
       Serial.printf("[Power] Server power state: %s\n", pState.c_str());
     }
+#if defined(DEVICE_IS_LED_STRIP)
+    if (pState == "scheduled_off" && !s_ledScheduledOff) {
+      s_ledScheduledOff = true;
+      anim_stop();
+      led_driver_clear();
+      Serial.println("[Power] Scheduled off: LEDs blanked until the schedule turns the screen back on.");
+    } else if (pState != "scheduled_off" && s_ledScheduledOff) {
+      s_ledScheduledOff = false;
+      // The picture was blanked, so "unchanged" (304) would leave it dark: ask for a full frame.
+      rtc_lastEtag[0] = '\0';
+      for (int i = 0; i < MAX_CACHED_ITEMS; i++) s_cache[i].etag = "";
+      scheduleNextSync(1);
+      Serial.println("[Power] Schedule on again: fetching a full frame.");
+    }
+#endif
   }
 
   if (http.hasHeader("X-ST-Expires-In")) {
     int exp = http.header("X-ST-Expires-In").toInt();
     // Enforce minimum 10s sync interval to protect E-Paper display
     if (exp > 0) s_syncIntervalMs = max((uint32_t)10000, (uint32_t)(exp * 1000));
+#if defined(DEVICE_IS_LED_STRIP)
+    // Mains-powered and awake anyway: never go hours without asking, so the wall comes back within
+    // minutes of its schedule turning it on (and sees a changed schedule).
+    if (s_syncIntervalMs > 300000) s_syncIntervalMs = 300000;
+#endif
   }
   int resolvedIndex = s_currentItemIndex;
   if (http.hasHeader("X-ST-Item-Index")) {
@@ -1799,7 +1822,12 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     // If playlist advanced to another item that is in cache, display it without re-downloading
     uint8_t cachedColorMode = DEVICE_COLOR_MODE;
     size_t cachedFrameSize = 0;
-    if (resolvedIndex != s_currentItemIndex && cacheGet(resolvedIndex, s_rotatedBuffer, &cachedColorMode, &cachedFrameSize)) {
+#if defined(DEVICE_IS_LED_STRIP)
+    const bool mayDraw = !s_ledScheduledOff;   // scheduled off: stay dark even if the item moved on
+#else
+    const bool mayDraw = true;
+#endif
+    if (mayDraw && resolvedIndex != s_currentItemIndex && cacheGet(resolvedIndex, s_rotatedBuffer, &cachedColorMode, &cachedFrameSize)) {
       s_currentItemIndex = resolvedIndex;
       rtc_currentItemIndex = resolvedIndex;
       s_lastFrameBytes = s_cache[resolvedIndex].frameSize;
@@ -1928,7 +1956,9 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
         }
       }
       http.end();
-      if (got == (size_t)animLen && anim_start(animBuf, got, led_config_color_order())) {
+      if (s_ledScheduledOff) {
+        free(animBuf);   // scheduled off: stay dark
+      } else if (got == (size_t)animLen && anim_start(animBuf, got, led_config_color_order())) {
         String devName = http.hasHeader("X-ST-Device-Name") ? http.header("X-ST-Device-Name") : "LED Strip";
         oled_show_status(devName.c_str(), s_currentItemIndex, s_totalItems, curRssi, "Anim");
         ota_confirm_running_partition();
@@ -1973,7 +2003,7 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
     if (totalReceived > 0) {
       String devName = http.hasHeader("X-ST-Device-Name") ? http.header("X-ST-Device-Name") : "LED Strip";
       anim_stop();   // a still frame replaces any animation that was playing
-      led_driver_show_rgb(s_rawBuffer, totalReceived, led_config_color_order());
+      if (!s_ledScheduledOff) led_driver_show_rgb(s_rawBuffer, totalReceived, led_config_color_order());
       led_config_note_frame_estimate(led_driver_last_estimate_ma());
       oled_show_status(devName.c_str(), s_currentItemIndex, s_totalItems, curRssi, "OK");
       ota_confirm_running_partition();

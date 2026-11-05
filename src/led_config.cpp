@@ -27,6 +27,7 @@ RTC_NOINIT_ATTR static uint32_t rtc_estMagic;
 RTC_NOINIT_ATTR static uint32_t rtc_lastEstMa;
 static const uint32_t EST_MAGIC = 0x5354454D; // "STEM"
 
+static char s_reasonBuf[16];
 static const char* reasonName(esp_reset_reason_t r) {
   switch (r) {
     case ESP_RST_POWERON: return "poweron";
@@ -36,7 +37,10 @@ static const char* reasonName(esp_reset_reason_t r) {
     case ESP_RST_SW: return "software";
     case ESP_RST_DEEPSLEEP: return "deepsleep";
     case ESP_RST_EXT: return "external";
-    default: return "unknown";
+    default:
+      // Anything else (USB-JTAG reset, CPU lockup, ...) as its number, so a crash is never just "unknown".
+      snprintf(s_reasonBuf, sizeof(s_reasonBuf), "rst%d", (int)r);
+      return s_reasonBuf;
   }
 }
 

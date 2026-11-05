@@ -3064,6 +3064,12 @@ void processSerialLine(const String& line) {
 void setup() {
   s_bootMillis = millis();
   Serial.begin(115200);
+#if ARDUINO_USB_CDC_ON_BOOT && ARDUINO_USB_MODE
+  // Native USB serial (XIAO C3/C6/S3): with a cable plugged in but no terminal reading, every write
+  // waits out the 100 ms default timeout once the buffer is full, so a poll's ~15 log lines froze the
+  // loop for over a second and animations stalled ("works while we watch it"). Drop output instead.
+  Serial.setTxTimeoutMs(0);
+#endif
   delay(50);
   initBoardPowerAndPins();
 

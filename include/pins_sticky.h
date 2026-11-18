@@ -15,14 +15,14 @@
 #define PIN_CHG_STAT     40  // BQ25616 charge status (LOW = actively charging)
 #define PIN_CHG_EN       39  // BQ25616 charge enable (LOW = charging enabled)
 
-// ─── 3.97" B/W E-Paper (800x480, SSD1677) ────────────────────────────────────
+// ─── 3.97" B/W E-Paper (800x480, SSD1677 / SSD2677 Auto-Detected) ───────────
 #define PIN_EPD_SCK      13  // SPI Clock (Shared with SD Card)
-#define PIN_EPD_MOSI     14  // SPI MOSI  (Shared with SD Card)
+#define PIN_EPD_MOSI     14  // SPI MOSI  (Shared with SD Card, Bidirectional Half-Duplex for EPD)
 #define PIN_EPD_MISO     12  // SPI MISO  (Shared with SD Card)
 #define PIN_EPD_CS       15  // EPD Chip Select (Active Low)
 #define PIN_EPD_DC       16  // EPD Data / Command (Low = Command, High = Data)
 #define PIN_EPD_RST      17  // EPD Reset (Active Low)
-#define PIN_EPD_BUSY     18  // EPD Busy Status (High = Busy)
+#define PIN_EPD_BUSY     18  // EPD Busy Status (High = Busy on SSD1677, Low = Busy on SSD2677)
 #define PIN_EPD_PWR_EN   47  // EPD Power Enable (High = Power Boost Circuit On)
 
 // ─── User Buttons ─────────────────────────────────────────────────────────────

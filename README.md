@@ -9,7 +9,7 @@ ScreenTinker MCU powers a diverse ecosystem of visual hardware — ranging from 
 ## Supported Hardware Platforms
 
 ### 1. E-Paper Displays (Ultra-Low-Power Signage)
-- **Seeed Studio reTerminal Sticky**: 3.97" 800×480 Monochrome (SSD1677 driver, 1bpp, SHT40, 6-axis IMU, BQ27220 fuel gauge).
+- **Seeed Studio reTerminal Sticky**: 3.97" 800×480 Monochrome (SSD1677 & SSD2677 drivers with automatic runtime probe detection, 1bpp, SHT40, 6-axis IMU, BQ27220 fuel gauge).
 - **Seeed Studio reTerminal E1001**: 7.5" 800×480 Monochrome & 4-Level Grayscale (UC8179 driver).
 - **Seeed Studio reTerminal E1002**: 7.3" 800×480 6-Color Spectra 6 (ED2208 driver, 4bpp).
 - **Seeed Studio reTerminal E1003**: 10.3" 1872×1404 16-Level Grayscale (IT8951 controller, capacitive touch, 4bpp).
@@ -58,7 +58,7 @@ ScreenTinker MCU powers a diverse ecosystem of visual hardware — ranging from 
 
 | Model / Target | Category | Resolution | Color Depth | Controller IC | Primary Features |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **reTerminal Sticky** | E-Paper | 800×480 | 1bpp Mono | SSD1677 | SHT40, LSM6DS3TR-C IMU, Fuel Gauge, 3 Buttons |
+| **reTerminal Sticky** | E-Paper | 800×480 | 1bpp Mono | SSD1677 / SSD2677 (Auto) | SHT40, LSM6DS3TR-C IMU, Fuel Gauge, 3 Buttons |
 | **reTerminal E1001** | E-Paper | 800×480 | 1bpp / Gray4 | UC8179 | SHT40, RTC PCF8563, MicroSD, 3 Buttons |
 | **reTerminal E1002** | E-Paper | 800×480 | 4bpp Spectra 6 | ED2208 | SHT40, RTC PCF8563, MicroSD, 3 Buttons |
 | **reTerminal E1003** | E-Paper | 1872×1404 | 4bpp Gray16 | IT8951 | SHT40, Touchscreen (GT911), RTC, MicroSD |

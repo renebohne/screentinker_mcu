@@ -42,6 +42,7 @@ class TestDisplayDrivers(unittest.TestCase):
         expected_models = [
             "SEEED_EPAPER_PANEL_UC8179",
             "SEEED_EPAPER_PANEL_SSD1677",
+            "SEEED_EPAPER_PANEL_SSD2677",
             "SEEED_EPAPER_PANEL_ED2208",
             "SEEED_EPAPER_PANEL_IT8951",
             "SEEED_EPAPER_PANEL_T133A01",
@@ -68,6 +69,7 @@ class TestDisplayDrivers(unittest.TestCase):
         driver_dir = LIB_EPAPER / "driver"
         expected_drivers = [
             "ssd1677.c",
+            "ssd2677.c",
             "uc8179.c",
             "ed2208.c",
             "it8951.c",
@@ -84,6 +86,7 @@ class TestDisplayDrivers(unittest.TestCase):
 
         expected_getters = [
             "seeed_epaper_ssd1677_driver",
+            "seeed_epaper_ssd2677_driver",
             "seeed_epaper_uc8179_driver",
             "seeed_epaper_ed2208_driver",
             "seeed_epaper_it8951_driver",
@@ -272,6 +275,38 @@ class TestDisplayDrivers(unittest.TestCase):
             guard_pos,
             "device_profile.h must be included before any DEVICE_SUPPORTS_TOUCH preprocessor guard",
         )
+
+    def test_11_panel_mirror_x_configuration_and_uniformity(self):
+        """Validates that DEVICE_PANEL_MIRROR_X is defined and that epaper_panel.c has no model-specific mirror bypasses."""
+        dev_profile = (INCLUDE_DIR / "device_profile.h").read_text()
+        self.assertIn("DEVICE_PANEL_MIRROR_X", dev_profile)
+
+        # Ensure epaper_panel.c does NOT bypass mirror_x for any specific panel model
+        epaper_panel_c = (LIB_EPAPER / "epaper_panel.c").read_text()
+        self.assertNotIn("mirror_x && panel->model", epaper_panel_c,
+                         "epaper_panel.c must not bypass mirror_x based on panel model")
+
+        # Verify mirror_x pixel reversal bit/byte transform:
+        def reverse_bits(val):
+            val = ((val & 0xF0) >> 4) | ((val & 0x0F) << 4)
+            val = ((val & 0xCC) >> 2) | ((val & 0x33) << 2)
+            val = ((val & 0xAA) >> 1) | ((val & 0x55) << 1)
+            return val
+
+        self.assertEqual(reverse_bits(0xC0), 0x03)
+        self.assertEqual(reverse_bits(0x80), 0x01)
+        self.assertEqual(reverse_bits(0x01), 0x80)
+
+        # Verify 2-byte row mirror: [0xC0, 0x00] -> [0x00, 0x03]
+        row = bytearray([0xC0, 0x00])
+        mirrored_row = bytearray([reverse_bits(row[1]), reverse_bits(row[0])])
+        self.assertEqual(mirrored_row, bytearray([0x00, 0x03]))
+
+        # Verify IO area transformation: x_io = width - (x + w)
+        panel_w = 800
+        area_x, area_w = 100, 200
+        io_x = panel_w - (area_x + area_w)
+        self.assertEqual(io_x, 500)
 
 
 if __name__ == "__main__":

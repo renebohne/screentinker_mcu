@@ -422,6 +422,9 @@ static bool initDisplayPanel() {
   device_config.mode = 0;
   device_config.spics_io_num = PIN_EPD_CS;
   device_config.queue_size = 1;
+#if defined(DEVICE_RETERMINAL_STICKY)
+  device_config.flags = SPI_DEVICE_HALFDUPLEX | SPI_DEVICE_3WIRE;
+#endif
 
   err = spi_bus_add_device(SPI2_HOST, &device_config, &s_spi_device);
   if (err != ESP_OK) {
@@ -438,6 +441,7 @@ static bool initDisplayPanel() {
 #else
   panel_config.pin_dc = GPIO_NUM_NC;
 #endif
+  panel_config.pin_cs = (gpio_num_t)PIN_EPD_CS;
   panel_config.pin_rst = (gpio_num_t)PIN_EPD_RST;
   panel_config.pin_busy = (gpio_num_t)PIN_EPD_BUSY;
 #ifdef PIN_EPD_ENABLE
@@ -455,7 +459,7 @@ static bool initDisplayPanel() {
   panel_config.reset_high_ms = 10;
   panel_config.busy_level = 1;
   panel_config.enable_level = 1;
-  panel_config.mirror_x = true;
+  panel_config.mirror_x = (DEVICE_PANEL_MIRROR_X != 0);
 
   err = seeed_epaper_new_panel((seeed_epaper_panel_model_t)DEVICE_PANEL_MODEL, &panel_config, &s_panel);
   if (err != ESP_OK) {
@@ -463,8 +467,14 @@ static bool initDisplayPanel() {
     return false;
   }
 
+  seeed_epaper_panel_model_t activeModel = (seeed_epaper_panel_model_t)DEVICE_PANEL_MODEL;
+  seeed_epaper_panel_get_model(s_panel, &activeModel);
+  const char* driverName = seeed_epaper_panel_get_driver_name(s_panel);
+
   s_epdInitialized = true;
-  Serial.printf("[EPD] Display panel initialized (%s, model %d).\n", DEVICE_PROFILE_NAME, (int)DEVICE_PANEL_MODEL);
+  Serial.printf("[EPD] Display panel initialized (%s, driver: %s, model: %d).\n",
+                DEVICE_PROFILE_NAME, driverName, (int)activeModel);
+  Serial.printf("[EPD] Active display driver: %s\n", driverName);
   return true;
 #endif
 }
@@ -486,6 +496,11 @@ static bool renderRotatedBuffer(const uint8_t* rotatedBuf, bool fastPartial = fa
   return lcd_driver_draw_rgb565(rotatedBuf, bytesToShow);
 #else
   if (!initDisplayPanel()) return false;
+
+  float ambientTemp = 0.0f, ambientHumidity = 0.0f;
+  if (s_panel && sht40_read(&ambientTemp, &ambientHumidity)) {
+    seeed_epaper_panel_set_external_temperature(s_panel, ambientTemp);
+  }
 
   const seeed_epaper_area_t full_screen = {0, 0, (uint16_t)EPD_WIDTH, (uint16_t)EPD_HEIGHT};
   uint32_t refStart = millis();

@@ -152,6 +152,14 @@
   #endif
 #endif
 
+#ifndef DEVICE_PANEL_MIRROR_X
+  #if defined(DEVICE_IS_RGB_LCD) || defined(DEVICE_IS_LED_STRIP)
+    #define DEVICE_PANEL_MIRROR_X          0
+  #else
+    #define DEVICE_PANEL_MIRROR_X          1
+  #endif
+#endif
+
 // ─── Default Fallbacks for Optional Hardware Pins ─────────────────────────────
 #ifndef PIN_EPD_MISO
 #define PIN_EPD_MISO     -1

@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.4] - 2026-11-18
+
+### Added
+- **Dual Display Controller Support for reTerminal Sticky (SSD1677 & SSD2677)**:
+  - Full driver integration for the newer **SSD2677** e-paper controller in `lib/seeed_epaper` (`driver/ssd2677.c`).
+  - Seamless automatic runtime chip detection: probes Device ID register `0x70` over half-duplex 3-wire SPI to differentiate between SSD2677 (`chip_id = 0x07`) and legacy SSD1677.
+  - Dynamic BUSY line polarity handling: automatically adapts between Active HIGH (SSD1677, `busy_level = 1`) and Active LOW (SSD2677, `busy_level = 0`).
+  - Serial terminal telemetry reporting the active controller at boot: `[EPD] Active display driver: SSD2677` (or `SSD1677`).
+  - Supports 2bpp bit-interleaved full mono updates, differential partial refreshes, and 4-level grayscale (Gray4).
+
+### Fixed
+- **Display Driver & HAL Stability Refinements**:
+  - Fixed `mirror_x` mismatch in `update_framebuffer_region_from_gray4` during SSD2677 Gray4-to-Partial transitions.
+  - Restored 50 ms BUSY assertion settle delay in `seeed_epaper_panel_wait_ready` along with polling fallback to avoid premature ready returns across all controllers (SSD1677, UC8179, ED2208, SSD2677).
+  - Restricted `previous_framebuffer` allocation to SSD2677 only in `ensure_framebuffer`, preventing unnecessary memory doubling on large panels (IT8951, T133A01).
+  - Restored 1bpp baseline sync and `partial_ready = true` after Gray4 updates on UC8179 (reTerminal E1001).
+  - Unified waveform latch helpers (`ssd2677_latch_waveform`) and cleaned up commented-out debug code in `driver/ssd2677.c`.
+  - Fixed horizontal mirroring on SSD1677 reTerminal Sticky panels by removing hardware RAM entry mode inversion bypass, standardizing software mirror transformation across all display models.
+
 ## [1.4.3] - 2026-11-02
 
 ### Added

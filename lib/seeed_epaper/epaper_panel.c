@@ -14,17 +14,23 @@
 
 #include "app_debug_log.h"
 
-// Shared panel layer: owns buffers, SPI chunks, coordinate conversion and refresh sessions.
-// 屏幕公共层：统一管理缓冲区、SPI分块、坐标转换和刷新会话。
 #define SEEED_EPAPER_SPI_CHUNK_BYTES 1024U
 
 static const char *TAG = "seeed_epaper";
 static const uint32_t kPreferredBufferCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
 static const uint32_t kFallbackBufferCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
 static const uint32_t kSpiTxBufferCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT;
+static const uint32_t kSsd1677BusyTimeoutMs = 8000U;
+static const uint16_t kSsd1677ResetLowMs = 10U;
+static const uint16_t kSsd1677ResetHighMs = 10U;
+static const uint32_t kSsd2677BusyTimeoutMs = 30000U;
+static const uint16_t kSsd2677ResetLowMs = 20U;
+static const uint16_t kSsd2677ResetHighMs = 10U;
+static const uint8_t kSsd2677ChipId = 0x07U;
 static atomic_bool s_busy_wait_active = ATOMIC_VAR_INIT(false);
 
 static size_t packed_mono_stride(uint16_t width);
+static size_t packed_2bpp_stride(uint16_t width);
 
 static uint64_t epaper_log_ms(void)
 {
@@ -93,8 +99,12 @@ static void mark_panel_needs_reinit(seeed_epaper_panel_t *panel)
 
     panel->prepared = false;
     panel->sleeping = false;
+    panel->standby = false;
+    panel->partial_after_standby = false;
     panel->partial_ready = false;
+    panel->refresh_powered = false;
     panel->dirty_valid = false;
+    panel->gray4_valid = false;
     APP_EPAPER_DEBUG_LOGW(TAG, "panel marked for reinit");
 }
 
@@ -105,8 +115,6 @@ static void *alloc_temp_buffer(size_t size)
 
 static esp_err_t ensure_spi_tx_buffer(seeed_epaper_panel_t *panel)
 {
-    // DMA transfers require an internal-memory staging buffer with DMA capability.
-    // DMA传输需要一块位于内部内存、并带DMA能力的中转缓冲区。
     ESP_RETURN_ON_FALSE(panel != NULL, ESP_ERR_INVALID_ARG, TAG, "panel is null");
 
     if (panel->spi_tx_buffer != NULL && panel->spi_tx_buffer_len >= SEEED_EPAPER_SPI_CHUNK_BYTES) {
@@ -128,13 +136,14 @@ static esp_err_t ensure_spi_tx_buffer(seeed_epaper_panel_t *panel)
 
 static esp_err_t ensure_framebuffer(seeed_epaper_panel_t *panel)
 {
-    // Prefer PSRAM for the full comparison frame and fall back to internal RAM.
-    // 完整对比帧优先放入PSRAM，分配失败时再使用内部内存。
     ESP_RETURN_ON_FALSE(panel != NULL, ESP_ERR_INVALID_ARG, TAG, "panel is null");
 
     const size_t stride = (panel->info.native_bpp == 4) ? (size_t)((panel->info.width + 1U) >> 1) : packed_mono_stride(panel->info.width);
     const size_t len = stride * panel->info.height;
-    if (panel->framebuffer != NULL && panel->framebuffer_len == len) {
+    const bool needs_prev = (panel->model == SEEED_EPAPER_PANEL_SSD2677);
+    if (panel->framebuffer != NULL &&
+        panel->framebuffer_len == len &&
+        (!needs_prev || (panel->previous_framebuffer != NULL && panel->previous_framebuffer_len == len))) {
         return ESP_OK;
     }
 
@@ -144,18 +153,61 @@ static esp_err_t ensure_framebuffer(seeed_epaper_panel_t *panel)
         panel->framebuffer_stride = 0;
         panel->framebuffer_len = 0;
     }
+    if (panel->previous_framebuffer != NULL) {
+        heap_caps_free(panel->previous_framebuffer);
+        panel->previous_framebuffer = NULL;
+        panel->previous_framebuffer_len = 0;
+    }
 
     panel->framebuffer = (uint8_t *)alloc_temp_buffer(len);
     ESP_RETURN_ON_FALSE(panel->framebuffer != NULL, ESP_ERR_NO_MEM, TAG, "alloc framebuffer failed");
     memset(panel->framebuffer, 0xFF, len);
+
+    if (needs_prev) {
+        panel->previous_framebuffer = (uint8_t *)alloc_temp_buffer(len);
+        ESP_RETURN_ON_FALSE(panel->previous_framebuffer != NULL, ESP_ERR_NO_MEM, TAG, "alloc previous framebuffer failed");
+        memset(panel->previous_framebuffer, 0xFF, len);
+        panel->previous_framebuffer_len = len;
+    }
+
     panel->framebuffer_stride = stride;
     panel->framebuffer_len = len;
     APP_EPAPER_DEBUG_LOGI(TAG,
-             "framebuffer allocated: %ux%u stride=%u len=%u",
+             "framebuffer allocated: %ux%u stride=%u len=%u (previous=%s)",
              (unsigned)panel->info.width,
              (unsigned)panel->info.height,
              (unsigned)panel->framebuffer_stride,
-             (unsigned)panel->framebuffer_len);
+             (unsigned)panel->framebuffer_len,
+             needs_prev ? "yes" : "no");
+    return ESP_OK;
+}
+
+static esp_err_t ensure_gray4_framebuffer(seeed_epaper_panel_t *panel)
+{
+    ESP_RETURN_ON_FALSE(panel != NULL, ESP_ERR_INVALID_ARG, TAG, "panel is null");
+
+    const size_t stride = packed_2bpp_stride(panel->info.width);
+    const size_t len = stride * panel->info.height;
+    if (panel->gray4_framebuffer != NULL && panel->gray4_framebuffer_len == len) {
+        return ESP_OK;
+    }
+
+    if (panel->gray4_framebuffer != NULL) {
+        heap_caps_free(panel->gray4_framebuffer);
+        panel->gray4_framebuffer = NULL;
+        panel->gray4_framebuffer_len = 0;
+    }
+
+    panel->gray4_framebuffer = (uint8_t *)alloc_temp_buffer(len);
+    ESP_RETURN_ON_FALSE(panel->gray4_framebuffer != NULL, ESP_ERR_NO_MEM, TAG, "alloc gray4 framebuffer failed");
+    memset(panel->gray4_framebuffer, 0xFF, len);
+    panel->gray4_framebuffer_len = len;
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "gray4 framebuffer allocated: %ux%u stride=%u len=%u",
+             (unsigned)panel->info.width,
+             (unsigned)panel->info.height,
+             (unsigned)stride,
+             (unsigned)len);
     return ESP_OK;
 }
 
@@ -205,13 +257,61 @@ static esp_err_t update_framebuffer_region(seeed_epaper_panel_t *panel,
     return ESP_OK;
 }
 
+static esp_err_t update_framebuffer_region_from_gray4(seeed_epaper_panel_t *panel,
+                                                      const seeed_epaper_area_t *area,
+                                                      const uint8_t *src,
+                                                      size_t src_stride_bytes)
+{
+    ESP_RETURN_ON_FALSE(panel != NULL, ESP_ERR_INVALID_ARG, TAG, "panel is null");
+    ESP_RETURN_ON_FALSE(area != NULL, ESP_ERR_INVALID_ARG, TAG, "area is null");
+    ESP_RETURN_ON_FALSE(src != NULL, ESP_ERR_INVALID_ARG, TAG, "src is null");
+    ESP_RETURN_ON_FALSE(panel->framebuffer != NULL, ESP_ERR_INVALID_STATE, TAG, "framebuffer is null");
+
+    const size_t src_stride_2bpp = packed_2bpp_stride(area->width);
+    const size_t src_stride_4bpp = (area->width + 1U) / 2U;
+    const bool src_is_2bpp = (src_stride_bytes == src_stride_2bpp);
+    const bool src_is_4bpp = (src_stride_bytes == src_stride_4bpp);
+    ESP_RETURN_ON_FALSE(src_is_2bpp || src_is_4bpp, ESP_ERR_INVALID_ARG, TAG, "invalid gray4 stride");
+
+    for (uint16_t y = 0; y < area->height; ++y) {
+        for (uint16_t x = 0; x < area->width; ++x) {
+            uint8_t gray4 = 0U;
+            if (src_is_2bpp) {
+                const uint8_t packed = src[(size_t)y * src_stride_bytes + ((size_t)x >> 2)];
+                const uint8_t shift = (uint8_t)(6U - ((x & 0x03U) * 2U));
+                gray4 = (uint8_t)((packed >> shift) & 0x03U);
+            } else {
+                const uint8_t packed = src[(size_t)y * src_stride_bytes + ((size_t)x >> 1)];
+                gray4 = (x & 0x01U) == 0U ? (uint8_t)(packed >> 4) : (packed & 0x0FU);
+            }
+
+            const bool black = src_is_2bpp ? (gray4 < 2U) : (gray4 < 8U);
+            const uint16_t logical_x = (uint16_t)(area->x + x);
+            const uint16_t dst_x = panel->config.mirror_x
+                                       ? (uint16_t)(panel->info.width - 1U - logical_x)
+                                       : logical_x;
+            const uint16_t dst_y = (uint16_t)(area->y + y);
+            uint8_t *byte = &panel->framebuffer[(size_t)dst_y * panel->framebuffer_stride + ((size_t)dst_x >> 3)];
+            const uint8_t mask = (uint8_t)(0x80U >> (dst_x & 0x07U));
+            if (black) {
+                *byte &= (uint8_t)~mask;
+            } else {
+                *byte |= mask;
+            }
+        }
+    }
+
+    return ESP_OK;
+}
+
 static seeed_epaper_refresh_mode_t resolve_refresh_mode(const seeed_epaper_panel_t *panel,
                                                         seeed_epaper_refresh_mode_t requested_mode)
 {
-    if ((panel->model == SEEED_EPAPER_PANEL_SSD1677) &&
+    if ((panel->model == SEEED_EPAPER_PANEL_SSD1677 ||
+         panel->model == SEEED_EPAPER_PANEL_SSD2677) &&
         (requested_mode == SEEED_EPAPER_REFRESH_PARTIAL) &&
         !panel->partial_ready) {
-        APP_EPAPER_DEBUG_LOGW(TAG, "SSD1677 partial requested before baseline full refresh, promoting to full");
+        APP_EPAPER_DEBUG_LOGW(TAG, "SSD partial requested before baseline full refresh, promoting to full");
         return SEEED_EPAPER_REFRESH_FULL;
     }
     return requested_mode;
@@ -256,6 +356,11 @@ static void IRAM_ATTR busy_gpio_isr_handler(void *arg)
 static size_t packed_mono_stride(uint16_t width)
 {
     return (size_t)((width + 7U) >> 3);
+}
+
+static size_t packed_2bpp_stride(uint16_t width)
+{
+    return (size_t)((width + 3U) >> 2);
 }
 
 static seeed_epaper_area_t transform_area_for_io(const seeed_epaper_panel_t *panel,
@@ -345,27 +450,47 @@ static esp_err_t build_native_1bpp(const seeed_epaper_area_t *src_area,
     const size_t dst_len = dst_stride * aligned_area->height;
     uint8_t *dst = (uint8_t *)alloc_temp_buffer(dst_len);
     ESP_RETURN_ON_FALSE(dst != NULL, ESP_ERR_NO_MEM, TAG, "alloc native buffer failed");
-    memset(dst, 0xFF, dst_len);
 
     const uint16_t x_offset = (uint16_t)(src_area->x - aligned_area->x);
     const uint8_t *src = (const uint8_t *)pixels;
 
-    for (uint16_t y = 0; y < src_area->height; y++) {
-        for (uint16_t x = 0; x < src_area->width; x++) {
-            const bool white = source_pixel_is_white(src, src_stride_bytes, x, y, input_format);
-            const uint16_t dst_x = (uint16_t)(x + x_offset);
-            const size_t index = ((size_t)y * dst_stride) + (dst_x >> 3);
-            const uint8_t bit = (uint8_t)(7U - (dst_x & 0x7U));
-            if (white) {
-                dst[index] |= (uint8_t)(1U << bit);
+    const bool direct_mono_copy =
+        input_format == SEEED_EPAPER_PIXEL_FORMAT_MONO1_MSB &&
+        x_offset == 0U &&
+        src_area->width == aligned_area->width &&
+        src_area->height == aligned_area->height;
+    if (direct_mono_copy) {
+        // The UI shadow buffers are already byte-aligned Mono1 data.
+        for (uint16_t y = 0; y < aligned_area->height; y++) {
+            const uint8_t *src_row = src + ((size_t)y * src_stride_bytes);
+            uint8_t *dst_row = dst + ((size_t)y * dst_stride);
+            if (mirror_x) {
+                for (size_t x = 0; x < dst_stride; x++) {
+                    dst_row[dst_stride - x - 1U] = reverse_bits_u8(src_row[x]);
+                }
             } else {
-                dst[index] &= (uint8_t)~(1U << bit);
+                memcpy(dst_row, src_row, dst_stride);
             }
         }
-    }
+    } else {
+        memset(dst, 0xFF, dst_len);
+        for (uint16_t y = 0; y < src_area->height; y++) {
+            for (uint16_t x = 0; x < src_area->width; x++) {
+                const bool white = source_pixel_is_white(src, src_stride_bytes, x, y, input_format);
+                const uint16_t dst_x = (uint16_t)(x + x_offset);
+                const size_t index = ((size_t)y * dst_stride) + (dst_x >> 3);
+                const uint8_t bit = (uint8_t)(7U - (dst_x & 0x7U));
+                if (white) {
+                    dst[index] |= (uint8_t)(1U << bit);
+                } else {
+                    dst[index] &= (uint8_t)~(1U << bit);
+                }
+            }
+        }
 
-    if (mirror_x) {
-        seeed_epaper_panel_mirror_x(dst, aligned_area->width, aligned_area->height);
+        if (mirror_x) {
+            seeed_epaper_panel_mirror_x(dst, aligned_area->width, aligned_area->height);
+        }
     }
 
     *out_buffer = dst;
@@ -427,18 +552,19 @@ static esp_err_t build_native_gray4_planes(
             const uint8_t shift = (uint8_t)(6U - ((x & 0x3U) * 2U));  // 6, 4, 2, 0
             const uint8_t gray2 = (uint8_t)((src_byte >> shift) & 0x03U);
 
-            // Split the 2-bit gray value into the two controller planes.
-            // 将2位灰度值拆成控制器需要的两个数据平面。
+            // 提取高位和低位
             const uint8_t dtm1_bit = (gray2 >> 1) & 0x01U;  // bit1 → DTM1
             const uint8_t dtm2_bit = gray2 & 0x01U;          // bit0 → DTM2
 
-            // Locate the destination bit in MSB-first 1bpp storage.
-            // 计算MSB优先的1bpp目标位位置。
+            // 计算目标位置（1bpp 格式，MSB 在前）
             const uint16_t dst_x = (uint16_t)(x + x_offset);
             const size_t dtm_byte_idx = ((size_t)y * dtm_stride) + (dst_x >> 3);
             const uint8_t dtm_bit_mask = (uint8_t)(0x80U >> (dst_x & 0x7U));
-            // Convert canvas polarity to the DTM register polarity: 1 is white, 0 is black.
-            // 将画布位极性转换为DTM寄存器极性：1表示白色，0表示黑色。
+            //
+            // 为什么需要取反？
+            // 
+            // DTM register: bit=1=充电(白), bit=0=放电(黑)
+            // 两者语义相反，所以要取反
             if (dtm1_bit) {
                 (*dtm1)[dtm_byte_idx] &= (uint8_t)(~dtm_bit_mask);  // 取反：1→0
             } else {
@@ -472,6 +598,14 @@ static esp_err_t spi_write_level(seeed_epaper_panel_t *panel, int dc_level, cons
         return ESP_OK;
     }
 
+    if (panel->config.manual_cs && gpio_is_valid(panel->config.pin_cs)) {
+        if (dc_level == 0) {
+            gpio_set_level(panel->config.pin_cs, 1);
+            gpio_set_level(panel->config.pin_cs, 0);
+        } else {
+            gpio_set_level(panel->config.pin_cs, 0);
+        }
+    }
     gpio_set_level(panel->config.pin_dc, dc_level);
 
     const uint8_t *cursor = (const uint8_t *)data;
@@ -523,29 +657,124 @@ esp_err_t seeed_epaper_panel_write_data(seeed_epaper_panel_t *panel, const void 
     return spi_write_level(panel, 1, data, len);
 }
 
+esp_err_t seeed_epaper_panel_read_data(seeed_epaper_panel_t *panel, uint8_t *data)
+{
+    ESP_RETURN_ON_FALSE(panel != NULL, ESP_ERR_INVALID_ARG, TAG, "panel is null");
+    ESP_RETURN_ON_FALSE(data != NULL, ESP_ERR_INVALID_ARG, TAG, "data is null");
+    ESP_RETURN_ON_FALSE(panel->config.spi_handle != NULL, ESP_ERR_INVALID_STATE, TAG, "spi handle is null");
+
+    if (panel->config.manual_cs && gpio_is_valid(panel->config.pin_cs)) {
+        gpio_set_level(panel->config.pin_cs, 1);
+        gpio_set_level(panel->config.pin_dc, 1);
+        gpio_set_level(panel->config.pin_cs, 0);
+    } else {
+        gpio_set_level(panel->config.pin_dc, 1);
+    }
+
+    spi_transaction_t trans = {
+        .flags = SPI_TRANS_USE_RXDATA,
+        .rxlength = 8,
+    };
+    ESP_RETURN_ON_ERROR(spi_device_transmit(panel->config.spi_handle, &trans), TAG, "spi read failed");
+    *data = trans.rx_data[0];
+    return ESP_OK;
+}
+
 esp_err_t seeed_epaper_panel_wait_ready(seeed_epaper_panel_t *panel)
 {
     if (!gpio_is_valid(panel->config.pin_busy)) {
-        vTaskDelay(pdMS_TO_TICKS(3000));
+        APP_EPAPER_DEBUG_LOGD(TAG, "busy wait skipped: no busy pin");
         return ESP_OK;
     }
 
     const uint64_t start_ms = epaper_log_ms();
-    vTaskDelay(pdMS_TO_TICKS(50)); // Wait for SSD1677 to assert BUSY
+    vTaskDelay(pdMS_TO_TICKS(50)); // Settle delay for controller to assert BUSY
 
-    while (gpio_get_level(panel->config.pin_busy) == (int)panel->config.busy_level) {
-        vTaskDelay(pdMS_TO_TICKS(20));
-        if (epaper_log_ms() - start_ms > panel->config.busy_timeout_ms) {
-            ESP_LOGE(TAG, "busy wait timeout after %llums", (unsigned long long)(epaper_log_ms() - start_ms));
-            return ESP_ERR_TIMEOUT;
-        }
+    const TickType_t timeout_ticks = pdMS_TO_TICKS(panel->config.busy_timeout_ms);
+    int level = gpio_get_level(panel->config.pin_busy);
+
+    if (level != (int)panel->config.busy_level) {
+        APP_EPAPER_DEBUG_LOGD(TAG,
+                 "busy ready immediately: pin=%d level=%d busy_level=%u",
+                 (int)panel->config.pin_busy,
+                 level,
+                 (unsigned)panel->config.busy_level);
+        return ESP_OK;
     }
-    ESP_LOGI(TAG, "busy wait completed in %llums", (unsigned long long)(epaper_log_ms() - start_ms));
+    if (panel->busy_sem == NULL || !panel->busy_isr_attached) {
+        while (gpio_get_level(panel->config.pin_busy) == (int)panel->config.busy_level) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+            if (epaper_log_ms() - start_ms > panel->config.busy_timeout_ms) {
+                APP_EPAPER_DEBUG_LOGE(TAG,
+                         "busy wait polling timeout: pin=%d level=%d elapsed=%llums timeout=%ums",
+                         (int)panel->config.pin_busy,
+                         gpio_get_level(panel->config.pin_busy),
+                         (unsigned long long)(epaper_log_ms() - start_ms),
+                         (unsigned)panel->config.busy_timeout_ms);
+                return ESP_ERR_TIMEOUT;
+            }
+        }
+        return ESP_OK;
+    }
+
+    while (xSemaphoreTake(panel->busy_sem, 0) == pdTRUE) {
+    }
+
+    const gpio_int_type_t done_edge =
+        panel->config.busy_level != 0U ? GPIO_INTR_NEGEDGE : GPIO_INTR_POSEDGE;
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "busy wait start: pin=%d level=%d busy_level=%u edge=%d timeout=%ums",
+             (int)panel->config.pin_busy,
+             level,
+             (unsigned)panel->config.busy_level,
+             (int)done_edge,
+             (unsigned)panel->config.busy_timeout_ms);
+    atomic_store_explicit(&s_busy_wait_active, true, memory_order_release);
+    esp_err_t intr_err = gpio_set_intr_type(panel->config.pin_busy, done_edge);
+    if (intr_err != ESP_OK) {
+        atomic_store_explicit(&s_busy_wait_active, false, memory_order_release);
+        ESP_LOGE(TAG, "enable busy interrupt failed: %s", esp_err_to_name(intr_err));
+        return intr_err;
+    }
+
+    level = gpio_get_level(panel->config.pin_busy);
+    if (level != (int)panel->config.busy_level) {
+        (void)gpio_set_intr_type(panel->config.pin_busy, GPIO_INTR_DISABLE);
+        APP_EPAPER_DEBUG_LOGI(TAG,
+                 "busy wait done before blocking: pin=%d level=%d elapsed=%llums",
+                 (int)panel->config.pin_busy,
+                 level,
+                 (unsigned long long)(epaper_log_ms() - start_ms));
+        atomic_store_explicit(&s_busy_wait_active, false, memory_order_release);
+        return ESP_OK;
+    }
+
+    const BaseType_t ok = xSemaphoreTake(panel->busy_sem, timeout_ticks);
+    (void)gpio_set_intr_type(panel->config.pin_busy, GPIO_INTR_DISABLE);
+    level = gpio_get_level(panel->config.pin_busy);
+    if (ok != pdTRUE) {
+        APP_EPAPER_DEBUG_LOGE(TAG,
+                 "busy wait timeout: pin=%d level=%d busy_level=%u elapsed=%llums timeout=%ums",
+                 (int)panel->config.pin_busy,
+                 level,
+                 (unsigned)panel->config.busy_level,
+                 (unsigned long long)(epaper_log_ms() - start_ms),
+                 (unsigned)panel->config.busy_timeout_ms);
+        atomic_store_explicit(&s_busy_wait_active, false, memory_order_release);
+        return ESP_ERR_TIMEOUT;
+    }
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "busy wait done: pin=%d level=%d elapsed=%llums",
+             (int)panel->config.pin_busy,
+             level,
+             (unsigned long long)(epaper_log_ms() - start_ms));
+    atomic_store_explicit(&s_busy_wait_active, false, memory_order_release);
     return ESP_OK;
 }
 
 esp_err_t seeed_epaper_panel_reset(seeed_epaper_panel_t *panel)
 {
+    panel->refresh_powered = false;
     if (!gpio_is_valid(panel->config.pin_rst)) {
         APP_EPAPER_DEBUG_LOGD(TAG, "reset skipped: no reset pin");
         return ESP_OK;
@@ -654,20 +883,97 @@ static void fill_default_config(seeed_epaper_panel_config_t *config)
     if (config->reset_high_ms == 0U) {
         config->reset_high_ms = 10U;
     }
-    if (config->busy_level == 0U) {
+    if (!config->busy_level_valid) {
         config->busy_level = 1U;
     }
-    if (config->enable_level == 0U) {
+    if (!config->enable_level_valid) {
         config->enable_level = 1U;
     }
+}
+
+static uint8_t gray4_nibble_to_ssd2677_pixel(uint8_t gray4)
+{
+    if (gray4 <= 0x03U) {
+        switch (gray4) {
+        case 0x00U:
+            return 0x00U;
+        case 0x01U:
+            return 0x01U;
+        case 0x02U:
+            return 0x02U;
+        default:
+            return 0x03U;
+        }
+    }
+
+    switch ((gray4 >> 2) & 0x03U) {
+    case 0x00U:
+        return 0x00U;
+    case 0x01U:
+        return 0x02U;
+    case 0x02U:
+        return 0x01U;
+    default:
+        return 0x03U;
+    }
+}
+
+static esp_err_t update_ssd2677_gray4_region(seeed_epaper_panel_t *panel,
+                                             const seeed_epaper_area_t *area,
+                                             const uint8_t *pixels,
+                                             size_t src_stride_bytes)
+{
+    ESP_RETURN_ON_FALSE(panel != NULL, ESP_ERR_INVALID_ARG, TAG, "panel is null");
+    ESP_RETURN_ON_FALSE(area != NULL, ESP_ERR_INVALID_ARG, TAG, "area is null");
+    ESP_RETURN_ON_FALSE(pixels != NULL, ESP_ERR_INVALID_ARG, TAG, "pixels is null");
+    ESP_RETURN_ON_FALSE(panel->gray4_framebuffer != NULL, ESP_ERR_INVALID_STATE, TAG, "gray4 framebuffer is null");
+
+    const size_t src_stride_2bpp = packed_2bpp_stride(area->width);
+    const size_t src_stride_4bpp = pixel_format_stride(area->width, SEEED_EPAPER_PIXEL_FORMAT_GRAY4);
+    if (src_stride_bytes == 0U) {
+        src_stride_bytes = src_stride_2bpp;
+    }
+    const bool src_is_2bpp = (src_stride_bytes == src_stride_2bpp);
+    const bool src_is_4bpp = (src_stride_bytes == src_stride_4bpp);
+    ESP_RETURN_ON_FALSE(src_is_2bpp || src_is_4bpp, ESP_ERR_INVALID_ARG, TAG, "invalid gray4 stride");
+
+    const size_t dst_stride = packed_2bpp_stride(panel->info.width);
+    for (uint16_t y = 0; y < area->height; ++y) {
+        const uint8_t *src_row = pixels + ((size_t)y * src_stride_bytes);
+        for (uint16_t x = 0; x < area->width; ++x) {
+            uint8_t gray4 = 0U;
+            if (src_is_2bpp) {
+                const uint8_t packed = src_row[x >> 2];
+                const uint8_t shift = (uint8_t)(6U - ((x & 0x03U) * 2U));
+                gray4 = (uint8_t)((packed >> shift) & 0x03U);
+            } else {
+                const uint8_t packed = src_row[x >> 1];
+                gray4 = (x & 0x1U) == 0U ? (uint8_t)(packed >> 4) : (packed & 0x0FU);
+            }
+            const uint8_t epd2 = gray4_nibble_to_ssd2677_pixel(gray4);
+            const uint16_t logical_x = (uint16_t)(area->x + x);
+            const uint16_t dst_x = panel->config.mirror_x
+                                       ? (uint16_t)(panel->info.width - 1U - logical_x)
+                                       : logical_x;
+            const size_t dst_index = ((size_t)(area->y + y) * dst_stride) + (dst_x >> 2);
+            const uint8_t shift = (uint8_t)(6U - ((dst_x & 0x03U) * 2U));
+            panel->gray4_framebuffer[dst_index] =
+                (uint8_t)((panel->gray4_framebuffer[dst_index] & (uint8_t)~(0x03U << shift)) |
+                          (uint8_t)(epd2 << shift));
+        }
+    }
+
+    panel->gray4_valid = true;
+    return ESP_OK;
 }
 
 static esp_err_t configure_gpio(const seeed_epaper_panel_config_t *config)
 {
     gpio_config_t io_conf = {0};
     APP_EPAPER_DEBUG_LOGI(TAG,
-             "configure gpio: dc=%d rst=%d busy=%d enable=%d busy_level=%u enable_level=%u",
+             "configure gpio: dc=%d cs=%d rst=%d busy=%d enable=%d busy_level=%u enable_level=%u",
              (int)config->pin_dc,
+             (int)config->pin_cs,
              (int)config->pin_rst,
              (int)config->pin_busy,
              (int)config->pin_enable,
@@ -682,6 +988,9 @@ static esp_err_t configure_gpio(const seeed_epaper_panel_config_t *config)
     uint64_t output_mask = 0;
     if (gpio_is_valid(config->pin_dc)) {
         output_mask |= 1ULL << config->pin_dc;
+    }
+    if (config->manual_cs && gpio_is_valid(config->pin_cs)) {
+        output_mask |= 1ULL << config->pin_cs;
     }
     if (gpio_is_valid(config->pin_rst)) {
         output_mask |= 1ULL << config->pin_rst;
@@ -754,6 +1063,8 @@ static const seeed_epaper_driver_t *select_driver(seeed_epaper_panel_model_t mod
         return seeed_epaper_uc8179_driver();
     case SEEED_EPAPER_PANEL_SSD1677:
         return seeed_epaper_ssd1677_driver();
+    case SEEED_EPAPER_PANEL_SSD2677:
+        return seeed_epaper_ssd2677_driver();
     case SEEED_EPAPER_PANEL_ED2208:
         return seeed_epaper_ed2208_driver();
     case SEEED_EPAPER_PANEL_IT8951:
@@ -765,6 +1076,57 @@ static const seeed_epaper_driver_t *select_driver(seeed_epaper_panel_model_t mod
     }
 }
 
+static bool is_ssd_family(seeed_epaper_panel_model_t model)
+{
+    return model == SEEED_EPAPER_PANEL_SSD1677 || model == SEEED_EPAPER_PANEL_SSD2677;
+}
+
+static void apply_panel_model_config(seeed_epaper_panel_t *panel, seeed_epaper_panel_model_t model)
+{
+    if (model == SEEED_EPAPER_PANEL_SSD2677) {
+        panel->config.busy_timeout_ms = kSsd2677BusyTimeoutMs;
+        panel->config.reset_low_ms = kSsd2677ResetLowMs;
+        panel->config.reset_high_ms = kSsd2677ResetHighMs;
+        panel->config.busy_level = 0U;
+        return;
+    }
+
+    if (model == SEEED_EPAPER_PANEL_SSD1677) {
+        panel->config.busy_timeout_ms = kSsd1677BusyTimeoutMs;
+        panel->config.reset_low_ms = kSsd1677ResetLowMs;
+        panel->config.reset_high_ms = kSsd1677ResetHighMs;
+        panel->config.busy_level = 1U;
+    }
+}
+
+static esp_err_t resolve_panel_model(seeed_epaper_panel_t *panel, seeed_epaper_panel_model_t requested_model)
+{
+    ESP_RETURN_ON_FALSE(panel != NULL, ESP_ERR_INVALID_ARG, TAG, "panel is null");
+
+    seeed_epaper_panel_model_t resolved_model = requested_model;
+    if (is_ssd_family(requested_model)) {
+        uint8_t chip_id = 0U;
+
+        apply_panel_model_config(panel, SEEED_EPAPER_PANEL_SSD2677);
+        ESP_RETURN_ON_ERROR(seeed_epaper_panel_reset(panel), TAG, "probe reset failed");
+        ESP_RETURN_ON_ERROR(seeed_epaper_panel_write_command(panel, 0x70), TAG, "probe id command failed");
+        ESP_RETURN_ON_ERROR(seeed_epaper_panel_read_data(panel, &chip_id), TAG, "probe id read failed");
+
+        resolved_model = chip_id == kSsd2677ChipId ? SEEED_EPAPER_PANEL_SSD2677 : SEEED_EPAPER_PANEL_SSD1677;
+        APP_EPAPER_DEBUG_LOGI(TAG,
+                 "panel probe: requested=%d chip_id=0x%02X resolved=%d",
+                 (int)requested_model,
+                 chip_id,
+                 (int)resolved_model);
+    }
+
+    apply_panel_model_config(panel, resolved_model);
+    panel->model = resolved_model;
+    panel->driver = select_driver(resolved_model);
+    panel->info = panel->driver->info;
+    return ESP_OK;
+}
+
 esp_err_t seeed_epaper_new_panel(seeed_epaper_panel_model_t model,
                                  const seeed_epaper_panel_config_t *config,
                                  seeed_epaper_panel_handle_t *ret_panel)
@@ -774,14 +1136,15 @@ esp_err_t seeed_epaper_new_panel(seeed_epaper_panel_model_t model,
     ESP_RETURN_ON_FALSE(config->spi_handle != NULL, ESP_ERR_INVALID_ARG, TAG, "spi handle is null");
     ESP_RETURN_ON_FALSE(config->pin_dc != GPIO_NUM_NC ? gpio_is_valid(config->pin_dc) : true, ESP_ERR_INVALID_ARG, TAG, "pin_dc is invalid");
 
-    const seeed_epaper_driver_t *driver = select_driver(model);
-    ESP_RETURN_ON_FALSE(driver != NULL, ESP_ERR_NOT_SUPPORTED, TAG, "panel model not supported");
+    ESP_RETURN_ON_FALSE(select_driver(model) != NULL, ESP_ERR_NOT_SUPPORTED, TAG, "panel model not supported");
 
     APP_EPAPER_DEBUG_LOGI(TAG,
-             "new panel start: model=%d cs_handle=%p dc=%d rst=%d busy=%d enable=%d busy_timeout=%ums mirror_x=%d",
+             "new panel start: model=%d spi_handle=%p dc=%d cs=%d manual_cs=%d rst=%d busy=%d enable=%d busy_timeout=%ums mirror_x=%d",
              (int)model,
              (void *)config->spi_handle,
              (int)config->pin_dc,
+             (int)config->pin_cs,
+             config->manual_cs ? 1 : 0,
              (int)config->pin_rst,
              (int)config->pin_busy,
              (int)config->pin_enable,
@@ -794,9 +1157,10 @@ esp_err_t seeed_epaper_new_panel(seeed_epaper_panel_model_t model,
     panel->model = model;
     panel->config = *config;
     fill_default_config(&panel->config);
-    panel->driver = driver;
-    panel->info = driver->info;
+    panel->driver = NULL;
+    panel->info = (seeed_epaper_panel_info_t){0};
     panel->sleeping = true;
+    panel->standby = false;
 
     esp_err_t err = configure_gpio(&panel->config);
     if (err != ESP_OK) {
@@ -806,6 +1170,28 @@ esp_err_t seeed_epaper_new_panel(seeed_epaper_panel_model_t model,
 
     err = configure_busy_interrupt(panel);
     if (err != ESP_OK) {
+        free(panel);
+        return err;
+    }
+
+    if (gpio_is_valid(panel->config.pin_enable)) {
+        gpio_set_level(panel->config.pin_enable, panel->config.enable_level);
+    }
+    if (panel->config.manual_cs && gpio_is_valid(panel->config.pin_cs)) {
+        gpio_set_level(panel->config.pin_cs, 1);
+    }
+    if (gpio_is_valid(panel->config.pin_rst)) {
+        gpio_set_level(panel->config.pin_rst, 1);
+    }
+
+    err = resolve_panel_model(panel, model);
+    if (err != ESP_OK) {
+        if (panel->busy_isr_attached) {
+            (void)gpio_isr_handler_remove(panel->config.pin_busy);
+        }
+        if (panel->busy_sem != NULL) {
+            vSemaphoreDelete(panel->busy_sem);
+        }
         free(panel);
         return err;
     }
@@ -822,17 +1208,11 @@ esp_err_t seeed_epaper_new_panel(seeed_epaper_panel_model_t model,
         return err;
     }
 
-    if (gpio_is_valid(panel->config.pin_enable)) {
-        gpio_set_level(panel->config.pin_enable, panel->config.enable_level);
-    }
-    if (gpio_is_valid(panel->config.pin_rst)) {
-        gpio_set_level(panel->config.pin_rst, 1);
-    }
-
+    const seeed_epaper_driver_t *driver = panel->driver;
     *ret_panel = panel;
     APP_EPAPER_DEBUG_LOGI(TAG,
              "new panel done: model=%d driver=%s size=%ux%u framebuffer=%u busy_level=%u timeout=%ums",
-             (int)model,
+             (int)panel->model,
              driver->name,
              (unsigned)panel->info.width,
              (unsigned)panel->info.height,
@@ -858,6 +1238,14 @@ esp_err_t seeed_epaper_panel_del(seeed_epaper_panel_handle_t panel)
         heap_caps_free(panel->framebuffer);
         panel->framebuffer = NULL;
     }
+    if (panel->previous_framebuffer != NULL) {
+        heap_caps_free(panel->previous_framebuffer);
+        panel->previous_framebuffer = NULL;
+    }
+    if (panel->gray4_framebuffer != NULL) {
+        heap_caps_free(panel->gray4_framebuffer);
+        panel->gray4_framebuffer = NULL;
+    }
     if (panel->spi_tx_buffer != NULL) {
         heap_caps_free(panel->spi_tx_buffer);
         panel->spi_tx_buffer = NULL;
@@ -875,6 +1263,63 @@ esp_err_t seeed_epaper_panel_get_info(seeed_epaper_panel_handle_t panel,
     return ESP_OK;
 }
 
+esp_err_t seeed_epaper_panel_get_model(seeed_epaper_panel_handle_t panel,
+                                       seeed_epaper_panel_model_t *ret_model)
+{
+    ESP_RETURN_ON_FALSE(panel != NULL, ESP_ERR_INVALID_ARG, TAG, "panel is null");
+    ESP_RETURN_ON_FALSE(ret_model != NULL, ESP_ERR_INVALID_ARG, TAG, "ret_model is null");
+    *ret_model = panel->model;
+    return ESP_OK;
+}
+
+const char *seeed_epaper_panel_get_driver_name(seeed_epaper_panel_handle_t panel)
+{
+    if (panel == NULL || panel->driver == NULL || panel->driver->name == NULL) {
+        return "Unknown";
+    }
+    return panel->driver->name;
+}
+
+esp_err_t seeed_epaper_panel_get_last_refresh_timing(seeed_epaper_panel_handle_t panel,
+                                                      seeed_epaper_refresh_timing_t *ret_timing)
+{
+    ESP_RETURN_ON_FALSE(panel != NULL, ESP_ERR_INVALID_ARG, TAG, "panel is null");
+    ESP_RETURN_ON_FALSE(ret_timing != NULL, ESP_ERR_INVALID_ARG, TAG, "ret_timing is null");
+    *ret_timing = panel->last_refresh_timing;
+    return ESP_OK;
+}
+
+esp_err_t seeed_epaper_panel_set_external_temperature(seeed_epaper_panel_handle_t panel,
+                                                      float temperature_c)
+{
+    ESP_RETURN_ON_FALSE(panel != NULL, ESP_ERR_INVALID_ARG, TAG, "panel is null");
+    panel->external_temperature_c = temperature_c;
+    panel->external_temperature_valid = true;
+    APP_EPAPER_DEBUG_LOGD(TAG, "external temperature set: %.1fC", (double)temperature_c);
+    return ESP_OK;
+}
+
+esp_err_t seeed_epaper_panel_clear_external_temperature(seeed_epaper_panel_handle_t panel)
+{
+    ESP_RETURN_ON_FALSE(panel != NULL, ESP_ERR_INVALID_ARG, TAG, "panel is null");
+    panel->external_temperature_valid = false;
+    panel->external_temperature_c = 0.0f;
+    APP_EPAPER_DEBUG_LOGD(TAG, "external temperature cleared");
+    return ESP_OK;
+}
+
+esp_err_t seeed_epaper_panel_read_register8(seeed_epaper_panel_handle_t panel,
+                                            uint8_t command,
+                                            uint8_t *ret_value)
+{
+    ESP_RETURN_ON_FALSE(panel != NULL, ESP_ERR_INVALID_ARG, TAG, "panel is null");
+    ESP_RETURN_ON_FALSE(ret_value != NULL, ESP_ERR_INVALID_ARG, TAG, "ret_value is null");
+
+    ESP_RETURN_ON_ERROR(seeed_epaper_panel_write_command(panel, command), TAG, "write read command failed");
+    ESP_RETURN_ON_ERROR(seeed_epaper_panel_wait_ready(panel), TAG, "wait read command failed");
+    return seeed_epaper_panel_read_data(panel, ret_value);
+}
+
 esp_err_t seeed_epaper_panel_prepare(seeed_epaper_panel_handle_t panel,
                                      seeed_epaper_refresh_mode_t mode)
 {
@@ -882,14 +1327,40 @@ esp_err_t seeed_epaper_panel_prepare(seeed_epaper_panel_handle_t panel,
     const uint64_t start_ms = epaper_log_ms();
     const seeed_epaper_refresh_mode_t effective_mode = resolve_refresh_mode(panel, mode);
     APP_EPAPER_DEBUG_LOGI(TAG,
-             "prepare start: requested=%s effective=%s prepared=%d sleeping=%d active=%s partial_ready=%d",
+             "prepare start: requested=%s effective=%s prepared=%d sleeping=%d standby=%d active=%s partial_ready=%d",
              refresh_mode_name(mode),
              refresh_mode_name(effective_mode),
              panel->prepared ? 1 : 0,
              panel->sleeping ? 1 : 0,
+             panel->standby ? 1 : 0,
              refresh_mode_name(panel->active_mode),
              panel->partial_ready ? 1 : 0);
+    if (panel->standby && !panel->sleeping && panel->active_mode == effective_mode) {
+        ESP_RETURN_ON_FALSE(panel->driver->resume != NULL, ESP_ERR_NOT_SUPPORTED, TAG, "driver resume not supported");
+        esp_err_t err = panel->driver->resume(panel);
+        if (err != ESP_OK) {
+            mark_panel_needs_reinit(panel);
+            APP_EPAPER_DEBUG_LOGE(TAG, "driver resume failed: %s", esp_err_to_name(err));
+            return err;
+        }
+        panel->standby = false;
+        panel->prepared = true;
+        panel->sleeping = false;
+        APP_EPAPER_DEBUG_LOGI(TAG,
+                 "[perf] prepare resume mode=%s total=%llums",
+                 refresh_mode_name(effective_mode),
+                 (unsigned long long)(epaper_log_ms() - start_ms));
+        APP_EPAPER_DEBUG_LOGI(TAG,
+                 "prepare resumed from standby: mode=%s elapsed=%llums",
+                 refresh_mode_name(effective_mode),
+                 (unsigned long long)(epaper_log_ms() - start_ms));
+        return ESP_OK;
+    }
     if (panel->prepared && panel->active_mode == effective_mode) {
+        APP_EPAPER_DEBUG_LOGI(TAG,
+                 "[perf] prepare skip mode=%s total=%llums",
+                 refresh_mode_name(effective_mode),
+                 (unsigned long long)(epaper_log_ms() - start_ms));
         APP_EPAPER_DEBUG_LOGI(TAG,
                  "prepare skip: already prepared mode=%s elapsed=%llums",
                  refresh_mode_name(effective_mode),
@@ -906,6 +1377,8 @@ esp_err_t seeed_epaper_panel_prepare(seeed_epaper_panel_handle_t panel,
 
     panel->prepared = true;
     panel->sleeping = false;
+    panel->standby = false;
+    panel->partial_after_standby = false;
     panel->active_mode = effective_mode;
     if (effective_mode == SEEED_EPAPER_REFRESH_FULL) {
         panel->dirty_area.x = 0;
@@ -914,6 +1387,10 @@ esp_err_t seeed_epaper_panel_prepare(seeed_epaper_panel_handle_t panel,
         panel->dirty_area.height = panel->info.height;
         panel->dirty_valid = true;
     }
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "[perf] prepare init mode=%s total=%llums",
+             refresh_mode_name(effective_mode),
+             (unsigned long long)(epaper_log_ms() - start_ms));
     APP_EPAPER_DEBUG_LOGI(TAG,
              "prepare done: mode=%s elapsed=%llums",
              refresh_mode_name(effective_mode),
@@ -940,6 +1417,7 @@ esp_err_t seeed_epaper_panel_write_bitmap(seeed_epaper_panel_handle_t panel,
     ESP_RETURN_ON_FALSE(pixels != NULL, ESP_ERR_INVALID_ARG, TAG, "pixels is null");
 
     const uint64_t start_ms = epaper_log_ms();
+    uint64_t phase_start_ms;
     APP_EPAPER_DEBUG_LOGI(TAG,
              "write_bitmap start: mode=%s format=%s src_stride=%u",
              refresh_mode_name(mode),
@@ -958,6 +1436,7 @@ esp_err_t seeed_epaper_panel_write_bitmap(seeed_epaper_panel_handle_t panel,
     log_area("write_bitmap clipped", &clipped);
     log_area("write_bitmap aligned", &aligned);
 
+    phase_start_ms = epaper_log_ms();
     esp_err_t err = seeed_epaper_panel_prepare(panel, mode);
     if (err != ESP_OK) {
         APP_EPAPER_DEBUG_LOGE(TAG,
@@ -968,6 +1447,12 @@ esp_err_t seeed_epaper_panel_write_bitmap(seeed_epaper_panel_handle_t panel,
         return err;
     }
     const seeed_epaper_refresh_mode_t effective_mode = panel->active_mode;
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "[perf] write_bitmap prepare=%llums mode=%s",
+             (unsigned long long)(epaper_log_ms() - phase_start_ms),
+             refresh_mode_name(effective_mode));
+
+    phase_start_ms = epaper_log_ms();
     ESP_RETURN_ON_ERROR(ensure_framebuffer(panel), TAG, "ensure framebuffer failed");
 
     uint8_t *native = NULL;
@@ -996,7 +1481,12 @@ esp_err_t seeed_epaper_panel_write_bitmap(seeed_epaper_panel_handle_t panel,
              (unsigned)native_len,
              refresh_mode_name(effective_mode),
              panel->config.mirror_x ? 1 : 0);
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "[perf] write_bitmap framebuffer+convert=%llums native=%uB",
+             (unsigned long long)(epaper_log_ms() - phase_start_ms),
+             (unsigned)native_len);
 
+    phase_start_ms = epaper_log_ms();
     seeed_epaper_area_t io_area = transform_area_for_io(panel, &aligned);
     log_area("write_bitmap io", &io_area);
     err = panel->driver->set_window(panel, &io_area);
@@ -1006,6 +1496,9 @@ esp_err_t seeed_epaper_panel_write_bitmap(seeed_epaper_panel_handle_t panel,
             if (err == ESP_OK) {
                 err = panel->driver->write_image(panel, native, native_len, false);
             }
+        } else if (panel->model == SEEED_EPAPER_PANEL_SSD2677) {
+            // SSD2677 streams the complete previous/current framebuffer pair at commit.
+            err = panel->driver->write_image(panel, native, native_len, false);
         } else {
             uint8_t *previous = (uint8_t *)alloc_temp_buffer(native_len);
             if (previous == NULL) {
@@ -1026,6 +1519,9 @@ esp_err_t seeed_epaper_panel_write_bitmap(seeed_epaper_panel_handle_t panel,
             err = update_framebuffer_region(panel, &io_area, native, native_len);
         }
     }
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "[perf] write_bitmap stage+framebuffer=%llums",
+             (unsigned long long)(epaper_log_ms() - phase_start_ms));
     heap_caps_free(native);
     if (err != ESP_OK) {
         mark_panel_needs_reinit(panel);
@@ -1034,6 +1530,10 @@ esp_err_t seeed_epaper_panel_write_bitmap(seeed_epaper_panel_handle_t panel,
     }
 
     seeed_epaper_panel_set_dirty(panel, &clipped);
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "[perf] write_bitmap done: mode=%s total=%llums",
+             refresh_mode_name(effective_mode),
+             (unsigned long long)(epaper_log_ms() - start_ms));
     APP_EPAPER_DEBUG_LOGI(TAG,
              "write_bitmap done: mode=%s dirty_valid=%d elapsed=%llums",
              refresh_mode_name(effective_mode),
@@ -1056,6 +1556,7 @@ esp_err_t seeed_epaper_panel_write_bitmap_diff(seeed_epaper_panel_handle_t panel
     ESP_RETURN_ON_FALSE(current_pixels != NULL, ESP_ERR_INVALID_ARG, TAG, "current pixels is null");
 
     const uint64_t start_ms = epaper_log_ms();
+    uint64_t phase_start_ms;
     APP_EPAPER_DEBUG_LOGI(TAG,
              "write_bitmap_diff start: mode=%s format=%s src_stride=%u",
              refresh_mode_name(mode),
@@ -1074,6 +1575,7 @@ esp_err_t seeed_epaper_panel_write_bitmap_diff(seeed_epaper_panel_handle_t panel
     log_area("write_bitmap_diff clipped", &clipped);
     log_area("write_bitmap_diff aligned", &aligned);
 
+    phase_start_ms = epaper_log_ms();
     esp_err_t err = seeed_epaper_panel_prepare(panel, mode);
     if (err != ESP_OK) {
         APP_EPAPER_DEBUG_LOGE(TAG,
@@ -1084,6 +1586,12 @@ esp_err_t seeed_epaper_panel_write_bitmap_diff(seeed_epaper_panel_handle_t panel
         return err;
     }
     const seeed_epaper_refresh_mode_t effective_mode = panel->active_mode;
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "[perf] write_diff prepare=%llums mode=%s",
+             (unsigned long long)(epaper_log_ms() - phase_start_ms),
+             refresh_mode_name(effective_mode));
+
+    phase_start_ms = epaper_log_ms();
     ESP_RETURN_ON_ERROR(ensure_framebuffer(panel), TAG, "ensure framebuffer failed");
 
     uint8_t *previous_native = NULL;
@@ -1118,6 +1626,11 @@ esp_err_t seeed_epaper_panel_write_bitmap_diff(seeed_epaper_panel_handle_t panel
              (unsigned)current_len,
              refresh_mode_name(effective_mode),
              panel->config.mirror_x ? 1 : 0);
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "[perf] write_diff framebuffer+convert=%llums previous=%uB current=%uB",
+             (unsigned long long)(epaper_log_ms() - phase_start_ms),
+             (unsigned)previous_len,
+             (unsigned)current_len);
 
     if (previous_len != current_len) {
         err = ESP_ERR_INVALID_SIZE;
@@ -1125,6 +1638,7 @@ esp_err_t seeed_epaper_panel_write_bitmap_diff(seeed_epaper_panel_handle_t panel
         goto cleanup;
     }
 
+    phase_start_ms = epaper_log_ms();
     {
         seeed_epaper_area_t io_area = transform_area_for_io(panel, &aligned);
         log_area("write_bitmap_diff io", &io_area);
@@ -1135,6 +1649,8 @@ esp_err_t seeed_epaper_panel_write_bitmap_diff(seeed_epaper_panel_handle_t panel
                 if (err == ESP_OK) {
                     err = panel->driver->write_image(panel, current_native, current_len, false);
                 }
+            } else if (panel->model == SEEED_EPAPER_PANEL_SSD2677) {
+                err = panel->driver->write_image(panel, current_native, current_len, false);
             } else {
                     err = panel->driver->write_image(panel, previous_native, previous_len, true);
                 if (err == ESP_OK) {
@@ -1146,6 +1662,9 @@ esp_err_t seeed_epaper_panel_write_bitmap_diff(seeed_epaper_panel_handle_t panel
             }
         }
     }
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "[perf] write_diff stage+framebuffer=%llums",
+             (unsigned long long)(epaper_log_ms() - phase_start_ms));
 
 cleanup:
     heap_caps_free(previous_native);
@@ -1157,6 +1676,10 @@ cleanup:
     }
 
     seeed_epaper_panel_set_dirty(panel, &clipped);
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "[perf] write_diff done: mode=%s total=%llums",
+             refresh_mode_name(effective_mode),
+             (unsigned long long)(epaper_log_ms() - start_ms));
     APP_EPAPER_DEBUG_LOGI(TAG,
              "write_bitmap_diff done: mode=%s dirty_valid=%d elapsed=%llums",
              refresh_mode_name(effective_mode),
@@ -1183,6 +1706,76 @@ esp_err_t seeed_epaper_panel_write_bitmap_gray4(
                         ESP_ERR_INVALID_ARG, TAG, "invalid area");
 
     // 8 像素对齐
+    if (panel->model == SEEED_EPAPER_PANEL_SSD2677) {
+        const uint64_t start_ms = epaper_log_ms();
+        uint64_t phase_start_ms;
+        size_t gray4_stride = src_stride_bytes;
+        if (gray4_stride == 0U) {
+            gray4_stride = packed_2bpp_stride(clipped.width);
+        }
+
+        phase_start_ms = epaper_log_ms();
+        esp_err_t err = seeed_epaper_panel_prepare(panel, SEEED_EPAPER_REFRESH_GRAY4);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "prepare SSD2677 GRAY4 failed: %s", esp_err_to_name(err));
+            return err;
+        }
+
+        APP_EPAPER_DEBUG_LOGI(TAG,
+                 "[perf] gray4 prepare=%llums",
+                 (unsigned long long)(epaper_log_ms() - phase_start_ms));
+
+        phase_start_ms = epaper_log_ms();
+        err = ensure_gray4_framebuffer(panel);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "ensure SSD2677 gray4 framebuffer failed: %s", esp_err_to_name(err));
+            return err;
+        }
+
+        APP_EPAPER_DEBUG_LOGI(TAG,
+                 "[perf] gray4 ensure-framebuffer=%llums size=%uB",
+                 (unsigned long long)(epaper_log_ms() - phase_start_ms),
+                 (unsigned)panel->gray4_framebuffer_len);
+
+        phase_start_ms = epaper_log_ms();
+        err = update_ssd2677_gray4_region(panel, &clipped, pixels, gray4_stride);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "update SSD2677 gray4 region failed: %s", esp_err_to_name(err));
+            return err;
+        }
+
+        APP_EPAPER_DEBUG_LOGI(TAG,
+                 "[perf] gray4 update-gray-buffer=%llums",
+                 (unsigned long long)(epaper_log_ms() - phase_start_ms));
+
+        phase_start_ms = epaper_log_ms();
+        err = ensure_framebuffer(panel);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "ensure mono framebuffer for SSD2677 gray4 failed: %s", esp_err_to_name(err));
+            return err;
+        }
+
+        err = update_framebuffer_region_from_gray4(panel, &clipped, pixels, gray4_stride);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "update mono framebuffer from SSD2677 gray4 failed: %s", esp_err_to_name(err));
+            return err;
+        }
+
+        APP_EPAPER_DEBUG_LOGI(TAG,
+                 "[perf] gray4 update-mono-shadow=%llums",
+                 (unsigned long long)(epaper_log_ms() - phase_start_ms));
+
+        panel->dirty_area.x = 0;
+        panel->dirty_area.y = 0;
+        panel->dirty_area.width = panel->info.width;
+        panel->dirty_area.height = panel->info.height;
+        panel->dirty_valid = true;
+        APP_EPAPER_DEBUG_LOGI(TAG,
+                 "[perf] gray4 stage done: total=%llums",
+                 (unsigned long long)(epaper_log_ms() - start_ms));
+        return ESP_OK;
+    }
+
     seeed_epaper_area_t aligned = clipped;
     const uint16_t x1 = (uint16_t)(aligned.x & ~0x07U);
     const uint16_t x2 = (uint16_t)((aligned.x + aligned.width + 7U) & ~0x07U);
@@ -1271,6 +1864,7 @@ esp_err_t seeed_epaper_panel_commit(seeed_epaper_panel_handle_t panel,
 {
     ESP_RETURN_ON_FALSE(panel != NULL, ESP_ERR_INVALID_ARG, TAG, "panel is null");
     const uint64_t start_ms = epaper_log_ms();
+    uint64_t phase_start_ms;
     APP_EPAPER_DEBUG_LOGI(TAG,
              "commit start: requested_mode=%s dirty_valid=%d partial_ready=%d",
              refresh_mode_name(mode),
@@ -1278,6 +1872,7 @@ esp_err_t seeed_epaper_panel_commit(seeed_epaper_panel_handle_t panel,
              panel->partial_ready ? 1 : 0);
     log_area("commit requested", area);
 
+    phase_start_ms = epaper_log_ms();
     esp_err_t err = seeed_epaper_panel_prepare(panel, mode);
     if (err != ESP_OK) {
         APP_EPAPER_DEBUG_LOGE(TAG,
@@ -1288,6 +1883,12 @@ esp_err_t seeed_epaper_panel_commit(seeed_epaper_panel_handle_t panel,
         return err;
     }
     const seeed_epaper_refresh_mode_t effective_mode = panel->active_mode;
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "[perf] commit prepare=%llums mode=%s",
+             (unsigned long long)(epaper_log_ms() - phase_start_ms),
+             refresh_mode_name(effective_mode));
+    bool sync_partial_previous = false;
+    seeed_epaper_area_t partial_io_area = {};
 
     if (effective_mode == SEEED_EPAPER_REFRESH_PARTIAL) {
         seeed_epaper_area_t refresh_area;
@@ -1316,19 +1917,79 @@ esp_err_t seeed_epaper_panel_commit(seeed_epaper_panel_handle_t panel,
             APP_EPAPER_DEBUG_LOGE(TAG, "set commit window failed: %s", esp_err_to_name(err));
             return err;
         }
+        partial_io_area = io_area;
+        sync_partial_previous = panel->model != SEEED_EPAPER_PANEL_SSD2677;
     }
 
+    phase_start_ms = epaper_log_ms();
     err = panel->driver->refresh(panel, effective_mode);
     if (err != ESP_OK) {
         mark_panel_needs_reinit(panel);
         APP_EPAPER_DEBUG_LOGE(TAG, "refresh failed: %s", esp_err_to_name(err));
         return err;
     }
-    if (effective_mode == SEEED_EPAPER_REFRESH_FULL ||
-        effective_mode == SEEED_EPAPER_REFRESH_GRAY4) {
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "[perf] commit driver-refresh=%llums",
+             (unsigned long long)(epaper_log_ms() - phase_start_ms));
+
+    phase_start_ms = epaper_log_ms();
+    if (sync_partial_previous) {
+        const size_t row_bytes = packed_mono_stride(partial_io_area.width);
+        const size_t sync_len = row_bytes * partial_io_area.height;
+        uint8_t *current = (uint8_t *)alloc_temp_buffer(sync_len);
+        if (current == NULL) {
+            mark_panel_needs_reinit(panel);
+            APP_EPAPER_DEBUG_LOGE(TAG, "alloc partial sync buffer failed");
+            return ESP_ERR_NO_MEM;
+        }
+
+        err = copy_framebuffer_region(panel, &partial_io_area, current, sync_len);
+        if (err == ESP_OK) {
+            err = panel->driver->set_window(panel, &partial_io_area);
+        }
+        if (err == ESP_OK) {
+            err = panel->driver->write_image(panel, current, sync_len, true);
+        }
+        if (err == ESP_OK) {
+            err = panel->driver->write_image(panel, current, sync_len, false);
+        }
+        heap_caps_free(current);
+        if (err != ESP_OK) {
+            mark_panel_needs_reinit(panel);
+            APP_EPAPER_DEBUG_LOGE(TAG, "sync partial planes failed: %s", esp_err_to_name(err));
+            return err;
+        }
+        APP_EPAPER_DEBUG_LOGI(TAG,
+                 "partial planes synced: len=%u",
+                 (unsigned)sync_len);
+    }
+    if (effective_mode == SEEED_EPAPER_REFRESH_FULL) {
         panel->partial_ready = true;
+        if (panel->previous_framebuffer != NULL &&
+            panel->framebuffer != NULL &&
+            panel->previous_framebuffer_len == panel->framebuffer_len) {
+            memcpy(panel->previous_framebuffer, panel->framebuffer, panel->framebuffer_len);
+        }
+    } else if (effective_mode == SEEED_EPAPER_REFRESH_PARTIAL) {
+        if (panel->previous_framebuffer != NULL &&
+            panel->framebuffer != NULL &&
+            panel->previous_framebuffer_len == panel->framebuffer_len) {
+            memcpy(panel->previous_framebuffer, panel->framebuffer, panel->framebuffer_len);
+        }
+    } else if (effective_mode == SEEED_EPAPER_REFRESH_GRAY4) {
+        panel->partial_ready = true;
+        if (panel->previous_framebuffer != NULL &&
+            panel->framebuffer != NULL &&
+            panel->previous_framebuffer_len == panel->framebuffer_len) {
+            memcpy(panel->previous_framebuffer, panel->framebuffer, panel->framebuffer_len);
+        }
     }
     panel->dirty_valid = false;
+    panel->last_refresh_timing.state_sync_ms = (uint32_t)(epaper_log_ms() - phase_start_ms);
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "[perf] commit state-sync=%llums total=%llums",
+             (unsigned long long)(epaper_log_ms() - phase_start_ms),
+             (unsigned long long)(epaper_log_ms() - start_ms));
     APP_EPAPER_DEBUG_LOGI(TAG,
              "commit done: effective_mode=%s elapsed=%llums partial_ready=%d",
              refresh_mode_name(effective_mode),
@@ -1414,8 +2075,9 @@ esp_err_t seeed_epaper_panel_sleep(seeed_epaper_panel_handle_t panel)
     ESP_RETURN_ON_FALSE(panel != NULL, ESP_ERR_INVALID_ARG, TAG, "panel is null");
     const uint64_t start_ms = epaper_log_ms();
     APP_EPAPER_DEBUG_LOGI(TAG,
-             "sleep start: sleeping=%d prepared=%d partial_ready=%d",
+             "sleep start: sleeping=%d standby=%d prepared=%d partial_ready=%d",
              panel->sleeping ? 1 : 0,
+             panel->standby ? 1 : 0,
              panel->prepared ? 1 : 0,
              panel->partial_ready ? 1 : 0);
     if (panel->sleeping) {
@@ -1432,10 +2094,79 @@ esp_err_t seeed_epaper_panel_sleep(seeed_epaper_panel_handle_t panel)
     }
     panel->sleeping = true;
     panel->prepared = false;
+    panel->standby = false;
+    panel->partial_after_standby = false;
     panel->partial_ready = false;
+    panel->refresh_powered = false;
     panel->dirty_valid = false;
+    panel->gray4_valid = false;
     APP_EPAPER_DEBUG_LOGI(TAG,
              "sleep done: elapsed=%llums",
+             (unsigned long long)(epaper_log_ms() - start_ms));
+    return ESP_OK;
+}
+
+esp_err_t seeed_epaper_panel_standby(seeed_epaper_panel_handle_t panel)
+{
+    ESP_RETURN_ON_FALSE(panel != NULL, ESP_ERR_INVALID_ARG, TAG, "panel is null");
+    const uint64_t start_ms = epaper_log_ms();
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "standby start: sleeping=%d standby=%d prepared=%d partial_ready=%d",
+             panel->sleeping ? 1 : 0,
+             panel->standby ? 1 : 0,
+             panel->prepared ? 1 : 0,
+             panel->partial_ready ? 1 : 0);
+    ESP_RETURN_ON_FALSE(!panel->sleeping, ESP_ERR_INVALID_STATE, TAG, "panel is in deep sleep");
+    if (panel->standby) {
+        APP_EPAPER_DEBUG_LOGI(TAG,
+                 "standby skip: already standby elapsed=%llums",
+                 (unsigned long long)(epaper_log_ms() - start_ms));
+        return ESP_OK;
+    }
+    ESP_RETURN_ON_FALSE(panel->driver->standby != NULL, ESP_ERR_NOT_SUPPORTED, TAG, "driver standby not supported");
+    esp_err_t err = panel->driver->standby(panel);
+    if (err != ESP_OK) {
+        mark_panel_needs_reinit(panel);
+        APP_EPAPER_DEBUG_LOGE(TAG, "standby failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    panel->standby = true;
+    panel->partial_after_standby = true;
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "standby done: elapsed=%llums",
+             (unsigned long long)(epaper_log_ms() - start_ms));
+    return ESP_OK;
+}
+
+esp_err_t seeed_epaper_panel_resume(seeed_epaper_panel_handle_t panel)
+{
+    ESP_RETURN_ON_FALSE(panel != NULL, ESP_ERR_INVALID_ARG, TAG, "panel is null");
+    const uint64_t start_ms = epaper_log_ms();
+    panel->partial_after_standby = false;
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "resume start: sleeping=%d standby=%d prepared=%d partial_ready=%d",
+             panel->sleeping ? 1 : 0,
+             panel->standby ? 1 : 0,
+             panel->prepared ? 1 : 0,
+             panel->partial_ready ? 1 : 0);
+    ESP_RETURN_ON_FALSE(!panel->sleeping, ESP_ERR_INVALID_STATE, TAG, "panel is in deep sleep");
+    if (!panel->standby) {
+        APP_EPAPER_DEBUG_LOGI(TAG,
+                 "resume skip: panel not in standby elapsed=%llums",
+                 (unsigned long long)(epaper_log_ms() - start_ms));
+        return ESP_OK;
+    }
+    ESP_RETURN_ON_FALSE(panel->driver->resume != NULL, ESP_ERR_NOT_SUPPORTED, TAG, "driver resume not supported");
+    esp_err_t err = panel->driver->resume(panel);
+    if (err != ESP_OK) {
+        mark_panel_needs_reinit(panel);
+        APP_EPAPER_DEBUG_LOGE(TAG, "resume failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    panel->standby = false;
+    panel->prepared = true;
+    APP_EPAPER_DEBUG_LOGI(TAG,
+             "resume done: elapsed=%llums",
              (unsigned long long)(epaper_log_ms() - start_ms));
     return ESP_OK;
 }

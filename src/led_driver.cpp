@@ -10,6 +10,20 @@ static uint16_t s_numLeds = 5;
 static uint8_t s_brightness = 180; // Default ~70% to avoid excessive power draw
 static neoPixelType s_pixelType = NEO_GRB + NEO_KHZ800;
 
+/*
+ * Power limiter. WS2812B/SK6812 draw up to ~20 mA per colour channel at full drive (60 mA for full
+ * white) plus ~1 mA each idle. Before a frame is shown its current is estimated from the pixel
+ * values at the configured brightness; if that is over the limit, THIS frame's brightness is scaled
+ * down just enough to fit. Dark frames keep full brightness; a full-white frame is held back.
+ * The estimate is deliberately conservative (real LEDs often draw a little less).
+ */
+static const uint32_t LED_MA_PER_CHANNEL = 20;
+static const uint32_t LED_MA_IDLE = 1;
+static uint32_t s_powerLimitMa = 0;       // 0 = no limit
+static uint32_t s_lastEstimateMa = 0;     // after limiting: what the last frame should draw
+static uint8_t s_lastAppliedBrightness = 0;
+static void applySolidLimit(uint8_t r, uint8_t g, uint8_t b);
+
 static LedMatrixConfig s_matrixCfg = {
   5, 1,
   MATRIX_ORIGIN_TOP_LEFT,
@@ -99,6 +113,7 @@ LedMatrixConfig led_driver_get_matrix_config() {
 
 void led_driver_show_solid(uint8_t r, uint8_t g, uint8_t b) {
   if (!s_strip) return;
+  applySolidLimit(r, g, b);
   for (uint16_t i = 0; i < s_numLeds; i++) {
     s_strip->setPixelColor(i, r, g, b);
   }
@@ -109,6 +124,43 @@ void led_driver_clear() {
   if (!s_strip) return;
   s_strip->clear();
   s_strip->show();
+}
+
+void led_driver_set_power_limit(uint32_t milliamps) { s_powerLimitMa = milliamps; }
+uint32_t led_driver_get_power_limit() { return s_powerLimitMa; }
+uint32_t led_driver_last_estimate_ma() { return s_lastEstimateMa; }
+uint8_t led_driver_last_applied_brightness() { return s_lastAppliedBrightness; }
+
+/* The brightness to show this frame at, given the limit, and the current it should then draw. */
+static uint8_t limitedBrightnessForSum(uint64_t channelSum, size_t pixelCount, uint32_t* estimateOut) {
+  const uint32_t idle = (uint32_t)pixelCount * LED_MA_IDLE;
+  // mA at the configured brightness: idle + sum/255 * 20 mA, scaled by brightness/255.
+  const uint64_t drive = (channelSum * LED_MA_PER_CHANNEL * s_brightness) / (255ULL * 255ULL);
+  uint8_t b = s_brightness;
+  uint64_t est = idle + drive;
+  if (s_powerLimitMa > 0 && est > s_powerLimitMa && drive > 0) {
+    const uint64_t room = s_powerLimitMa > idle ? s_powerLimitMa - idle : 0;
+    uint64_t scaled = (uint64_t)s_brightness * room / drive;
+    b = (uint8_t)(scaled < 1 ? 1 : (scaled > s_brightness ? s_brightness : scaled));
+    est = idle + (drive * b) / (s_brightness ? s_brightness : 1);
+  }
+  *estimateOut = (uint32_t)est;
+  return b;
+}
+
+static uint8_t limitedBrightness(const uint8_t* rgbData, size_t pixelCount, uint32_t* estimateOut) {
+  uint64_t channelSum = 0;
+  for (size_t i = 0; i < pixelCount * 3; i++) channelSum += rgbData[i];
+  return limitedBrightnessForSum(channelSum, pixelCount, estimateOut);
+}
+
+/* Solid colours (LED test, status pulses) go through the limiter too: led_test is full white. */
+static void applySolidLimit(uint8_t r, uint8_t g, uint8_t b) {
+  uint32_t est = 0;
+  uint8_t fb = limitedBrightnessForSum((uint64_t)(r + g + b) * s_numLeds, s_numLeds, &est);
+  s_strip->setBrightness(fb);
+  s_lastEstimateMa = est;
+  s_lastAppliedBrightness = fb;
 }
 
 bool led_driver_show_rgb(const uint8_t* rgbData, size_t dataLen, const char* colorOrder) {
@@ -130,6 +182,14 @@ bool led_driver_show_rgb(const uint8_t* rgbData, size_t dataLen, const char* col
     s_pixelType = expectedType;
     s_strip->updateType(s_pixelType);
   }
+
+  // Power limit: set this frame's brightness BEFORE the pixels (NeoPixel rescales stored pixels
+  // lossily if brightness changes after setPixelColor).
+  uint32_t est = 0;
+  uint8_t frameBrightness = limitedBrightness(rgbData, pixelCount, &est);
+  s_strip->setBrightness(frameBrightness);
+  s_lastEstimateMa = est;
+  s_lastAppliedBrightness = frameBrightness;
 
   // Check if active 2D matrix mapping applies
   if (s_matrixCfg.width > 1 && s_matrixCfg.height > 1 &&
@@ -172,6 +232,7 @@ void led_driver_pulse_status(float phase, uint8_t baseR, uint8_t baseG, uint8_t 
   uint8_t r = (uint8_t)(baseR * scale);
   uint8_t g = (uint8_t)(baseG * scale);
   uint8_t b = (uint8_t)(baseB * scale);
+  applySolidLimit(r, g, b);
 
   for (uint16_t i = 0; i < s_numLeds; i++) {
     s_strip->setPixelColor(i, r, g, b);

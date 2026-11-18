@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Remote LED Settings & Dynamic Matrix Configuration** ([#23](https://github.com/renebohne/screentinker_mcu/pull/23)):
+  - Parses `X-ST-Led-Config` header on render responses: brightness, color order, matrix wiring/axis/origin, frame size, power limit, and brownout protection.
+  - Automatically updates and saves layout and color order to NVS when revision changes.
+  - Reports active telemetry and hardware state to server via `X-ST-Led-State`.
+- **Dynamic LED Power Limiter with Brownout Learning** ([#23](https://github.com/renebohne/screentinker_mcu/pull/23)):
+  - Estimates frame current consumption per frame (20 mA per channel, 1 mA idle per LED).
+  - Dynamically throttles brightness to stay within power limit (default 3A).
+  - Automatically adapts: on `ESP_RST_BROWNOUT` resets, reduces the learned power limit to 85% of the failure estimate across reboots.
+- **STA1 Animation Player for LED Matrices** ([#23](https://github.com/renebohne/screentinker_mcu/pull/23)):
+  - Requests animations via `X-ST-Animation: 1` with memory budget and max fps.
+  - Plays differential `application/x-st-anim` (STA1) animations non-blockingly from `loop()`.
+- **Scheduled-Off Handling for LED Strips** ([#23](https://github.com/renebohne/screentinker_mcu/pull/23)):
+  - Blanks LEDs and ceases drawing during `scheduled_off` windows instead of leaving previous frames illuminated.
+
+### Fixed
+- **Universal ETag Cache Fix for All Boards** ([#23](https://github.com/renebohne/screentinker_mcu/pull/23)):
+  - Expanded `rtc_lastEtag` from 64 to 80 bytes, properly accommodating full quoted 64-hex server ETags (~66 chars) and restoring HTTP 304 conditional fetches and adaptive sleep backoff across all hardware profiles.
+- **Native USB Serial CDC Blocking** ([#23](https://github.com/renebohne/screentinker_mcu/pull/23)):
+  - Configured `Serial.setTxTimeoutMs(0)` on USB CDC boards (XIAO C3/C6/S3) to eliminate 100 ms per-line write blocking when running without an attached serial terminal.
+
 ## [1.4.4] - 2026-11-18
 
 ### Added

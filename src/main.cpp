@@ -1970,11 +1970,11 @@ void fetchAndRender(bool forceRefresh, int requestedItemIndex) {
           delay(2);
         }
       }
+      String devName = http.hasHeader("X-ST-Device-Name") ? http.header("X-ST-Device-Name") : "LED Strip";
       http.end();
       if (s_ledScheduledOff) {
         free(animBuf);   // scheduled off: stay dark
       } else if (got == (size_t)animLen && anim_start(animBuf, got, led_config_color_order())) {
-        String devName = http.hasHeader("X-ST-Device-Name") ? http.header("X-ST-Device-Name") : "LED Strip";
         oled_show_status(devName.c_str(), s_currentItemIndex, s_totalItems, curRssi, "Anim");
         ota_confirm_running_partition();
       } else if (got != (size_t)animLen) {

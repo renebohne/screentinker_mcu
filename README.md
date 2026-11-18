@@ -19,7 +19,7 @@ ScreenTinker MCU powers a diverse ecosystem of visual hardware — ranging from 
 - **Controllers**: Seeed Studio XIAO ESP32-C6, ESP32-S3, or ESP32-C3.
 - **LED Types**: WS2812B, SK6812, NeoPixel addressable RGB LEDs (24bpp RGB888).
 - **Form Factors**: Single strips (e.g. 5×1 tickers, 30×1 progress bars) up to large 2D matrices (8×8, 8×32, 16×16, 64×32, 128×64).
-- **Features**: Serpentine/zigzag wiring coordinate mapping, optional secondary I2C SSD1306 status OLED, and 5V level-shifting support.
+- **Features**: Serpentine/zigzag wiring coordinate mapping, remote configuration (`X-ST-Led-Config`), dynamic power limiting with brownout learning, non-blocking STA1 animations, scheduled-off blanking, optional secondary I2C SSD1306 status OLED, and 5V level-shifting support.
 
 ### 3. RGB LCD Panels (Full-Color TFT Displays)
 - **Elecrow CrowPanel 4.3" HMI Display**: 480×272 16-bit Parallel RGB TFT (NV3047 / ILI6485 driver, 16bpp RGB565).

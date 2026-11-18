@@ -114,7 +114,7 @@ You can flash the latest firmware directly through your web browser without inst
    - *Seeed Studio XIAO ESP32-C3 LED Controller (RISC-V)*
 4. Click **"🚀 Firmware direkt im Browser installieren"**.
 5. In the browser popup, select your serial port (e.g. `USB JTAG/serial debug unit` or `CP2102`) and click **Connect**.
-6. Confirm the installation. In about 30 seconds, the browser will flash the bootloader, partition table, and v1.4.4 firmware!
+6. Confirm the installation. In about 30 seconds, the browser will flash the bootloader, partition table, and v1.5.0 firmware!
 
 *(Alternative: Developers can build and flash locally via PlatformIO: `pio run -e seeed_xiao_esp32c6_led -t upload`).*
 
@@ -347,3 +347,18 @@ pio run -e simulator
 # Run 64x64 LED matrix with authentic SMD LED visualization
 ./screentinker_sim --config sim_config_64x64.json
 ```
+
+---
+
+## 11. Remote LED Settings, Power Limiter & Animations (v1.5.0+)
+
+LED builds (`seeed_xiao_esp32c6_led`, `seeed_xiao_esp32s3_led`, `seeed_xiao_esp32c3_led`) support server-driven configuration, power protection, and differential animations:
+
+- **Remote LED Configuration (`X-ST-Led-Config` / `X-ST-Led-State`):**
+  The server can push brightness (`b`), color order (`o`), matrix dimensions/wiring/axis/origin (`w`, `h`, `wir`, `ax`, `org`), power limit (`pl`), and brownout protection (`auto`, `lr`) on any render response. Settings are persisted to NVS (`st_led` and `screentinker` `mat_*` keys) whenever the revision (`rev`) changes, and current hardware state/telemetry is reported back via `X-ST-Led-State`.
+- **Dynamic Power Limiter & Brownout Learning:**
+  Before showing each frame, the driver estimates current draw (~20 mA per channel at full drive + 1 mA idle per LED) and scales that frame's brightness down if needed to stay within the configured limit (default `3000 mA`). If an `ESP_RST_BROWNOUT` reset occurs with protection enabled, the firmware automatically lowers the learned limit to `85%` of the failing estimate (floored at `300 mA`) across reboots.
+- **STA1 Animations (`application/x-st-anim`):**
+  The controller advertises `X-ST-Animation: 1`, `X-ST-Animation-Budget` (up to 128 KB, sized to half the largest free contiguous heap/PSRAM block), and `X-ST-Animation-Max-Fps: 60`, and plays differential RGB888 animations non-blockingly from `loop()`.
+- **Scheduled-Off Blanking:**
+  When the server returns `X-ST-Power-State: scheduled_off`, any active animation is stopped and the LEDs are cleared until the schedule turns back on.

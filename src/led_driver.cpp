@@ -2,6 +2,7 @@
 
 #if defined(DEVICE_IS_LED_STRIP)
 #include "led_driver.h"
+#include "led_power_limit.h"
 #include <Adafruit_NeoPixel.h>
 #include <cmath>
 
@@ -17,8 +18,6 @@ static neoPixelType s_pixelType = NEO_GRB + NEO_KHZ800;
  * down just enough to fit. Dark frames keep full brightness; a full-white frame is held back.
  * The estimate is deliberately conservative (real LEDs often draw a little less).
  */
-static const uint32_t LED_MA_PER_CHANNEL = 20;
-static const uint32_t LED_MA_IDLE = 1;
 static uint32_t s_powerLimitMa = 0;       // 0 = no limit
 static uint32_t s_lastEstimateMa = 0;     // after limiting: what the last frame should draw
 static uint8_t s_lastAppliedBrightness = 0;
@@ -133,19 +132,7 @@ uint8_t led_driver_last_applied_brightness() { return s_lastAppliedBrightness; }
 
 /* The brightness to show this frame at, given the limit, and the current it should then draw. */
 static uint8_t limitedBrightnessForSum(uint64_t channelSum, size_t pixelCount, uint32_t* estimateOut) {
-  const uint32_t idle = (uint32_t)pixelCount * LED_MA_IDLE;
-  // mA at the configured brightness: idle + sum/255 * 20 mA, scaled by brightness/255.
-  const uint64_t drive = (channelSum * LED_MA_PER_CHANNEL * s_brightness) / (255ULL * 255ULL);
-  uint8_t b = s_brightness;
-  uint64_t est = idle + drive;
-  if (s_powerLimitMa > 0 && est > s_powerLimitMa && drive > 0) {
-    const uint64_t room = s_powerLimitMa > idle ? s_powerLimitMa - idle : 0;
-    uint64_t scaled = (uint64_t)s_brightness * room / drive;
-    b = (uint8_t)(scaled < 1 ? 1 : (scaled > s_brightness ? s_brightness : scaled));
-    est = idle + (drive * b) / (s_brightness ? s_brightness : 1);
-  }
-  *estimateOut = (uint32_t)est;
-  return b;
+  return led_power_limit_brightness(channelSum, pixelCount, s_brightness, s_powerLimitMa, estimateOut);
 }
 
 static uint8_t limitedBrightness(const uint8_t* rgbData, size_t pixelCount, uint32_t* estimateOut) {

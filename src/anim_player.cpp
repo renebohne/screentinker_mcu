@@ -3,6 +3,7 @@
 #if defined(DEVICE_IS_LED_STRIP)
 #include "led_driver.h"
 #include "led_config.h"
+#include "sta1_format.h"
 
 static uint8_t* s_buf = nullptr;       // the whole STA1 animation as received
 static size_t s_len = 0;
@@ -15,8 +16,8 @@ static uint16_t s_delay = 0;
 static bool s_holding = false;         // finished its loop count: keep the last frame
 static char s_order[4] = "GRB";
 
-static inline uint16_t rd16(const uint8_t* p) { return (uint16_t)p[0] | ((uint16_t)p[1] << 8); }
-static inline uint32_t rd32(const uint8_t* p) { return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24); }
+static inline uint16_t rd16(const uint8_t* p) { return sta1_rd16(p); }
+static inline uint32_t rd32(const uint8_t* p) { return sta1_rd32(p); }
 
 size_t anim_budget() {
   // Half the largest free block, at most 128 KB. The animation playing now is freed before the next
@@ -43,25 +44,6 @@ void anim_set_color_order(const char* order) {
   if (order && strlen(order) == 3) { strncpy(s_order, order, 3); s_order[3] = 0; }
 }
 
-/* Check every frame header fits before playing anything, so a short or corrupt body never reads past the end. */
-static bool validate(const uint8_t* buf, size_t len) {
-  if (len < 16 || memcmp(buf, "STA1", 4) != 0 || buf[4] != 1 || buf[5] != 1) return false;
-  uint16_t w = rd16(buf + 6), h = rd16(buf + 8), n = rd16(buf + 10);
-  if (w == 0 || h == 0 || n < 2 || (uint32_t)w * h > 16384) return false;
-  size_t off = 16;
-  for (uint16_t i = 0; i < n; i++) {
-    if (off + 16 > len) return false;
-    uint16_t x = rd16(buf + off + 2), y = rd16(buf + off + 4), rw = rd16(buf + off + 6), rh = rd16(buf + off + 8);
-    uint32_t dl = rd32(buf + off + 12);
-    if ((uint32_t)x + rw > w || (uint32_t)y + rh > h) return false;
-    if (dl != (uint32_t)rw * rh * 3) return false;
-    if (i == 0 && (x != 0 || y != 0 || rw != w || rh != h)) return false;
-    off += 16 + dl;
-    if (off > len) return false;
-  }
-  return off == len;
-}
-
 /* Copy frame s_index's rectangle into the framebuffer, show it, and schedule the next. */
 static void showCurrent() {
   const uint8_t* f = s_buf + s_offset;
@@ -83,7 +65,7 @@ static void rewind() {
 
 bool anim_start(uint8_t* buf, size_t len, const char* colorOrder) {
   anim_stop();
-  if (!buf || !validate(buf, len)) {
+  if (!buf || !sta1_validate(buf, len)) {
     Serial.printf("[Anim] Rejected animation (%u bytes): not a valid STA1 for this device.\n", (unsigned)len);
     if (buf) free(buf);
     return false;
